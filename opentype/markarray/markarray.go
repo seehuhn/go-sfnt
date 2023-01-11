@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,8 +17,8 @@
 package markarray
 
 import (
-	"seehuhn.de/go/pdf/sfnt/opentype/anchor"
-	"seehuhn.de/go/pdf/sfnt/parser"
+	"seehuhn.de/go/sfnt/opentype/anchor"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // Record is a mark record in a Mark Array Table.

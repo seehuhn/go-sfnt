@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -23,8 +23,8 @@ import (
 	"sort"
 	"unicode/utf16"
 
-	"seehuhn.de/go/pdf/sfnt/mac"
-	"seehuhn.de/go/pdf/sfnt/parser"
+	"seehuhn.de/go/sfnt/mac"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // Info contains information from the "name" table.

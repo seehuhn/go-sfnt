@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 
 package cmap
 
-import "seehuhn.de/go/pdf/sfnt/glyph"
+import "seehuhn.de/go/sfnt/glyph"
 
 func decodeFormat6(data []byte, code2rune func(c int) rune) (Subtable, error) {
 	if code2rune == nil {

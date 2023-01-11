@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -26,7 +26,7 @@ import (
 	"sort"
 
 	"golang.org/x/exp/slices"
-	"seehuhn.de/go/pdf/sfnt/mac"
+	"seehuhn.de/go/sfnt/mac"
 )
 
 // Key selects a subtable of a cmap table.

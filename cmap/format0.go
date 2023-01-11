@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,7 @@ package cmap
 import (
 	"fmt"
 
-	"seehuhn.de/go/pdf/sfnt/glyph"
+	"seehuhn.de/go/sfnt/glyph"
 )
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-0-byte-encoding-table

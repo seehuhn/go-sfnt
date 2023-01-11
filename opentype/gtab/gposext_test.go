@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -22,13 +22,13 @@ import (
 	"testing"
 
 	"golang.org/x/text/language"
-	"seehuhn.de/go/pdf/sfnt/debug"
-	"seehuhn.de/go/pdf/sfnt/funit"
-	"seehuhn.de/go/pdf/sfnt/glyph"
-	"seehuhn.de/go/pdf/sfnt/opentype/classdef"
-	"seehuhn.de/go/pdf/sfnt/opentype/gdef"
-	"seehuhn.de/go/pdf/sfnt/opentype/gtab"
-	"seehuhn.de/go/pdf/sfnt/opentype/gtab/builder"
+	"seehuhn.de/go/sfnt/debug"
+	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/classdef"
+	"seehuhn.de/go/sfnt/opentype/gdef"
+	"seehuhn.de/go/sfnt/opentype/gtab"
+	"seehuhn.de/go/sfnt/opentype/gtab/builder"
 )
 
 func TestGpos(t *testing.T) {

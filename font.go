@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,16 +21,16 @@ import (
 	"strings"
 	"time"
 
-	"seehuhn.de/go/pdf/sfnt/cff"
-	"seehuhn.de/go/pdf/sfnt/cmap"
-	"seehuhn.de/go/pdf/sfnt/funit"
-	"seehuhn.de/go/pdf/sfnt/glyf"
-	"seehuhn.de/go/pdf/sfnt/glyph"
-	"seehuhn.de/go/pdf/sfnt/head"
-	"seehuhn.de/go/pdf/sfnt/opentype/gdef"
-	"seehuhn.de/go/pdf/sfnt/opentype/gtab"
-	"seehuhn.de/go/pdf/sfnt/os2"
-	"seehuhn.de/go/pdf/sfnt/type1"
+	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/cmap"
+	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/sfnt/glyf"
+	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/head"
+	"seehuhn.de/go/sfnt/opentype/gdef"
+	"seehuhn.de/go/sfnt/opentype/gtab"
+	"seehuhn.de/go/sfnt/os2"
+	"seehuhn.de/go/sfnt/type1"
 )
 
 // Info contains information about a font.

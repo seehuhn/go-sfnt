@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,23 +17,20 @@
 package sfnt_test
 
 import (
-	"bufio"
 	"bytes"
-	"io"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/image/font/gofont/gobolditalic"
 	"golang.org/x/image/font/gofont/goregular"
-	"seehuhn.de/go/pdf/sfnt"
-	"seehuhn.de/go/pdf/sfnt/cff"
-	"seehuhn.de/go/pdf/sfnt/debug"
-	"seehuhn.de/go/pdf/sfnt/funit"
-	"seehuhn.de/go/pdf/sfnt/glyph"
-	"seehuhn.de/go/pdf/sfnt/os2"
-	"seehuhn.de/go/pdf/sfnt/type1"
+	"seehuhn.de/go/sfnt"
+	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/debug"
+	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/os2"
+	"seehuhn.de/go/sfnt/type1"
 )
 
 func TestGetFontInfo(t *testing.T) {
@@ -121,33 +118,6 @@ func FuzzFont(f *testing.F) {
 	}
 	f.Add(buf.Bytes())
 
-	// fd, err := os.Open("../../demo/try-all-fonts/all-fonts")
-	// if err != nil {
-	// 	f.Fatal(err)
-	// }
-	// var fontFiles []string
-	// scanner := bufio.NewScanner(fd)
-	// for scanner.Scan() {
-	// 	fontFiles = append(fontFiles, scanner.Text())
-	// }
-	// err = fd.Close()
-	// if err != nil {
-	// 	f.Fatal(err)
-	// }
-	// for _, fname := range fontFiles {
-	// 	body, err := os.ReadFile(fname)
-	// 	if err != nil {
-	// 		f.Fatal(err)
-	// 	}
-	// 	if len(body) > 65536 {
-	// 		fmt.Print(".")
-	// 		continue
-	// 	}
-	// 	fmt.Print("*")
-	// 	f.Add(body)
-	// }
-	// fmt.Println()
-
 	f.Fuzz(func(t *testing.T, data []byte) {
 		font1, err := sfnt.Read(bytes.NewReader(data))
 		if err != nil {
@@ -181,51 +151,4 @@ func FuzzFont(f *testing.F) {
 			t.Errorf("different (-old +new):\n%s", diff)
 		}
 	})
-}
-
-func DisabledTestAll(t *testing.T) {
-	fd, err := os.Open("../../demo/try-all-fonts/all-fonts")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fontFiles []string
-	scanner := bufio.NewScanner(fd)
-	for scanner.Scan() {
-		fontFiles = append(fontFiles, scanner.Text())
-	}
-	err = fd.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	numSuccess := 0
-	numFail := 0
-	for _, fname := range fontFiles {
-		info, err := sfnt.ReadFile(fname)
-		if err != nil {
-			numFail++
-			continue
-		}
-		numSuccess++
-
-		_, err = info.Write(io.Discard)
-		if err != nil {
-			t.Error(err)
-		}
-	}
-	t.Errorf("%d read, %d failed", numSuccess, numFail)
-}
-
-func DisabledTestOne(t *testing.T) {
-	fname := "/usr/local/texlive/2022/texmf-dist/fonts/opentype/public/coelacanth/Coelacanth.otf"
-
-	info, err := sfnt.ReadFile(fname)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = info.Write(io.Discard)
-	if err != nil {
-		t.Error(err)
-	}
 }

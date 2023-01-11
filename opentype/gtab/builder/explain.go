@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -22,11 +22,11 @@ import (
 	"strings"
 
 	"golang.org/x/exp/maps"
-	"seehuhn.de/go/pdf/sfnt"
-	"seehuhn.de/go/pdf/sfnt/glyph"
-	"seehuhn.de/go/pdf/sfnt/opentype/classdef"
-	"seehuhn.de/go/pdf/sfnt/opentype/coverage"
-	"seehuhn.de/go/pdf/sfnt/opentype/gtab"
+	"seehuhn.de/go/sfnt"
+	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/classdef"
+	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/gtab"
 )
 
 // ExplainGsub returns a human-readable, textual description of the lookups

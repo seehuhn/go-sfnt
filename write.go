@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -22,20 +22,21 @@ import (
 	"math"
 	"time"
 
-	"seehuhn.de/go/pdf/sfnt/cff"
-	"seehuhn.de/go/pdf/sfnt/cmap"
-	"seehuhn.de/go/pdf/sfnt/funit"
-	"seehuhn.de/go/pdf/sfnt/glyf"
-	"seehuhn.de/go/pdf/sfnt/head"
-	"seehuhn.de/go/pdf/sfnt/header"
-	"seehuhn.de/go/pdf/sfnt/hmtx"
-	"seehuhn.de/go/pdf/sfnt/maxp"
-	"seehuhn.de/go/pdf/sfnt/name"
-	"seehuhn.de/go/pdf/sfnt/opentype/gtab"
-	"seehuhn.de/go/pdf/sfnt/os2"
-	"seehuhn.de/go/pdf/sfnt/post"
+	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/cmap"
+	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/sfnt/glyf"
+	"seehuhn.de/go/sfnt/head"
+	"seehuhn.de/go/sfnt/header"
+	"seehuhn.de/go/sfnt/hmtx"
+	"seehuhn.de/go/sfnt/maxp"
+	"seehuhn.de/go/sfnt/name"
+	"seehuhn.de/go/sfnt/opentype/gtab"
+	"seehuhn.de/go/sfnt/os2"
+	"seehuhn.de/go/sfnt/post"
 )
 
+// Write writes the binary form of the font to the given writer.
 func (info *Info) Write(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
 
@@ -109,8 +110,10 @@ func (info *Info) Write(w io.Writer) (int64, error) {
 	return header.Write(w, scalerType, tableData)
 }
 
-// Embed writes the binary form of the font for embedding in a PDF file.
-func (info *Info) Embed(w io.Writer) (int64, error) {
+// PDFEmbedTrueType writes the binary form of a TrueType font to the given
+// writer.  Only the tables needed for PDF embedding are included.
+// The function panics, if the font does not use TrueType outlines.
+func (info *Info) PDFEmbedTrueType(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
 
 	if info.CMap != nil {

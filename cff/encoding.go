@@ -1,4 +1,4 @@
-// seehuhn.de/go/pdf - a library for reading and writing PDF files
+// seehuhn.de/go/sfnt - a library for reading and writing font files
 // Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"io"
 
-	"seehuhn.de/go/pdf/sfnt/glyph"
-	"seehuhn.de/go/pdf/sfnt/parser"
-	"seehuhn.de/go/pdf/sfnt/type1"
+	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/parser"
+	"seehuhn.de/go/sfnt/type1"
 )
 
 func readEncoding(p *parser.Parser, charset []int32) ([]glyph.ID, error) {
