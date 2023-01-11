@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// Extract-cff extracts the CFF data from OpenType font files.
+// Rewrite-font rewrites the font files given on the command line.
 package main
 
 import (
@@ -22,40 +22,39 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"seehuhn.de/go/sfnt/header"
+	"seehuhn.de/go/sfnt"
 )
 
 func main() {
-	args := os.Args[1:]
-	for _, fname := range args {
-		outName := filepath.Base(strings.TrimSuffix(fname, ".otf") + ".cff")
-		fmt.Println(fname, "->", outName)
-
-		r, err := os.Open(fname)
+	for i, fname := range os.Args[1:] {
+		fd, err := os.Open(fname)
 		if err != nil {
-			log.Fatalf("%s: %v", fname, err)
+			log.Fatal(err)
+		}
+		info, err := sfnt.Read(fd)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = fd.Close()
+		if err != nil {
+			log.Println(err)
 		}
 
-		header, err := header.Read(r)
-		if err != nil {
-			log.Fatalf("%s: %v", fname, err)
-		}
+		ext := filepath.Ext(fname)
+		outName := fmt.Sprintf("out%05d%s", i, ext)
 
-		cffData, err := header.ReadTableBytes(r, "CFF ")
+		fd, err = os.Create(outName)
 		if err != nil {
-			log.Fatalf("%s: %v", fname, err)
+			log.Fatal(err)
 		}
-
-		err = r.Close()
+		_, err = info.Write(fd)
 		if err != nil {
-			log.Fatalf("%s: %v", fname, err)
+			log.Fatal(err)
 		}
-
-		err = os.WriteFile(outName, cffData, 0644)
+		err = fd.Close()
 		if err != nil {
-			log.Fatalf("%s: %v", outName, err)
+			log.Fatal(err)
 		}
 	}
 }
