@@ -19,7 +19,9 @@
 // https://docs.microsoft.com/en-us/typography/opentype/spec/loca
 package glyf
 
-// Glyphs contains the information from a "glyf" table.
+// Glyphs contains a slice of TrueType glyph outlines.
+// This represents the information stored in the "glyf" and "loca" tables
+// of a TrueType font.
 type Glyphs []*Glyph
 
 // Encoded represents the data of a "glyf" and "loca" table.
@@ -31,7 +33,7 @@ type Encoded struct {
 
 // Decode converts the data from the "glyf" and "loca" tables into a slice of
 // Glyphs.  The value for locaFormat is specified in the indexToLocFormat entry
-// in the 'head' table.
+// in the "head" table.
 func Decode(enc *Encoded) (Glyphs, error) {
 	offs, err := decodeLoca(enc)
 	if err != nil {

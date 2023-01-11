@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Package funit contains types for representing font design units.
 package funit
 
 // Int16 is a 16-bit integer in font design units.

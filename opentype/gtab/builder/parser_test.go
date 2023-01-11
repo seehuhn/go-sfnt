@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"seehuhn.de/go/sfnt/debug"
+	"seehuhn.de/go/sfnt/internal/debug"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 )
 

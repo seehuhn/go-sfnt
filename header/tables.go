@@ -53,6 +53,8 @@ type Record struct {
 }
 
 // Read reads the file header of an sfnt font file.
+// All checksum data is ignored, but basic sanity checks for the
+// table structure are performed.
 func Read(r io.ReaderAt) (*Info, error) {
 	var buf [16]byte
 	_, err := r.ReadAt(buf[:6], 0)
@@ -67,7 +69,7 @@ func Read(r io.ReaderAt) (*Info, error) {
 		scalerType != ScalerTypeApple {
 		return nil, &parser.NotSupportedError{
 			SubSystem: "sfnt/header",
-			Feature:   fmt.Sprintf("scaler type 0x%x", scalerType),
+			Feature:   fmt.Sprintf("scaler type 0x%08x", scalerType),
 		}
 	}
 	if numTables > 280 {
@@ -92,11 +94,23 @@ func Read(r io.ReaderAt) (*Info, error) {
 		if err != nil {
 			return nil, err
 		}
+		for i := 0; i < 4; i++ {
+			if buf[i] < 0x20 || buf[i] > 0x7e {
+				return nil, &parser.InvalidFontError{
+					SubSystem: "sfnt/header",
+					Reason:    "invalid table name",
+				}
+			}
+		}
 		name := string(buf[:4])
 		offset := uint32(buf[8])<<24 | uint32(buf[9])<<16 | uint32(buf[10])<<8 | uint32(buf[11])
 		length := uint32(buf[12])<<24 | uint32(buf[13])<<16 | uint32(buf[14])<<8 | uint32(buf[15])
-		if !isKnownTable[name] {
-			continue
+
+		if _, exists := h.Toc[name]; exists {
+			return nil, &parser.InvalidFontError{
+				SubSystem: "sfnt/header",
+				Reason:    "duplicate table " + name,
+			}
 		}
 		h.Toc[name] = Record{
 			Offset: offset,
@@ -174,57 +188,4 @@ func (h *Info) ReadTableBytes(r io.ReaderAt, tableName string) ([]byte, error) {
 		return nil, err
 	}
 	return io.ReadAll(tableFd)
-}
-
-// tag represents a tag string composed of 4 ASCII bytes
-type tag [4]byte
-
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] > 127 {
-			return false
-		}
-	}
-	return true
-}
-
-var isKnownTable = map[string]bool{
-	"BASE": true,
-	"CBDT": true,
-	"CBLC": true,
-	"CFF ": true,
-	"CFF2": true,
-	"cmap": true,
-	"cvt ": true,
-	"DSIG": true,
-	"feat": true,
-	"FFTM": true,
-	"fpgm": true,
-	"fvar": true,
-	"gasp": true,
-	"GDEF": true,
-	"glyf": true,
-	"GPOS": true,
-	"GSUB": true,
-	"gvar": true,
-	"hdmx": true,
-	"head": true,
-	"hhea": true,
-	"hmtx": true,
-	"HVAR": true,
-	"kern": true,
-	"loca": true,
-	"LTSH": true,
-	"maxp": true,
-	"meta": true,
-	"morx": true,
-	"name": true,
-	"OS/2": true,
-	"post": true,
-	"prep": true,
-	"STAT": true,
-	"VDMX": true,
-	"vhea": true,
-	"vmtx": true,
-	"VORG": true,
 }

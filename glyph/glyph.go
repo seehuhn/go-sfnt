@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Package glyph contains types for representing glyphs.
 package glyph
 
 import "seehuhn.de/go/sfnt/funit"

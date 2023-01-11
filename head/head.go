@@ -34,7 +34,7 @@ import (
 
 const headLength = 54
 
-// Info represents the information in the 'head' table of an sfnt.
+// Info represents the information in the "head" table of an sfnt.
 type Info struct {
 	FontRevision Version // set by font manufacturer
 	HasYBaseAt0  bool    // baseline for font at y=0

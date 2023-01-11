@@ -263,7 +263,7 @@ func (info *Info) glyphHeight(gid glyph.ID) funit.Int16 {
 	}
 }
 
-// GlyphName returns the name if a glyph.  If the name is not known,
+// GlyphName returns the name of a glyph.  If the name is not known,
 // the empty string is returned.
 func (info *Info) GlyphName(gid glyph.ID) string {
 	switch f := info.Outlines.(type) {

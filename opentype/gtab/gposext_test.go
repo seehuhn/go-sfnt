@@ -22,9 +22,9 @@ import (
 	"testing"
 
 	"golang.org/x/text/language"
-	"seehuhn.de/go/sfnt/debug"
 	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/internal/debug"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"

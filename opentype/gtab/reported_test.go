@@ -21,8 +21,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/text/language"
-	"seehuhn.de/go/sfnt/debug"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/internal/debug"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gdef"

@@ -33,7 +33,7 @@ func Write(w io.Writer, scalerType uint32, tables map[string][]byte) (int64, err
 
 	tableNames := make([]string, 0, numTables)
 	for name, data := range tables {
-		if data != nil && len(name) == 4 && isASCII(name) {
+		if data != nil && len(name) == 4 {
 			tableNames = append(tableNames, name)
 		}
 	}
@@ -148,6 +148,9 @@ type rawRecord struct {
 	Offset   uint32
 	Length   uint32
 }
+
+// tag represents a tag string composed of 4 ASCII bytes
+type tag [4]byte
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/recom#optimized-table-ordering
 var ttTableOrder = map[string]int{
