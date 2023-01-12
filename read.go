@@ -309,6 +309,8 @@ func Read(r io.ReaderAt) (*Info, error) {
 	if nameTable != nil {
 		info.Copyright = nameTable.Copyright
 		info.Trademark = nameTable.Trademark
+		info.License = nameTable.License
+		info.LicenseURL = nameTable.LicenseURL
 	} else if fontInfo != nil {
 		info.Copyright = fontInfo.Copyright
 		info.Trademark = fontInfo.Notice

@@ -267,6 +267,8 @@ func (info *Info) makeName(ss cmap.Table) []byte {
 		Description:    info.Description,
 		Copyright:      info.Copyright,
 		Trademark:      info.Trademark,
+		License:        info.License,
+		LicenseURL:     info.LicenseURL,
 		Identifier:     fullName + "; " + info.Version.String() + "; " + dayString,
 		FullName:       fullName,
 		Version:        "Version " + info.Version.String(),

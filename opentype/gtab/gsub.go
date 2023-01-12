@@ -215,7 +215,7 @@ func (l *Gsub1_2) Encode() []byte {
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#21-multiple-substitution-format-1
 type Gsub2_1 struct {
 	Cov  coverage.Table
-	Repl [][]glyph.ID // indexed by coverage table
+	Repl [][]glyph.ID // indexed by coverage index
 }
 
 func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {

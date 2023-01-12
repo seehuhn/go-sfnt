@@ -52,9 +52,11 @@ type Info struct {
 	Description string
 	SampleText  string
 
-	Copyright string
-	Trademark string
-	PermUse   os2.Permissions
+	Copyright  string
+	Trademark  string
+	License    string
+	LicenseURL string
+	PermUse    os2.Permissions
 
 	UnitsPerEm uint16
 
