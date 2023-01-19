@@ -260,7 +260,7 @@ func (info *Info) Encode() []byte {
 	if info.IsOblique {
 		sel |= 0x0200
 	}
-	sel |= 0x0080 // always use Typo{A,De}scender
+	sel |= 0x0080 // Use_Typo_Metrics: always use Typo{A,De}scender
 
 	if info.LastCharIndex == 0xFFFF {
 		setUniBit(57) // TODO(voss)

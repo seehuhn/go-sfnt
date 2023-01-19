@@ -4,9 +4,11 @@ Font Validators and Tools
 https://pypi.org/project/fonttools/3.7.2/
 (and in particular the "ttx" tool in there)
 
-https://github.com/adobe-type-tools/afdko
 https://github.com/HinTak/Font-Validator
+
 https://github.com/googlefonts/fontbakery
+
+https://github.com/adobe-type-tools/afdko
 
 
 Pre-existing Font Packages for Go

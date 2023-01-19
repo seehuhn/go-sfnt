@@ -28,10 +28,11 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/type1"
-	"seehuhn.de/go/sfnt/type1/names"
 )
 
 func main() {
+	// TODO(voss): the generated font fails some fontbakery checks
+
 	now := time.Now()
 	info := &sfnt.Info{
 		FamilyName: "Test",
@@ -85,9 +86,14 @@ func main() {
 		},
 	}
 	cffInfo.FdSelect = func(gi glyph.ID) int { return 0 }
-
 	info.Outlines = cffInfo
-	info.CMap = makeCMap(cffInfo.Glyphs)
+
+	cmap := cmap.Format4{}
+	cmap[' '] = 1
+	cmap[0x00A0] = 1
+	cmap['A'] = 2
+	cmap['B'] = 3
+	info.CMap = cmap
 
 	// ----------------------------------------------------------------------
 
@@ -103,18 +109,4 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func makeCMap(gg []*cff.Glyph) cmap.Subtable {
-	cmap := cmap.Format4{}
-	for i, g := range gg {
-		rr := names.ToUnicode(g.Name, false)
-		if len(rr) == 1 {
-			r := uint16(rr[0])
-			if _, ok := cmap[r]; !ok {
-				cmap[r] = glyph.ID(i)
-			}
-		}
-	}
-	return cmap
 }

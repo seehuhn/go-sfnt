@@ -78,6 +78,8 @@ type Info struct {
 	Gpos *gtab.Info
 }
 
+// TODO(voss): read https://github.com/googlefonts/gf-docs/tree/main/VerticalMetrics
+
 // GetFontInfo returns an Adobe FontInfo structure for the given font.
 func (info *Info) GetFontInfo() *type1.FontInfo {
 	q := 1 / float64(info.UnitsPerEm)
