@@ -64,36 +64,13 @@ type Info struct {
 	Panose      [10]byte // https://monotype.github.io/panose/
 	Vendor      string   // https://docs.microsoft.com/en-us/typography/opentype/spec/os2#achvendid
 
+	UnicodeRange  UnicodeRange
+	CodePageRange CodePageRange
+
 	PermUse          Permissions
 	PermNoSubsetting bool // the font may not be subsetted prior to embedding
 	PermOnlyBitmap   bool // only bitmaps contained in the font may be embedded
 }
-
-// Permissions describes rights to embed and use a font.
-type Permissions int
-
-func (perm Permissions) String() string {
-	switch perm {
-	case PermInstall:
-		return "can install"
-	case PermEdit:
-		return "can edit"
-	case PermView:
-		return "can view"
-	case PermRestricted:
-		return "restricted"
-	default:
-		return fmt.Sprintf("Permissions(%d)", perm)
-	}
-}
-
-// The possible permission values.
-const (
-	PermInstall    Permissions = iota // bits 0-3 unset
-	PermEdit                          // bit 3
-	PermView                          // bit 2
-	PermRestricted                    // bit 1
-)
 
 // Read reads the "OS/2" table from r.
 func Read(r io.Reader) (*Info, error) {
@@ -130,6 +107,8 @@ func Read(r io.Reader) (*Info, error) {
 		sel &= 0x007F
 	}
 
+	v0.UnicodeRange.Bool(57, v0.LastCharIndex == 0xFFFF) // "Non-Plane 0" bit
+
 	info := &Info{
 		WeightClass: Weight(v0.WeightClass),
 		WidthClass:  Width(v0.WidthClass),
@@ -160,6 +139,8 @@ func Read(r io.Reader) (*Info, error) {
 		FamilyClass: v0.FamilyClass,
 		Panose:      v0.Panose,
 		Vendor:      string(v0.VendID[:]),
+
+		UnicodeRange: v0.UnicodeRange,
 
 		PermUse:          permUse,
 		PermNoSubsetting: permBits&0x0100 != 0,
@@ -194,6 +175,14 @@ func Read(r io.Reader) (*Info, error) {
 		}
 		return nil, err
 	}
+	info.CodePageRange = CodePageRange(codePageRange[0])<<24 |
+		CodePageRange(codePageRange[1])<<16 |
+		CodePageRange(codePageRange[2])<<8 |
+		CodePageRange(codePageRange[3]) |
+		CodePageRange(codePageRange[4])<<56 |
+		CodePageRange(codePageRange[5])<<48 |
+		CodePageRange(codePageRange[6])<<40 |
+		CodePageRange(codePageRange[7])<<32
 
 	v2 := &v2Data{}
 	err = binary.Read(r, binary.BigEndian, v2)
@@ -231,15 +220,6 @@ func (info *Info) Encode() []byte {
 		permBits |= 0x0200
 	}
 
-	var unicodeRange [4]uint32 // TODO(voss)
-	setUniBit := func(b int) {
-		w := b / 32
-		b = b % 32
-		unicodeRange[w] |= 1 << b
-	}
-
-	// setUniBit(0) // Basic Latin
-
 	var sel uint16
 	if info.IsRegular {
 		sel |= 0x0040
@@ -261,10 +241,6 @@ func (info *Info) Encode() []byte {
 		sel |= 0x0200
 	}
 	sel |= 0x0080 // Use_Typo_Metrics: always use Typo{A,De}scender
-
-	if info.LastCharIndex == 0xFFFF {
-		setUniBit(57) // TODO(voss)
-	}
 
 	vendor := [4]byte{' ', ' ', ' ', ' '}
 	if len(info.Vendor) == 4 {
@@ -290,12 +266,13 @@ func (info *Info) Encode() []byte {
 		StrikeoutPosition:  info.StrikeoutPosition,
 		FamilyClass:        info.FamilyClass,
 		Panose:             info.Panose,
-		UnicodeRange:       unicodeRange,
+		UnicodeRange:       info.UnicodeRange,
 		VendID:             vendor,
 		Selection:          sel,
 		FirstCharIndex:     info.FirstCharIndex,
 		LastCharIndex:      info.LastCharIndex,
 	}
+	v0.UnicodeRange.Bool(57, info.LastCharIndex == 0xFFFF) // "Non-Plane 0" bit
 	_ = binary.Write(buf, binary.BigEndian, v0)
 
 	v0ms := &v0MsData{
@@ -307,12 +284,7 @@ func (info *Info) Encode() []byte {
 	}
 	_ = binary.Write(buf, binary.BigEndian, v0ms)
 
-	var codePageRange uint64 // TODO(voss)
-	// setCodePageBit := func(b int) {
-	// 	codePageRange |= 1 << b
-	// }
-	// setCodePageBit(0) // Latin 1
-
+	codePageRange := info.CodePageRange
 	buf.Write([]byte{
 		byte(codePageRange >> 24),
 		byte(codePageRange >> 16),
@@ -336,12 +308,145 @@ func (info *Info) Encode() []byte {
 	return buf.Bytes()
 }
 
+// UnicodeRange is a bitfield which describes which unicode
+// blocks or ranges are "functional" in a font.
+// https://learn.microsoft.com/en-us/typography/opentype/spec/os2#ur
+type UnicodeRange [4]uint32
+
+func (ur *UnicodeRange) Set(bit UnicodeRangeBit) {
+	w := bit / 32
+	bit = bit % 32
+	ur[w] |= 1 << bit
+}
+
+func (ur *UnicodeRange) Bool(bit UnicodeRangeBit, set bool) {
+	w := bit / 32
+	bit = bit % 32
+	if set {
+		ur[w] |= 1 << bit
+	} else {
+		ur[w] &^= 1 << bit
+	}
+}
+
+type UnicodeRangeBit int
+
+const (
+	URBasicLatin                UnicodeRangeBit = 0
+	URLatin1Sup                 UnicodeRangeBit = 1
+	URLatinExtA                 UnicodeRangeBit = 2
+	URLatinExtB                 UnicodeRangeBit = 3
+	URIPAExtensions             UnicodeRangeBit = 4
+	URSpacingModifierLetters    UnicodeRangeBit = 5
+	URCombiningDiacriticalMarks UnicodeRangeBit = 6
+	URGreek                     UnicodeRangeBit = 7
+	URCoptic                    UnicodeRangeBit = 8
+	URCyrillic                  UnicodeRangeBit = 9
+	URArmenian                  UnicodeRangeBit = 10
+	URHebrew                    UnicodeRangeBit = 11
+	URVai                       UnicodeRangeBit = 12
+	URArabic                    UnicodeRangeBit = 13
+	URNko                       UnicodeRangeBit = 14
+	URDevanagari                UnicodeRangeBit = 15
+	URBengali                   UnicodeRangeBit = 16
+	URGurmukhi                  UnicodeRangeBit = 17
+	URGujarati                  UnicodeRangeBit = 18
+	UROriya                     UnicodeRangeBit = 19
+	URTamil                     UnicodeRangeBit = 20
+	URTelugu                    UnicodeRangeBit = 21
+	URKannada                   UnicodeRangeBit = 22
+	URMalayalam                 UnicodeRangeBit = 23
+	URThai                      UnicodeRangeBit = 24
+	URLao                       UnicodeRangeBit = 25
+	URGeorgian                  UnicodeRangeBit = 26
+	URBalinese                  UnicodeRangeBit = 27
+	URHangulJamo                UnicodeRangeBit = 28
+	URLatinExtAdditional        UnicodeRangeBit = 29
+	URGreekExt                  UnicodeRangeBit = 30
+	URGeneralPunctuation        UnicodeRangeBit = 31
+	URSuperscriptsSubscripts    UnicodeRangeBit = 32
+	URCurrencySymbols           UnicodeRangeBit = 33
+	// TODO(voss): finish this
+)
+
+type CodePageRange uint64
+
+func (cpr *CodePageRange) Set(bit CodePageRangeBit) {
+	*cpr |= 1 << bit
+}
+
+type CodePageRangeBit int
+
+const (
+	CP1252      CodePageRangeBit = 0  // CP1252, Latin 1
+	CP1250      CodePageRangeBit = 1  // CP1250, Latin 2: Eastern Europe
+	CP1251      CodePageRangeBit = 2  // CP1251, Cyrillic
+	CP1253      CodePageRangeBit = 3  // CP1253, Greek
+	CP1254      CodePageRangeBit = 4  // CP1254, Turkish
+	CP1255      CodePageRangeBit = 5  // CP1255, Hebrew
+	CP1256      CodePageRangeBit = 6  // CP1256, Arabic
+	CP1257      CodePageRangeBit = 7  // CP1257, Windows Baltic
+	CP1258      CodePageRangeBit = 8  // CP1258, Vietnamese
+	CP874       CodePageRangeBit = 16 // CP874, Thai
+	CP932       CodePageRangeBit = 17 // CP932, JIS/Japan
+	CP936       CodePageRangeBit = 18 // CP936, Chinese: Simplified chars—PRC and Singapore
+	CP949       CodePageRangeBit = 19 // CP949, Korean Wansung
+	CP950       CodePageRangeBit = 20 // CP950, Chinese: Traditional chars—Taiwan and Hong Kong
+	CP1361      CodePageRangeBit = 21 // CP1361, Korean Johab
+	CPMacintosh CodePageRangeBit = 29 // Macintosh Character Set (US Roman)
+	CPOEM       CodePageRangeBit = 30 // OEM Character Set
+	CPSymbol    CodePageRangeBit = 31 // Symbol Character Set
+	CP869       CodePageRangeBit = 48 // CP869, IBM Greek
+	CP866       CodePageRangeBit = 49 // CP866, MS-DOS Russian
+	CP865       CodePageRangeBit = 50 // CP865, MS-DOS Nordic
+	CP864       CodePageRangeBit = 51 // CP864, Arabic
+	CP863       CodePageRangeBit = 52 // CP863, MS-DOS Canadian French
+	CP862       CodePageRangeBit = 53 // CP862, Hebrew
+	CP861       CodePageRangeBit = 54 // CP861, MS-DOS Icelandic
+	CP860       CodePageRangeBit = 55 // CP860, MS-DOS Portuguese
+	CP857       CodePageRangeBit = 56 // CP857, IBM Turkish
+	CP855       CodePageRangeBit = 57 // CP855, IBM Cyrillic; primarily Russian
+	CP852       CodePageRangeBit = 58 // CP852, Latin 2
+	CP775       CodePageRangeBit = 59 // CP775, MS-DOS Baltic
+	CP737       CodePageRangeBit = 60 // CP737, Greek; former 437 G
+	CP708       CodePageRangeBit = 61 // CP708, Arabic; ASMO 708
+	CP850       CodePageRangeBit = 62 // CP850, WE/Latin 1
+	CP437       CodePageRangeBit = 63 // CP437, US
+)
+
+// Permissions describes rights to embed and use a font.
+type Permissions int
+
+func (perm Permissions) String() string {
+	switch perm {
+	case PermInstall:
+		return "can install"
+	case PermEdit:
+		return "can edit"
+	case PermView:
+		return "can view"
+	case PermRestricted:
+		return "restricted"
+	default:
+		return fmt.Sprintf("Permissions(%d)", perm)
+	}
+}
+
+// The possible permission values.
+// https://learn.microsoft.com/en-us/typography/opentype/spec/os2#fstype
+const (
+	PermInstall    Permissions = iota // bits 0-3 unset
+	PermEdit                          // only bit 3 set
+	PermView                          // only bit 2 set
+	PermRestricted                    // only bit 1 set
+)
+
 type v0Data struct {
 	Version            uint16
 	AvgCharWidth       funit.Int16
 	WeightClass        uint16
 	WidthClass         uint16
-	Type               uint16 // embedding licensing rights for the font
+	Type               uint16
 	SubscriptXSize     funit.Int16
 	SubscriptYSize     funit.Int16
 	SubscriptXOffset   funit.Int16
@@ -354,7 +459,7 @@ type v0Data struct {
 	StrikeoutPosition  funit.Int16
 	FamilyClass        int16
 	Panose             [10]byte
-	UnicodeRange       [4]uint32
+	UnicodeRange       UnicodeRange
 	VendID             [4]byte
 	Selection          uint16
 	FirstCharIndex     uint16

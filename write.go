@@ -245,6 +245,8 @@ func (info *Info) makeOS2() []byte {
 
 		FamilyClass: familyClass,
 
+		CodePageRange: info.CodePageRange,
+
 		PermUse: info.PermUse,
 	}
 	return os2Info.Encode()

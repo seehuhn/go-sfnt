@@ -34,6 +34,9 @@ import (
 )
 
 // Info contains information about a font.
+//
+// TODO(voss): clarify the relation between IsOblique, IsItalic, and
+// ItalicAngle != 0.
 type Info struct {
 	FamilyName string
 	Width      os2.Width
@@ -45,12 +48,13 @@ type Info struct {
 	IsSerif    bool
 	IsScript   bool // Glyphs resemble cursive handwriting.
 
+	CodePageRange os2.CodePageRange
+
 	Version          head.Version
 	CreationTime     time.Time
 	ModificationTime time.Time
-
-	Description string
-	SampleText  string
+	Description      string
+	SampleText       string
 
 	Copyright  string
 	Trademark  string

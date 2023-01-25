@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func FuzzOS2(f *testing.F) {
@@ -37,8 +39,8 @@ func FuzzOS2(f *testing.F) {
 		}
 
 		if !reflect.DeepEqual(i1, i2) {
-			fmt.Printf("%#v\n", i1)
-			fmt.Printf("%#v\n", i2)
+			d := cmp.Diff(i1, i2)
+			fmt.Println(d)
 			t.Fatal("not equal")
 		}
 	})

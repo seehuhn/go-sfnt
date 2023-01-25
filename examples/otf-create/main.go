@@ -31,15 +31,13 @@ import (
 )
 
 func main() {
-	// TODO(voss): the generated font fails some fontbakery checks
-
 	now := time.Now()
 	info := &sfnt.Info{
 		FamilyName: "Test",
 		Weight:     os2.WeightNormal,
 		Width:      os2.WidthNormal,
 
-		Version:          0x00010000,
+		Version:          0x00010000, // version 1.001
 		CreationTime:     now,
 		ModificationTime: now,
 
@@ -94,6 +92,8 @@ func main() {
 	cmap['A'] = 2
 	cmap['B'] = 3
 	info.CMap = cmap
+
+	info.CodePageRange.Set(os2.CP1252) // Latin 1
 
 	// ----------------------------------------------------------------------
 
