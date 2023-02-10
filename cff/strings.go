@@ -80,6 +80,7 @@ func (ss *cffStrings) encode() []byte {
 	return stringIndex.encode()
 }
 
+// from Appendix A of the CFF specification
 var stdStrings = []string{
 	".notdef",             // 0
 	"space",               // 1
