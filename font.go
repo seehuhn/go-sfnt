@@ -308,3 +308,31 @@ func (info *Info) IsFixedPitch() bool {
 
 	return true
 }
+
+func (info *Info) Layout(rr []rune, gsubLookups, gposLookups []gtab.LookupIndex) glyph.Seq {
+	// TODO(voss): should this take a string as an argument, instead of rr?
+	seq := make(glyph.Seq, len(rr))
+	for i, r := range rr {
+		gid := info.CMap.Lookup(r)
+		seq[i].Gid = gid
+		seq[i].Text = []rune{r}
+	}
+
+	if info.Gsub != nil {
+		for _, lookupIndex := range gsubLookups {
+			seq = info.Gsub.LookupList.ApplyLookup(seq, lookupIndex, info.Gdef)
+		}
+	}
+
+	for i := range seq {
+		gid := seq[i].Gid
+		if !info.Gdef.IsMark(gid) {
+			seq[i].Advance = info.GlyphWidth(gid)
+		}
+	}
+	for _, lookupIndex := range gposLookups {
+		seq = info.Gpos.LookupList.ApplyLookup(seq, lookupIndex, info.Gdef)
+	}
+
+	return seq
+}
