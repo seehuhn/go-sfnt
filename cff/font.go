@@ -44,15 +44,16 @@ type Outlines struct {
 	// FdSelect determines which private dictionary is used for each glyph.
 	FdSelect FdSelectFn
 
+	// Encoding lists the glyphs corresponding to the 256 one-byte character
+	// codes in a simple font. The length of this slice must be 256, entries
+	// for unused character codes must be set to 0.
+	// For CIDFonts (where ROS != nil), Encoding must be nil.
+	Encoding []glyph.ID
+
 	// ROS specifies the character collection of the font, using Adobe's
 	// Registry, Ordering, Supplement system.  This must be non-nil
 	// if and only if the font is a CIDFont.
 	ROS *type1.ROS
-
-	// Encoding lists the glyphs corresponding to the 256 one-byte
-	// character codes in simple fonts.  For CIDFonts (where ROS != nil),
-	// this must be nil.
-	Encoding []glyph.ID
 
 	// Gid2cid lists the character identifiers corresponding to the glyphs.
 	// This is only present for CIDFonts.
