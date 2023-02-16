@@ -56,7 +56,8 @@ type Outlines struct {
 	ROS *type1.ROS
 
 	// Gid2cid lists the character identifiers corresponding to the glyphs.
-	// This is only present for CIDFonts.
+	// This is only present for CIDFonts, and encodes the information
+	// from the charset table in the CFF font.
 	Gid2cid []int32 // TODO(voss): what is a good data type for this?
 }
 
