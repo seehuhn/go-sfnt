@@ -53,7 +53,7 @@ type Outlines struct {
 	// ROS specifies the character collection of the font, using Adobe's
 	// Registry, Ordering, Supplement system.  This must be non-nil
 	// if and only if the font is a CIDFont.
-	ROS *type1.ROS
+	ROS *type1.CIDSystemInfo
 
 	// Gid2cid lists the character identifiers corresponding to the glyphs.
 	// This is only present for CIDFonts, and encodes the information
@@ -174,7 +174,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if len(ROS) != 3 {
 			return nil, invalidSince("wrong number of ROS values")
 		}
-		ros := &type1.ROS{}
+		ros := &type1.CIDSystemInfo{}
 		if reg, ok := ROS[0].(string); ok {
 			ros.Registry = reg
 		} else {

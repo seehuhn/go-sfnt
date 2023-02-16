@@ -91,10 +91,10 @@ type PrivateDict struct {
 	ForceBold bool
 }
 
-// ROS describes a character collection covered by a PostScript font.
+// CIDSystemInfo describes a character collection covered by a PostScript font.
 // A character collection implies an encoding which maps Character IDs to glyphs.
 // See sections 9.7.3 of PDF 32000-1:2008.
-type ROS struct {
+type CIDSystemInfo struct {
 	Registry   string
 	Ordering   string
 	Supplement int32
