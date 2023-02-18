@@ -177,9 +177,9 @@ type segment struct {
 
 type makeSegments map[uint16]glyph.ID
 
-func (ms makeSegments) Edges(v uint32) []*segment {
+func (ms makeSegments) AppendEdges(segs []*segment, v uint32) []*segment {
 	if v > 0xFFFF {
-		return nil
+		return segs
 	}
 
 	// skip leading .notdef mappings
@@ -193,9 +193,7 @@ func (ms makeSegments) Edges(v uint32) []*segment {
 	// check whether this is the last, special segment
 	delta := uint16(ms[uint16(start)]) - uint16(start)
 	if start == 0xFFFF {
-		return []*segment{
-			{first: 0xFFFF, last: 0xFFFF, delta: delta},
-		}
+		return append(segs, &segment{first: 0xFFFF, last: 0xFFFF, delta: delta})
 	}
 
 	// try to use a delta offset
@@ -203,13 +201,11 @@ func (ms makeSegments) Edges(v uint32) []*segment {
 	for end < 0xFFFF && uint16(ms[uint16(end)])-uint16(end) == delta {
 		end++
 	}
-	segs := []*segment{
-		{
-			first: uint16(start),
-			last:  uint16(end - 1),
-			delta: delta,
-		},
-	}
+	segs = append(segs, &segment{
+		first: uint16(start),
+		last:  uint16(end - 1),
+		delta: delta,
+	})
 	if end-start >= 4 || start == 0xFFFE {
 		return segs
 	}

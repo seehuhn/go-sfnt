@@ -308,13 +308,11 @@ type edge struct {
 	to   int
 }
 
-func (enc encoder) Edges(from int) []edge {
+func (enc encoder) AppendEdges(edges []edge, from int) []edge {
 	if from >= len(enc) {
-		return nil
+		return edges
 	}
 	cmds := enc[from:]
-
-	var edges []edge
 
 	switch cmds[0].Op {
 	case OpLineTo:
