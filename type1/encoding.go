@@ -17,8 +17,8 @@
 package type1
 
 // TODO(voss): There is some redundancy between the following files:
-//     font/type1/encoding.go
-//     font/encoding.go
+//     go-sfnt/type1/encoding.go
+//     go-pdf/font/encoding.go
 
 // StandardEncoding is the standard encoding for Type 1 fonts.
 var StandardEncoding = map[string]byte{

@@ -81,11 +81,20 @@ func (w Weight) String() string {
 	}
 }
 
+// Rounded returns the nearest weight corresponding to one of the named classes.
+func (w Weight) Rounded() Weight {
+	if w <= 100 {
+		return 100
+	} else if w >= 900 {
+		return 900
+	}
+	return (w + 50) / 100 * 100
+}
+
 // SimpleString converts the Weight to a string, prefering the nearest
 // textual description over the precise numeric value where needed.
 func (w Weight) SimpleString() string {
-	w = (w + 50) / 100 * 100
-	return w.String()
+	return w.Rounded().String()
 }
 
 // Pre-defined weight classes.
