@@ -299,8 +299,6 @@ func (info *Info) Encode() []byte {
 	v2 := &v2Data{
 		XHeight:   info.XHeight,
 		CapHeight: info.CapHeight,
-		// DefaultChar: 0, // TODO(voss)
-		// BreakChar:   0, // TODO(voss)
 		// MaxContext:  0, // TODO(voss)
 	}
 	_ = binary.Write(buf, binary.BigEndian, v2)

@@ -485,19 +485,20 @@ func (l *extensionSubtable) Encode() []byte {
 
 // FindLookups returns the lookups required to implement the given
 // features in the specified language.
-func (info *Info) FindLookups(wantLang language.Tag, includeFeature map[string]bool) []LookupIndex {
+func (info *Info) FindLookups(lang language.Tag, includeFeature map[string]bool) []LookupIndex {
 	if info == nil || len(info.ScriptList) == 0 {
 		return nil
 	}
 
-	// TODO(voss): make sure a sensible default comes first.
 	tags := make([]language.Tag, 0, len(info.ScriptList))
 	for tag := range info.ScriptList {
 		tags = append(tags, tag)
 	}
+	// TODO(voss): make sure a sensible default comes first.
+	//     Maybe this could be based on the number of features supported?
 
 	matcher := language.NewMatcher(tags)
-	_, index, _ := matcher.Match(wantLang)
+	_, index, _ := matcher.Match(lang)
 
 	features := info.ScriptList[tags[index]]
 	if features == nil {
@@ -526,7 +527,7 @@ func (info *Info) FindLookups(wantLang language.Tag, includeFeature map[string]b
 	}
 
 	numLookups := LookupIndex(len(info.LookupList))
-	var ll []LookupIndex
+	ll := make([]LookupIndex, 0, len(includeLookup))
 	for l := range includeLookup {
 		if l >= numLookups {
 			continue
@@ -539,7 +540,7 @@ func (info *Info) FindLookups(wantLang language.Tag, includeFeature map[string]b
 	return ll
 }
 
-// Lookuptypes for extension lookup records.
+// Lookup types for extension lookup records.
 // This can be used as an argument for the [Info.Encode] method.
 const (
 	GposExtensionLookupType uint16 = 9
