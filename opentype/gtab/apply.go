@@ -57,20 +57,39 @@ type nested struct {
 // applyLookupAt applies a single lookup to the given glyphs at position pos.
 func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gdef *gdef.Table, pos, b int) ([]glyph.Info, int) {
 	numLookups := len(ll)
+
+	// Check if the first lookup applies to the input sequence.
+	if int(lookupIndex) >= numLookups {
+		return seq, pos + 1
+	}
+	lookup := ll[lookupIndex]
+	keep := makeFilter(lookup.Meta, gdef)
+	if !keep(seq[pos].Gid) {
+		return seq, pos + 1
+	}
+	match := lookup.Subtables.Apply(keep, seq, pos, b)
+	if match == nil {
+		return seq, pos + 1
+	}
+	next := match.Next
+
+	if len(match.Replace) > 0 {
+		if len(match.Actions) > 0 {
+			panic("invalid match object")
+		}
+		seq = applyMatch(seq, match, pos)
+		return seq, next + len(match.Replace) - len(match.InputPos)
+	}
+
 	stack := []*nested{
 		{
-			InputPos: []int{pos},
-			Actions: SeqLookups{
-				{SequenceIndex: 0, LookupListIndex: lookupIndex},
-			},
-			EndPos: b,
+			InputPos: match.InputPos,
+			Actions:  match.Actions,
+			EndPos:   match.Next,
 		},
 	}
 
-	next := pos + 1
-	nextUpdated := false
-
-	numActions := 0
+	numActions := 1
 	for len(stack) > 0 && numActions < 64 {
 		k := len(stack) - 1
 		if len(stack[k].Actions) == 0 {
@@ -103,11 +122,6 @@ func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gd
 		}
 		if match == nil {
 			continue
-		}
-
-		if !nextUpdated {
-			next = match.Next
-			nextUpdated = true
 		}
 
 		if len(match.Replace) > 0 {
