@@ -18,6 +18,8 @@
 package type1
 
 import (
+	"strconv"
+
 	"seehuhn.de/go/sfnt/funit"
 )
 
@@ -98,4 +100,8 @@ type CIDSystemInfo struct {
 	Registry   string
 	Ordering   string
 	Supplement int32
+}
+
+func (ROS *CIDSystemInfo) String() string {
+	return ROS.Registry + "-" + ROS.Ordering + "-" + strconv.Itoa(int(ROS.Supplement))
 }

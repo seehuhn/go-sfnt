@@ -23,6 +23,8 @@ import (
 	"os"
 
 	"seehuhn.de/go/sfnt"
+	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/glyf"
 )
 
 func main() {
@@ -81,7 +83,16 @@ func main() {
 
 		//
 		//		CMap     cmap.Subtable
-		//		Outlines interface{} // either *cff.Outlines or *glyf.Outlines
+
+		switch outlines := info.Outlines.(type) {
+		case *cff.Outlines:
+			fmt.Println("  Outlines: CFF")
+			if outlines.ROS != nil {
+				fmt.Println("  ROS:", outlines.ROS)
+			}
+		case *glyf.Outlines:
+			fmt.Println("  Outlines: TrueType")
+		}
 
 		// Gdef * gdef.Table
 		// Gsub * gtab.Info
