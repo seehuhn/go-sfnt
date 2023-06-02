@@ -178,7 +178,7 @@ var msBCP = map[uint16]string{
 	0x0403: "ca-ES",       // Catalan, Catalan
 	0x0c04: "zh-HK",       // Chinese, Hong Kong S.A.R.
 	0x1404: "zh-MO",       // Chinese, Macao S.A.R.
-	0x0804: "zh-CN",       // Chinese, People’s Republic of China
+	0x0804: "zh-CN",       // Chinese, People's Republic of China
 	0x1004: "zh-SG",       // Chinese, Singapore
 	0x0404: "zh-TW",       // Chinese, Taiwan
 	0x0483: "co-FR",       // Corsican, France
@@ -245,7 +245,7 @@ var msBCP = map[uint16]string{
 	0x044b: "kn-IN",       // Kannada, India
 	0x043f: "kk-KZ",       // Kazakh, Kazakhstan
 	0x0453: "km-KH",       // Khmer, Cambodia
-	0x0486: "quc-GT",      // K’iche, Guatemala
+	0x0486: "quc-GT",      // K'iche, Guatemala
 	0x0487: "rw-RW",       // Kinyarwanda, Rwanda
 	0x0441: "sw-KE",       // Kiswahili, Kenya
 	0x0457: "kok-IN",      // Konkani, India
@@ -266,7 +266,7 @@ var msBCP = map[uint16]string{
 	0x044e: "mr-IN",       // Marathi, India
 	0x047c: "moh",         // Mohawk, Mohawk
 	0x0450: "mn-Cyrl-MN",  // Mongolian (Cyrillic), Mongolia
-	0x0850: "mn-Mong-CN",  // Mongolian (Traditional), People’s Republic of China
+	0x0850: "mn-Mong-CN",  // Mongolian (Traditional), People's Republic of China
 	0x0461: "ne-NP",       // Nepali, Nepal
 	0x0414: "nb-NO",       // Norwegian (Bokmal), Norway
 	0x0814: "nn-NO",       // Norwegian (Nynorsk), Norway
