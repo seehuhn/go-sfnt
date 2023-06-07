@@ -24,7 +24,7 @@ import (
 
 // Glyph represents a single glyph in a TrueType font.
 type Glyph struct {
-	funit.Rect
+	funit.Rect16
 	Data interface{} // either SimpleGlyph or CompositeGlyph
 }
 
@@ -73,7 +73,7 @@ func decodeGlyph(data []byte) (*Glyph, error) {
 	}
 
 	g := &Glyph{
-		Rect: funit.Rect{
+		Rect16: funit.Rect16{
 			LLx: funit.Int16(data[2])<<8 | funit.Int16(data[3]),
 			LLy: funit.Int16(data[4])<<8 | funit.Int16(data[5]),
 			URx: funit.Int16(data[6])<<8 | funit.Int16(data[7]),
@@ -265,8 +265,8 @@ func (g *Glyph) FixComponents(newGid map[glyph.ID]glyph.ID) *Glyph {
 			}
 		}
 		g2 := &Glyph{
-			Rect: g.Rect,
-			Data: d2,
+			Rect16: g.Rect16,
+			Data:   d2,
 		}
 		return g2
 	default:

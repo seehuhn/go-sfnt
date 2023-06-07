@@ -145,7 +145,7 @@ func (info *Info) PDFEmbedTrueType(w io.Writer) (int64, error) {
 }
 
 func (info *Info) makeHead(locaFormat int16) []byte {
-	var bbox funit.Rect
+	var bbox funit.Rect16
 	switch outlines := info.Outlines.(type) {
 	case *cff.Outlines:
 		for _, g := range outlines.Glyphs {
@@ -156,7 +156,7 @@ func (info *Info) makeHead(locaFormat int16) []byte {
 			if g == nil {
 				continue
 			}
-			bbox.Extend(g.Rect)
+			bbox.Extend(g.Rect16)
 		}
 	}
 

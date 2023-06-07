@@ -43,7 +43,7 @@ type Info struct {
 	UnitsPerEm   uint16  // font design units per em square
 	Created      time.Time
 	Modified     time.Time
-	FontBBox     funit.Rect
+	FontBBox     funit.Rect16
 
 	IsBold      bool
 	IsItalic    bool
@@ -90,7 +90,7 @@ func Read(r io.Reader) (*Info, error) {
 	info.Created = decodeTime(enc.Created)
 	info.Modified = decodeTime(enc.Modified)
 
-	info.FontBBox = funit.Rect{
+	info.FontBBox = funit.Rect16{
 		LLx: enc.XMin,
 		LLy: enc.YMin,
 		URx: enc.XMax,

@@ -155,7 +155,7 @@ func (info *Info) PostscriptName() string {
 }
 
 // BBox returns the bounding box of the font.
-func (info *Info) BBox() (bbox funit.Rect) {
+func (info *Info) BBox() (bbox funit.Rect16) {
 	first := true
 	for i := 0; i < info.NumGlyphs(); i++ {
 		ext := info.GlyphExtent(glyph.ID(i))
@@ -218,8 +218,8 @@ func (info *Info) Widths() []funit.Int16 {
 }
 
 // Extents returns the glyph bounding boxes for the font.
-func (info *Info) Extents() []funit.Rect {
-	extents := make([]funit.Rect, info.NumGlyphs())
+func (info *Info) Extents() []funit.Rect16 {
+	extents := make([]funit.Rect16, info.NumGlyphs())
 	switch f := info.Outlines.(type) {
 	case *cff.Outlines:
 		for i, g := range f.Glyphs {
@@ -231,7 +231,7 @@ func (info *Info) Extents() []funit.Rect {
 			if g == nil {
 				continue
 			}
-			extents[i] = g.Rect
+			extents[i] = g.Rect16
 		}
 	default:
 		panic("unexpected font type")
@@ -241,16 +241,16 @@ func (info *Info) Extents() []funit.Rect {
 
 // GlyphExtent returns the glyph bounding box for one glyph in font design
 // units.
-func (info *Info) GlyphExtent(gid glyph.ID) funit.Rect {
+func (info *Info) GlyphExtent(gid glyph.ID) funit.Rect16 {
 	switch f := info.Outlines.(type) {
 	case *cff.Outlines:
 		return f.Glyphs[gid].Extent()
 	case *glyf.Outlines:
 		g := f.Glyphs[gid]
 		if g == nil {
-			return funit.Rect{}
+			return funit.Rect16{}
 		}
-		return g.Rect
+		return g.Rect16
 	default:
 		panic("unexpected font type")
 	}
@@ -265,7 +265,7 @@ func (info *Info) glyphHeight(gid glyph.ID) funit.Int16 {
 		if g == nil {
 			return 0
 		}
-		return g.Rect.URy
+		return g.Rect16.URy
 	default:
 		panic("unexpected font type")
 	}

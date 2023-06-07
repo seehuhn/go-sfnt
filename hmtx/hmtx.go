@@ -74,7 +74,7 @@ import (
 // Info contains information from the "hhea" and "hmtx" tables.
 type Info struct {
 	Widths       []funit.Int16
-	GlyphExtents []funit.Rect
+	GlyphExtents []funit.Rect16
 	LSB          []funit.Int16
 
 	Ascent  funit.Int16

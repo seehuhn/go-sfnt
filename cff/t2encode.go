@@ -79,7 +79,7 @@ func (g *Glyph) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
 }
 
 // Extent computes the Glyph extent in font design units
-func (g *Glyph) Extent() funit.Rect {
+func (g *Glyph) Extent() funit.Rect16 {
 	var left, right, top, bottom Fixed16
 	first := true
 cmdLoop:
@@ -109,7 +109,7 @@ cmdLoop:
 		}
 		first = false
 	}
-	return funit.Rect{
+	return funit.Rect16{
 		LLx: funit.Int16(left.Floor()),
 		LLy: funit.Int16(bottom.Floor()),
 		URx: funit.Int16(right.Ceil()),

@@ -33,9 +33,42 @@ func (x Int) AsFloat(scale float64) float64 {
 	return float64(x) * scale
 }
 
+// Rect16 represents a rectangle in font design units.
+type Rect16 struct {
+	LLx, LLy, URx, URy Int16
+}
+
+// IsZero is true if the glyph leaves no marks on the page.
+func (rect Rect16) IsZero() bool {
+	return rect.LLx == 0 && rect.LLy == 0 && rect.URx == 0 && rect.URy == 0
+}
+
+// Extend enlarges the rectangle to also cover `other`.
+func (rect *Rect16) Extend(other Rect16) {
+	if other.IsZero() {
+		return
+	}
+	if rect.IsZero() {
+		*rect = other
+		return
+	}
+	if other.LLx < rect.LLx {
+		rect.LLx = other.LLx
+	}
+	if other.LLy < rect.LLy {
+		rect.LLy = other.LLy
+	}
+	if other.URx > rect.URx {
+		rect.URx = other.URx
+	}
+	if other.URy > rect.URy {
+		rect.URy = other.URy
+	}
+}
+
 // Rect represents a rectangle in font design units.
 type Rect struct {
-	LLx, LLy, URx, URy Int16
+	LLx, LLy, URx, URy Int
 }
 
 // IsZero is true if the glyph leaves no marks on the page.
