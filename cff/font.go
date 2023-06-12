@@ -58,7 +58,7 @@ type Outlines struct {
 	// Gid2cid lists the character identifiers corresponding to the glyphs.
 	// This is only present for CIDFonts, and encodes the information
 	// from the charset table in the CFF font.
-	Gid2cid []int32 // TODO(voss): what is a good data type for this?
+	Gid2cid []type1.CID
 }
 
 // Read reads a CFF font from r.
@@ -247,7 +247,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		cff.Gid2cid = make([]int32, nGlyphs) // filled in below
+		cff.Gid2cid = make([]type1.CID, nGlyphs) // filled in below
 	} else {
 		switch charsetOffs {
 		case 0: // ISOAdobe charset
@@ -313,7 +313,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		}
 		if isCIDFont {
 			if charset != nil {
-				cff.Gid2cid[gid] = charset[gid]
+				cff.Gid2cid[gid] = type1.CID(charset[gid])
 			}
 		} else {
 			name, err := strings.get(charset[gid])
@@ -434,7 +434,11 @@ func (cff *Font) Encode(w io.Writer) error {
 	if cff.ROS == nil {
 		charsets, err = encodeCharset(glyphNames)
 	} else {
-		charsets, err = encodeCharset(cff.Gid2cid)
+		tmp := make([]int32, len(cff.Gid2cid))
+		for i, cid := range cff.Gid2cid {
+			tmp[i] = int32(cid)
+		}
+		charsets, err = encodeCharset(tmp)
 	}
 	if err != nil {
 		return err

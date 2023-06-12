@@ -105,3 +105,7 @@ type CIDSystemInfo struct {
 func (ROS *CIDSystemInfo) String() string {
 	return ROS.Registry + "-" + ROS.Ordering + "-" + strconv.Itoa(int(ROS.Supplement))
 }
+
+// CID represents a character identifier.  This is the index of character in a
+// character collection.
+type CID uint32
