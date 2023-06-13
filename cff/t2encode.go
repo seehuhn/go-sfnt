@@ -25,6 +25,8 @@ import (
 	"seehuhn.de/go/sfnt/funit"
 )
 
+// TODO(voss): use seehuhn.de/go/dag instead of seehuhn.de/go/dijkstra
+
 // Glyph represents a glyph in a CFF font.
 type Glyph struct {
 	Cmds  []GlyphOp

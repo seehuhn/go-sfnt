@@ -25,6 +25,8 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 )
 
+// TODO(voss): use seehuhn.de/go/dag instead of seehuhn.de/go/dijkstra
+
 // Format4 represents a format 4 cmap subtable.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-4-segment-mapping-to-delta-values
 type Format4 map[uint16]glyph.ID
