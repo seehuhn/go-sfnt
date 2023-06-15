@@ -178,6 +178,7 @@ func (info *Info) SubsetCID(subset []SubsetGlyph, ROS *type1.CIDSystemInfo) (*In
 		}
 
 		if !cidEqualsGid || len(pIdxMap) > 1 || o2.Glyphs[0].Name == "" {
+			// use a CID-keyed font only when necessary
 			o2.ROS = ROS
 			o2.Gid2Cid = make([]type1.CID, len(subset))
 			for subsetGid, g := range subset {
