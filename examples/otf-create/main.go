@@ -83,7 +83,7 @@ func main() {
 			BlueValues: []funit.Int16{-10, 0, 700, 710},
 		},
 	}
-	cffInfo.FdSelect = func(gi glyph.ID) int { return 0 }
+	cffInfo.FDSelect = func(gi glyph.ID) int { return 0 }
 	info.Outlines = cffInfo
 
 	cmap := cmap.Format4{}

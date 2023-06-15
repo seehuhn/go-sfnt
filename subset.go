@@ -14,12 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package subset
+package sfnt
 
 import (
 	"errors"
 
-	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyf"
@@ -27,13 +26,16 @@ import (
 	"seehuhn.de/go/sfnt/type1"
 )
 
-type Glyph struct {
+type SubsetGlyph struct {
+	// OrigGID is the glyph ID before subsetting.
 	OrigGID glyph.ID
-	CID     type1.CID
+
+	// CID is the character identifier of the glyph in the subsetted font.
+	CID type1.CID
 }
 
-// SubsetSimple constructs a subset of the font for use as a simple PDF font.
-func SubsetSimple(info *sfnt.Info, subset []Glyph) (*sfnt.Info, error) {
+// SubsetSimple constructs a subset of the font, for use in a simple PDF font.
+func (info *Info) SubsetSimple(subset []SubsetGlyph) (*Info, error) {
 	if len(subset) == 0 || subset[0].OrigGID != 0 {
 		return nil, errors.New("subset does not start with .notdef")
 	}
@@ -43,7 +45,7 @@ func SubsetSimple(info *sfnt.Info, subset []Glyph) (*sfnt.Info, error) {
 		}
 	}
 
-	res := &sfnt.Info{}
+	res := &Info{}
 	*res = *info
 
 	switch outlines := info.Outlines.(type) {
@@ -52,19 +54,21 @@ func SubsetSimple(info *sfnt.Info, subset []Glyph) (*sfnt.Info, error) {
 		pIdxMap := make(map[int]int)
 		for _, g := range subset {
 			o2.Glyphs = append(o2.Glyphs, outlines.Glyphs[g.OrigGID])
-			oldPIdx := outlines.FdSelect(g.OrigGID)
+			oldPIdx := outlines.FDSelect(g.OrigGID)
 			if _, ok := pIdxMap[oldPIdx]; !ok {
 				newPIdx := len(o2.Private)
 				o2.Private = append(o2.Private, outlines.Private[oldPIdx])
 				pIdxMap[oldPIdx] = newPIdx
 			}
 		}
-		o2.FdSelect = func(gid glyph.ID) int { return pIdxMap[outlines.FdSelect(gid)] }
-
-		if len(pIdxMap) > 1 {
-			return nil, errors.New("cannot have more than one private dict for a simple font")
+		if len(o2.Private) != 1 {
+			return nil, errors.New("need exactly one private dict for a simple font")
 		}
+		o2.FDSelect = func(gid glyph.ID) int { return 0 }
+
 		if o2.Glyphs[0].Name == "" {
+			// TODO(voss): if this ever becomes a problem, we could try
+			// to generate names from info.CMap.
 			return nil, errors.New("need glyph names for a simple font")
 		}
 		o2.Encoding = make([]glyph.ID, 256)
@@ -94,7 +98,7 @@ func SubsetSimple(info *sfnt.Info, subset []Glyph) (*sfnt.Info, error) {
 		}
 		for len(todo) > 0 {
 			gid := pop(todo)
-			subset = append(subset, Glyph{OrigGID: gid})
+			subset = append(subset, SubsetGlyph{OrigGID: gid})
 			newGid[gid] = nextGid
 			nextGid++
 
@@ -137,28 +141,33 @@ func SubsetSimple(info *sfnt.Info, subset []Glyph) (*sfnt.Info, error) {
 }
 
 // SubsetCID constructs a subset of the font for use as a CID-keyed PDF font.
-func SubsetCID(info *sfnt.Info, subset []Glyph, ROS *type1.CIDSystemInfo) (*sfnt.Info, error) {
+func (info *Info) SubsetCID(subset []SubsetGlyph, ROS *type1.CIDSystemInfo) (*Info, error) {
 	if len(subset) == 0 || subset[0].OrigGID != 0 {
 		return nil, errors.New("subset does not start with .notdef")
 	}
+	if ROS == nil {
+		return nil, errors.New("ROS cannot be nil for CID-keyed font")
+	}
 
-	res := &sfnt.Info{}
+	res := &Info{}
 	*res = *info
 
 	switch outlines := info.Outlines.(type) {
 	case *cff.Outlines:
 		o2 := &cff.Outlines{}
 		pIdxMap := make(map[int]int)
-		for _, g := range subset {
+		fdSel := make(map[glyph.ID]int)
+		for subsetGID, g := range subset {
 			o2.Glyphs = append(o2.Glyphs, outlines.Glyphs[g.OrigGID])
-			oldPIdx := outlines.FdSelect(g.OrigGID)
+			oldPIdx := outlines.FDSelect(g.OrigGID)
 			if _, ok := pIdxMap[oldPIdx]; !ok {
 				newPIdx := len(o2.Private)
 				o2.Private = append(o2.Private, outlines.Private[oldPIdx])
 				pIdxMap[oldPIdx] = newPIdx
 			}
+			fdSel[glyph.ID(subsetGID)] = pIdxMap[oldPIdx]
 		}
-		o2.FdSelect = func(gid glyph.ID) int { return pIdxMap[outlines.FdSelect(gid)] }
+		o2.FDSelect = func(gid glyph.ID) int { return fdSel[gid] }
 
 		cidEqualsGid := true
 		for origGid, g := range subset {
@@ -170,9 +179,12 @@ func SubsetCID(info *sfnt.Info, subset []Glyph, ROS *type1.CIDSystemInfo) (*sfnt
 
 		if !cidEqualsGid || len(pIdxMap) > 1 || o2.Glyphs[0].Name == "" {
 			o2.ROS = ROS
-			o2.Gid2cid = make([]type1.CID, len(subset))
+			o2.Gid2Cid = make([]type1.CID, len(subset))
 			for subsetGid, g := range subset {
-				o2.Gid2cid[subsetGid] = g.CID
+				if subsetGid == 0 {
+					continue
+				}
+				o2.Gid2Cid[subsetGid] = g.CID
 			}
 		}
 
@@ -195,7 +207,7 @@ func SubsetCID(info *sfnt.Info, subset []Glyph, ROS *type1.CIDSystemInfo) (*sfnt
 		}
 		for len(todo) > 0 {
 			gid := pop(todo)
-			subset = append(subset, Glyph{OrigGID: gid})
+			subset = append(subset, SubsetGlyph{OrigGID: gid})
 			newGid[gid] = nextGid
 			nextGid++
 
@@ -219,6 +231,8 @@ func SubsetCID(info *sfnt.Info, subset []Glyph, ROS *type1.CIDSystemInfo) (*sfnt
 		}
 		res.Outlines = o2
 
+		// The mapping from CIDs to GIDs is specified in the CIDToGIDMap entry
+		// in the CIDFont dictionary.
 		res.CMap = nil
 
 	default:

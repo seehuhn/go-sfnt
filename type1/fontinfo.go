@@ -84,10 +84,12 @@ type PrivateDict struct {
 	BlueFuzz int32
 
 	// StdHW is the dominant width of horizontal stems for glyphs in the font.
+	// TODO(voss): should this be funit.Int16 instead?
 	StdHW float64
 
 	// StdVW the dominant width of vertical stems.
 	// Typically, this will be the width of straight stems in lower case letters.
+	// TODO(voss): should this be funit.Int16 instead?
 	StdVW float64
 
 	ForceBold bool

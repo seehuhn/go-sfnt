@@ -107,7 +107,7 @@ func FuzzFont(f *testing.F) {
 					StdVW:      70,
 				},
 			},
-			FdSelect: func(glyph.ID) int { return 0 },
+			FDSelect: func(glyph.ID) int { return 0 },
 			Encoding: cff.StandardEncoding(gg),
 		},
 	}
@@ -135,7 +135,7 @@ func FuzzFont(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		cmpFdSelectFn := cmp.Comparer(func(fn1, fn2 cff.FdSelectFn) bool {
+		cmpFDSelectFn := cmp.Comparer(func(fn1, fn2 cff.FDSelectFn) bool {
 			for gid := 0; gid < font1.NumGlyphs(); gid++ {
 				if fn1(glyph.ID(gid)) != fn2(glyph.ID(gid)) {
 					return false
@@ -147,7 +147,7 @@ func FuzzFont(f *testing.F) {
 			d := math.Max(math.Abs(x1), math.Abs(x2)) * 1e-8
 			return math.Abs(x2-x1) <= d
 		})
-		if diff := cmp.Diff(font1, font2, cmpFdSelectFn, cmpFloat); diff != "" {
+		if diff := cmp.Diff(font1, font2, cmpFDSelectFn, cmpFloat); diff != "" {
 			t.Errorf("different (-old +new):\n%s", diff)
 		}
 	})

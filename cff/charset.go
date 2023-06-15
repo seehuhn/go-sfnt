@@ -94,7 +94,7 @@ func readCharset(p *parser.Parser, nGlyphs int) ([]int32, error) {
 
 func encodeCharset(names []int32) ([]byte, error) {
 	if names[0] != 0 {
-		return nil, errors.New("invalid charset")
+		return nil, errors.New("invalid charset (missing .notdef)")
 	}
 	names = names[1:]
 

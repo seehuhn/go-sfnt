@@ -24,9 +24,9 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-func FuzzFdSelect(f *testing.F) {
+func FuzzFDSelect(f *testing.F) {
 	const nGlyphs = 100
-	fds := []FdSelectFn{
+	fds := []FDSelectFn{
 		func(gid glyph.ID) int { return 0 },
 		func(gid glyph.ID) int { return int(gid) / 60 },
 		func(gid glyph.ID) int { return int(gid) / 4 },

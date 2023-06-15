@@ -89,7 +89,7 @@ func MakeSimpleFont() *sfnt.Info {
 				},
 			},
 		},
-		FdSelect: func(glyph.ID) int {
+		FDSelect: func(glyph.ID) int {
 			return 0
 		},
 		Encoding: encoding,
@@ -273,7 +273,7 @@ func MakeCompleteFont() *sfnt.Info {
 				},
 			},
 		},
-		FdSelect: func(glyph.ID) int {
+		FDSelect: func(glyph.ID) int {
 			return 0
 		},
 	}

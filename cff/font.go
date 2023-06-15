@@ -41,8 +41,8 @@ type Outlines struct {
 
 	Private []*type1.PrivateDict
 
-	// FdSelect determines which private dictionary is used for each glyph.
-	FdSelect FdSelectFn
+	// FDSelect determines which private dictionary is used for each glyph.
+	FDSelect FDSelectFn
 
 	// Encoding lists the glyphs corresponding to the 256 one-byte character
 	// codes in a simple font. The length of this slice must be 256, entries
@@ -55,10 +55,11 @@ type Outlines struct {
 	// if and only if the font is a CIDFont.
 	ROS *type1.CIDSystemInfo
 
-	// Gid2cid lists the character identifiers corresponding to the glyphs.
-	// This is only present for CIDFonts, and encodes the information
-	// from the charset table in the CFF font.
-	Gid2cid []type1.CID
+	// Gid2Cid lists the character identifiers corresponding to the glyphs.
+	// This is only present for CIDFonts, and encodes the information from the
+	// charset table in the CFF font.  When present, the first entry
+	// (corresponding to the .notdef glyph) must be 0.
+	Gid2Cid []type1.CID
 }
 
 // IsCIDKeyed returns true if the font is a CID-keyed font.
@@ -232,12 +233,12 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		cff.FdSelect, err = readFDSelect(p, nGlyphs, len(cff.Private))
+		cff.FDSelect, err = readFDSelect(p, nGlyphs, len(cff.Private))
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		cff.FdSelect = func(gid glyph.ID) int { return 0 }
+		cff.FDSelect = func(gid glyph.ID) int { return 0 }
 	}
 
 	// read the list of glyph names
@@ -252,7 +253,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		cff.Gid2cid = make([]type1.CID, nGlyphs) // filled in below
+		cff.Gid2Cid = make([]type1.CID, nGlyphs) // filled in below
 	} else {
 		switch charsetOffs {
 		case 0: // ISOAdobe charset
@@ -307,7 +308,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	}
 
 	cff.Glyphs = make([]*Glyph, nGlyphs)
-	fdSelect := cff.FdSelect
+	fdSelect := cff.FDSelect
 	for gid, code := range charStrings {
 		fdIdx := fdSelect(glyph.ID(gid))
 		info := decoders[fdIdx]
@@ -318,7 +319,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		}
 		if isCIDFont {
 			if charset != nil {
-				cff.Gid2cid[gid] = type1.CID(charset[gid])
+				cff.Gid2Cid[gid] = type1.CID(charset[gid])
 			}
 		} else {
 			name, err := strings.get(charset[gid])
@@ -438,24 +439,27 @@ func (cff *Font) Encode(w io.Writer) error {
 	var charsets []byte
 	if cff.ROS == nil {
 		charsets, err = encodeCharset(glyphNames)
+		if err != nil {
+			return fmt.Errorf("Glyph names: %w", err)
+		}
 	} else {
-		tmp := make([]int32, len(cff.Gid2cid))
-		for i, cid := range cff.Gid2cid {
+		tmp := make([]int32, len(cff.Gid2Cid))
+		for i, cid := range cff.Gid2Cid {
 			tmp[i] = int32(cid)
 		}
 		charsets, err = encodeCharset(tmp)
-	}
-	if err != nil {
-		return err
+		if err != nil {
+			return fmt.Errorf("Gid2Cid: %w", err)
+		}
 	}
 	secCharsets := len(blobs)
 	blobs = append(blobs, charsets)
 
 	// section 7: FDSelect
-	secFdSelect := -1
+	secFDSelect := -1
 	if cff.ROS != nil {
-		secFdSelect = len(blobs)
-		blobs = append(blobs, cff.FdSelect.encode(int(numGlyphs)))
+		secFDSelect = len(blobs)
+		blobs = append(blobs, cff.FDSelect.encode(int(numGlyphs)))
 	}
 
 	// section 8: charstrings INDEX
@@ -534,8 +538,8 @@ func (cff *Font) Encode(w io.Writer) error {
 			topDict[opEncoding] = []interface{}{offs[secEncodings]}
 		}
 		topDict[opCharStrings] = []interface{}{offs[secCharStringsIndex]}
-		if secFdSelect >= 0 {
-			topDict[opFDSelect] = []interface{}{offs[secFdSelect]}
+		if secFDSelect >= 0 {
+			topDict[opFDSelect] = []interface{}{offs[secFDSelect]}
 			topDict[opFDArray] = []interface{}{offs[secFontDictIndex]}
 		}
 		topDictData := topDict.encode(strings)

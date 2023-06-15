@@ -59,7 +59,7 @@ func TestRoundTrip(t *testing.T) {
 		FontInfo: meta,
 		Outlines: &Outlines{
 			Private:  private,
-			FdSelect: func(gi glyph.ID) int { return 0 },
+			FDSelect: func(gi glyph.ID) int { return 0 },
 		},
 	}
 
@@ -104,7 +104,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opt := cmp.Comparer(func(fn1, fn2 FdSelectFn) bool {
+	opt := cmp.Comparer(func(fn1, fn2 FDSelectFn) bool {
 		for gid := 0; gid < len(in.Glyphs); gid++ {
 			if fn1(glyph.ID(gid)) != fn2(glyph.ID(gid)) {
 				return false
@@ -127,7 +127,7 @@ func TestFindEdges(t *testing.T) {
 		FontInfo: meta,
 		Outlines: &Outlines{
 			Private:  []*type1.PrivateDict{{}},
-			FdSelect: func(gi glyph.ID) int { return 0 },
+			FDSelect: func(gi glyph.ID) int { return 0 },
 		},
 	}
 
@@ -264,7 +264,7 @@ func TestFindEdges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opt := cmp.Comparer(func(fn1, fn2 FdSelectFn) bool {
+	opt := cmp.Comparer(func(fn1, fn2 FDSelectFn) bool {
 		for gid := 0; gid < len(in.Glyphs); gid++ {
 			if fn1(glyph.ID(gid)) != fn2(glyph.ID(gid)) {
 				return false

@@ -25,10 +25,10 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// FdSelectFn maps glyphID values to private dicts in Font.Info.Private.
-type FdSelectFn func(glyph.ID) int
+// FDSelectFn maps glyphID values to private dicts in Font.Info.Private.
+type FDSelectFn func(glyph.ID) int
 
-func readFDSelect(p *parser.Parser, nGlyphs, nPrivate int) (FdSelectFn, error) {
+func readFDSelect(p *parser.Parser, nGlyphs, nPrivate int) (FDSelectFn, error) {
 	format, err := p.ReadUint8()
 	if err != nil {
 		return nil, err
@@ -99,7 +99,7 @@ func readFDSelect(p *parser.Parser, nGlyphs, nPrivate int) (FdSelectFn, error) {
 	}
 }
 
-func (fdSelect FdSelectFn) encode(nGlyphs int) []byte {
+func (fdSelect FDSelectFn) encode(nGlyphs int) []byte {
 	format0Length := nGlyphs + 1
 
 	buf := []byte{3, 0, 0}
