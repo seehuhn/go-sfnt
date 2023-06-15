@@ -87,7 +87,7 @@ func main() {
 		switch outlines := info.Outlines.(type) {
 		case *cff.Outlines:
 			fmt.Println("  Outlines: CFF")
-			if outlines.ROS != nil {
+			if outlines.IsCIDKeyed() {
 				fmt.Println("  ROS:", outlines.ROS)
 			}
 		case *glyf.Outlines:

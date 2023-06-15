@@ -112,6 +112,8 @@ func (info *Info) Write(w io.Writer) (int64, error) {
 
 // PDFEmbedTrueType writes the binary form of a TrueType font to the given
 // writer.  Only the tables needed for PDF embedding are included.
+// The generated cmap assumes that the font is "non-symbolic".
+//
 // The function panics, if the font does not use TrueType outlines.
 func (info *Info) PDFEmbedTrueType(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)

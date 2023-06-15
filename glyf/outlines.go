@@ -36,6 +36,6 @@ type Outlines struct {
 	// tables.
 	Tables map[string][]byte
 
-	// Maxp contains the information from the "maps" table.
+	// Maxp contains information from the "maxp" table.
 	Maxp *maxp.TTFInfo
 }

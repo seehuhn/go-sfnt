@@ -61,6 +61,11 @@ type Outlines struct {
 	Gid2cid []type1.CID
 }
 
+// IsCIDKeyed returns true if the font is a CID-keyed font.
+func (o *Outlines) IsCIDKeyed() bool {
+	return o.ROS != nil
+}
+
 // Read reads a CFF font from r.
 func Read(r parser.ReadSeekSizer) (*Font, error) {
 	cff := &Font{
