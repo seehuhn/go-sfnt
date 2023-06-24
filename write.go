@@ -146,6 +146,35 @@ func (info *Info) WriteTrueTypePDF(w io.Writer) (int64, error) {
 	return header.Write(w, header.ScalerTypeTrueType, tableData)
 }
 
+func (info *Info) WriteCFFOpenTypePDF(w io.Writer) (int64, error) {
+	tableData := make(map[string][]byte)
+
+	var ss cmap.Table
+	if info.CMap != nil {
+		uniEncoding := uint16(3)
+		winEncoding := uint16(1)
+		if _, high := info.CMap.CodeRange(); high > 0xFFFF {
+			uniEncoding = 4
+			winEncoding = 10
+		}
+		cmapSubtable := info.CMap.Encode(0)
+		ss = cmap.Table{
+			{PlatformID: 0, EncodingID: uniEncoding}: cmapSubtable,
+			{PlatformID: 3, EncodingID: winEncoding}: cmapSubtable,
+		}
+		tableData["cmap"] = ss.Encode()
+	}
+
+	outlines := info.Outlines.(*cff.Outlines)
+	cffData, err := info.makeCFF(outlines)
+	if err != nil {
+		return 0, err
+	}
+	tableData["CFF "] = cffData
+
+	return header.Write(w, header.ScalerTypeCFF, tableData)
+}
+
 func (info *Info) makeHead(locaFormat int16) []byte {
 	var bbox funit.Rect16
 	switch outlines := info.Outlines.(type) {

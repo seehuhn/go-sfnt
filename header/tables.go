@@ -29,15 +29,15 @@ import (
 const (
 	// ScalerTypeTrueType is the scaler type for fonts which use TrueType
 	// outlines.
-	ScalerTypeTrueType = 0x00010000
+	ScalerTypeTrueType uint32 = 0x00010000
 
 	// ScalerTypeCFF is the scaler type for fonts which use CFF
 	// outlines (version 1 or 2).
-	ScalerTypeCFF = 0x4F54544F // "OTTO"
+	ScalerTypeCFF uint32 = 0x4F54544F // "OTTO"
 
 	// ScalerTypeApple is recognised as an alternative for ScalerTypeTrueType
 	// on Apple systems.
-	ScalerTypeApple = 0x74727565 // "true"
+	ScalerTypeApple uint32 = 0x74727565 // "true"
 )
 
 // Info contains information about the tables present in an sfnt font file.
