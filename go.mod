@@ -9,3 +9,5 @@ require (
 	golang.org/x/text v0.9.0
 	seehuhn.de/go/dijkstra v0.9.3
 )
+
+require seehuhn.de/go/postscript v0.0.0-20230704184248-9032502d53ec
