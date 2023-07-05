@@ -539,6 +539,8 @@ func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInf
 		return nil, err
 	}
 
+	// TODO(voss): StemSnapH, StemSnapV
+
 	private := &type1.PrivateDict{
 		BlueValues: privateDict.getDeltaF16(opBlueValues),
 		OtherBlues: privateDict.getDeltaF16(opOtherBlues),

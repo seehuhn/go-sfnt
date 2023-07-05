@@ -96,6 +96,8 @@ type PrivateDict struct {
 	// TODO(voss): should this be funit.Int16 instead?
 	StdVW float64
 
+	// TODO(voss): StemSnapH, StemSnapV
+
 	ForceBold bool
 }
 
