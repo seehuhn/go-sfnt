@@ -2,7 +2,9 @@ package type1
 
 import (
 	"fmt"
+	"math"
 
+	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -10,13 +12,13 @@ type decodeInfo struct{}
 
 func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	const maxStack = 24
-	stack := make([]int32, 0, maxStack)
+	stack := make([]float64, 0, maxStack)
 	clearStack := func() {
 		stack = stack[:0]
 	}
 
-	var posX, posY int32
-	rMoveTo := func(dx, dy int32) {
+	var posX, posY float64
+	rMoveTo := func(dx, dy float64) {
 		posX += dx
 		posY += dy
 		// res.Cmds = append(res.Cmds, GlyphOp{
@@ -38,24 +40,27 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 			op := t1op(code[0])
 			if op >= 32 && op <= 246 {
-				stack = append(stack, int32(op)-139)
+				stack = append(stack, float64(op)-139)
 				code = code[1:]
+				fmt.Println("push", stack[len(stack)-1])
 				continue
 			} else if op >= 247 && op <= 250 {
 				if len(code) < 2 {
 					return nil, errIncomplete
 				}
-				val := (int32(op)-247)*256 + int32(code[1]) + 108
+				val := (float64(op)-247)*256 + float64(code[1]) + 108
 				stack = append(stack, val)
 				code = code[2:]
+				fmt.Println("push", stack[len(stack)-1])
 				continue
 			} else if op >= 251 && op <= 254 {
 				if len(code) < 2 {
 					return nil, errIncomplete
 				}
-				val := (251-int32(op))*256 - int32(code[1]) - 108
+				val := (251-float64(op))*256 - float64(code[1]) - 108
 				stack = append(stack, val)
 				code = code[2:]
+				fmt.Println("push", stack[len(stack)-1])
 				continue
 			} else if op == 255 {
 				if len(code) < 5 {
@@ -63,8 +68,9 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				}
 				val := int32(code[1])<<24 | int32(code[2])<<16 |
 					int32(code[3])<<8 | int32(code[4])
-				stack = append(stack, val)
+				stack = append(stack, float64(val))
 				code = code[5:]
+				fmt.Println("push", stack[len(stack)-1])
 				continue
 			}
 
@@ -79,11 +85,26 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			}
 
 			switch op {
+			case t1hsbw:
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("hsbw(%g, %g)\n", stack[0], stack[1])
+				posX = stack[0]
+				posY = 0
+				res.Lsb = funit.Int16(math.Round(stack[0]))
+				res.Width = funit.Int16(math.Round(stack[1]))
+				clearStack()
+			case t1endchar:
+				fmt.Println("endchar")
+
 			case t1rmoveto:
 				if len(stack) >= 2 {
 					rMoveTo(stack[0], stack[1])
 				}
 				clearStack()
+			default:
+				fmt.Printf("op %s\n", op)
 			}
 		}
 	}
@@ -120,6 +141,8 @@ func (op t1op) String() string {
 		return "t1callsubr"
 	case t1return:
 		return "t1return"
+	case t1hsbw:
+		return "t1hsbw"
 	case t1endchar:
 		return "t1endchar"
 	case t1rmoveto:

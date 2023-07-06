@@ -17,7 +17,10 @@ type Font struct {
 	Glyphs  map[string]*Glyph
 }
 
-type Glyph struct{}
+type Glyph struct {
+	Lsb   funit.Int16
+	Width funit.Int16
+}
 
 func Read(r io.Reader) (*Font, error) {
 	intp := postscript.NewInterpreter()
@@ -194,7 +197,7 @@ func Read(r io.Reader) (*Font, error) {
 	}
 	names := maps.Keys(cs)
 	slices.Sort(names)
-	for _, name := range names[:10] {
+	for _, name := range names[:2] {
 		obfuscated, ok := cs[name].(postscript.String)
 		if !ok || len(obfuscated) < 4 {
 			fmt.Println("warning: skipping non-string glyph", name)
@@ -202,8 +205,10 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		fmt.Println(name, len(obfuscated))
 		plain := deobfuscateCharstring(obfuscated, int(lenIV))
-		for _, b := range plain {
-			fmt.Printf("%02x %d\n", b, b)
+		info := &decodeInfo{}
+		_, err = info.decodeCharString(plain)
+		if err != nil {
+			return nil, err
 		}
 		fmt.Println()
 	}
