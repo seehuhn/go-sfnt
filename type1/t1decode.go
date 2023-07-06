@@ -17,17 +17,41 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 		stack = stack[:0]
 	}
 
+	res := &Glyph{}
+
 	var posX, posY float64
 	rMoveTo := func(dx, dy float64) {
 		posX += dx
 		posY += dy
-		// res.Cmds = append(res.Cmds, GlyphOp{
-		// 	Op:   OpMoveTo,
-		// 	Args: []Fixed16{posX, posY},
-		// })
+		res.Cmds = append(res.Cmds, GlyphOp{
+			Op:   OpMoveTo,
+			Args: []float64{posX, posY},
+		})
 	}
-
-	res := &Glyph{}
+	rLineTo := func(dx, dy float64) {
+		posX += dx
+		posY += dy
+		res.Cmds = append(res.Cmds, GlyphOp{
+			Op:   OpLineTo,
+			Args: []float64{posX, posY},
+		})
+	}
+	rCurveTo := func(dxa, dya, dxb, dyb, dxc, dyc float64) {
+		xa := posX + dxa
+		ya := posY + dya
+		xb := xa + dxb
+		yb := ya + dyb
+		posX = xb + dxc
+		posY = yb + dyc
+		res.Cmds = append(res.Cmds, GlyphOp{
+			Op: OpCurveTo,
+			Args: []float64{
+				xa, ya,
+				xb, yb,
+				posX, posY,
+			},
+		})
+	}
 
 	cmdStack := [][]byte{code}
 	for len(cmdStack) > 0 {
@@ -42,7 +66,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			if op >= 32 && op <= 246 {
 				stack = append(stack, float64(op)-139)
 				code = code[1:]
-				fmt.Println("push", stack[len(stack)-1])
+				fmt.Println("# push", stack[len(stack)-1])
 				continue
 			} else if op >= 247 && op <= 250 {
 				if len(code) < 2 {
@@ -51,7 +75,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				val := (float64(op)-247)*256 + float64(code[1]) + 108
 				stack = append(stack, val)
 				code = code[2:]
-				fmt.Println("push", stack[len(stack)-1])
+				fmt.Println("# push", stack[len(stack)-1])
 				continue
 			} else if op >= 251 && op <= 254 {
 				if len(code) < 2 {
@@ -60,7 +84,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				val := (251-float64(op))*256 - float64(code[1]) - 108
 				stack = append(stack, val)
 				code = code[2:]
-				fmt.Println("push", stack[len(stack)-1])
+				fmt.Println("# push", stack[len(stack)-1])
 				continue
 			} else if op == 255 {
 				if len(code) < 5 {
@@ -70,7 +94,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					int32(code[3])<<8 | int32(code[4])
 				stack = append(stack, float64(val))
 				code = code[5:]
-				fmt.Println("push", stack[len(stack)-1])
+				fmt.Println("# push", stack[len(stack)-1])
 				continue
 			}
 
@@ -85,6 +109,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			}
 
 			switch op {
+			case t1endchar:
+				fmt.Println("endchar")
 			case t1hsbw:
 				if len(stack) < 2 {
 					return nil, errIncomplete
@@ -92,19 +118,174 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				fmt.Printf("hsbw(%g, %g)\n", stack[0], stack[1])
 				posX = stack[0]
 				posY = 0
-				res.Lsb = funit.Int16(math.Round(stack[0]))
-				res.Width = funit.Int16(math.Round(stack[1]))
+				res.LsbX = funit.Int16(math.Round(stack[0]))
+				res.LsbY = 0
+				res.WidthX = funit.Int16(math.Round(stack[1]))
+				res.WidthY = 0
 				clearStack()
-			case t1endchar:
-				fmt.Println("endchar")
-
-			case t1rmoveto:
-				if len(stack) >= 2 {
-					rMoveTo(stack[0], stack[1])
+			case t1seac:
+				if len(stack) < 5 {
+					return nil, errIncomplete
 				}
+				fmt.Printf("seac(%g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4])
+				panic("not implemented") // TODO(voss): implement
+			case t1sbw:
+				if len(stack) < 4 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("sbw(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
+				posX = stack[0]
+				posY = stack[1]
+				res.LsbX = funit.Int16(math.Round(stack[0]))
+				res.LsbY = funit.Int16(math.Round(stack[1]))
+				res.WidthX = funit.Int16(math.Round(stack[2]))
+				res.WidthY = funit.Int16(math.Round(stack[3]))
 				clearStack()
+
+			case t1closepath:
+				fmt.Println("closepath")
+			// TODO(voss): what to do here?
+			case t1hlineto:
+				if len(stack) < 1 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("hlineto(%g)\n", stack[0])
+				rLineTo(stack[0], 0)
+				clearStack()
+			case t1hmoveto:
+				if len(stack) < 1 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("hmoveto(%g)\n", stack[0])
+				rMoveTo(stack[0], 0)
+				clearStack()
+			case t1hvcurveto:
+				if len(stack) < 4 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("hvcurveto(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
+				rCurveTo(stack[0], 0, stack[1], stack[2], 0, stack[3])
+				clearStack()
+			case t1rlineto:
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("rlineto(%g, %g)\n", stack[0], stack[1])
+				rLineTo(stack[0], stack[1])
+				clearStack()
+			case t1rmoveto:
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("rmoveto(%g, %g)\n", stack[0], stack[1])
+				rMoveTo(stack[0], stack[1])
+				clearStack()
+			case t1rrcurveto:
+				if len(stack) < 6 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("rrcurveto(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
+				rCurveTo(stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
+				clearStack()
+			case t1vhcurveto:
+				if len(stack) < 4 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("vhcurveto(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
+				rCurveTo(0, stack[0], stack[1], stack[2], stack[3], 0)
+				clearStack()
+			case t1vlineto:
+				if len(stack) < 1 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("vlineto(%g)\n", stack[0])
+				rLineTo(0, stack[0])
+				clearStack()
+			case t1vmoveto:
+				if len(stack) < 1 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("vmoveto(%g)\n", stack[0])
+				rMoveTo(0, stack[0])
+				clearStack()
+
+			case t1dotsection:
+				fmt.Println("dotsection")
+				clearStack()
+			case t1hstem:
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("hstem(%g, %g)\n", stack[0], stack[1])
+				a := res.LsbY + funit.Int16(math.Round(stack[0]))
+				b := a + funit.Int16(math.Round(stack[1]))
+				res.HStem = append(res.HStem, a, b)
+				clearStack()
+			case t1hstem3:
+				if len(stack) < 6 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("hstem3(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
+				a := res.LsbY + funit.Int16(math.Round(stack[0]))
+				b := a + funit.Int16(math.Round(stack[1]))
+				c := res.LsbY + funit.Int16(math.Round(stack[2]))
+				d := c + funit.Int16(math.Round(stack[3]))
+				e := res.LsbY + funit.Int16(math.Round(stack[4]))
+				f := e + funit.Int16(math.Round(stack[5]))
+				res.HStem = append(res.HStem[:0], a, b, c, d, e, f)
+				clearStack()
+			case t1vstem:
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("vstem(%g, %g)\n", stack[0], stack[1])
+				a := res.LsbX + funit.Int16(math.Round(stack[0]))
+				b := a + funit.Int16(math.Round(stack[1]))
+				res.VStem = append(res.VStem, a, b)
+				clearStack()
+			case t1vstem3:
+				if len(stack) < 6 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("vstem3(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
+				a := res.LsbX + funit.Int16(math.Round(stack[0]))
+				b := a + funit.Int16(math.Round(stack[1]))
+				c := res.LsbX + funit.Int16(math.Round(stack[2]))
+				d := c + funit.Int16(math.Round(stack[3]))
+				e := res.LsbX + funit.Int16(math.Round(stack[4]))
+				f := e + funit.Int16(math.Round(stack[5]))
+				res.VStem = append(res.VStem[:0], a, b, c, d, e, f)
+				clearStack()
+
+			case t1div:
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("div(%g, %g)\n", stack[0], stack[1])
+				stack = append(stack, stack[len(stack)-2]/stack[len(stack)-1])
+			case t1callothersubr:
+				fmt.Println("callothersubr", stack)
+				panic("not implemented") // TODO
+			case t1callsubr:
+				panic("not implemented") // TODO
+			case t1pop:
+				fmt.Println("pop")
+				panic("not implemented") // TODO
+			case t1return:
+				fmt.Println("return")
+				panic("not implemented") // TODO
+			case t1setcurrentpoint:
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				fmt.Printf("setcurrentpoint(%g, %g)\n", stack[0], stack[1])
+				posX = stack[0]
+				posY = stack[1]
+				clearStack()
+
 			default:
-				fmt.Printf("op %s\n", op)
+				return nil, invalidSince(
+					fmt.Sprintf("unsupported type 1 opcode %d", op))
 			}
 		}
 	}

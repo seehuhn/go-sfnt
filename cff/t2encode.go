@@ -30,8 +30,8 @@ import (
 // Glyph represents a glyph in a CFF font.
 type Glyph struct {
 	Cmds  []GlyphOp
-	HStem []int16
-	VStem []int16
+	HStem []int16 // TODO(voss): use funit.Int16?
+	VStem []int16 // TODO(voss): use funit.Int16?
 	Name  string
 	Width funit.Int16
 }

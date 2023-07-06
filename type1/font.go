@@ -18,8 +18,50 @@ type Font struct {
 }
 
 type Glyph struct {
-	Lsb   funit.Int16
-	Width funit.Int16
+	Cmds   []GlyphOp
+	HStem  []funit.Int16
+	VStem  []funit.Int16
+	LsbX   funit.Int16
+	LsbY   funit.Int16
+	WidthX funit.Int16
+	WidthY funit.Int16
+}
+
+// GlyphOp is a Type 1 glyph drawing command.
+type GlyphOp struct {
+	Op   GlyphOpType
+	Args []float64
+}
+
+// GlyphOpType is the type of a Type 1 glyph drawing command.
+type GlyphOpType byte
+
+func (op GlyphOpType) String() string {
+	switch op {
+	case OpMoveTo:
+		return "moveto"
+	case OpLineTo:
+		return "lineto"
+	case OpCurveTo:
+		return "curveto"
+	default:
+		return fmt.Sprintf("CommandType(%d)", op)
+	}
+}
+
+const (
+	// OpMoveTo closes the previous subpath and starts a new one at the given point.
+	OpMoveTo GlyphOpType = iota + 1
+
+	// OpLineTo appends a straight line segment from the previous point to the given point.
+	OpLineTo
+
+	// OpCurveTo appends a Bezier curve segment from the previous point to the given point.
+	OpCurveTo
+)
+
+func (c GlyphOp) String() string {
+	return fmt.Sprint("cmd", c.Args, c.Op)
 }
 
 func Read(r io.Reader) (*Font, error) {
