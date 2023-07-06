@@ -120,9 +120,6 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 		widthIsSet = true
 	}
 
-	var storage []Fixed16
-	cmdStack := [][]byte{code}
-
 	var posX, posY Fixed16
 	hasMoved := false
 	var moveError error
@@ -168,6 +165,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 	stage := stageStart
 
+	var storage []Fixed16
+	cmdStack := [][]byte{code}
 	for len(cmdStack) > 0 {
 		cmdStack, code = cmdStack[:len(cmdStack)-1], cmdStack[len(cmdStack)-1]
 
@@ -915,6 +914,6 @@ const (
 var (
 	errStackOverflow     = invalidSince("type 2 stack overflow")
 	errStackUnderflow    = invalidSince("type 2 stack underflow")
-	errIncomplete        = invalidSince("incomplete tpye 2 charstring")
-	errInvalidSubroutine = invalidSince("invalid tpye 2 subroutine index")
+	errIncomplete        = invalidSince("incomplete type 2 charstring")
+	errInvalidSubroutine = invalidSince("invalid type 2 subroutine index")
 )

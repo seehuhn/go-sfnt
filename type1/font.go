@@ -2,8 +2,11 @@ package type1
 
 import (
 	"errors"
+	"fmt"
 	"io"
 
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 	"seehuhn.de/go/postscript"
 	"seehuhn.de/go/sfnt/funit"
 )
@@ -178,9 +181,50 @@ func Read(r io.Reader) (*Font, error) {
 		ForceBold:  forceBold,
 	}
 
+	// =============================================================
+
+	lenIV, ok := pd["lenIV"].(postscript.Integer)
+	if !ok {
+		lenIV = 4
+	}
+
+	cs, ok := fd["CharStrings"].(postscript.Dict)
+	if !ok {
+		return nil, errors.New("missing/invalid CharStrings dictionary")
+	}
+	names := maps.Keys(cs)
+	slices.Sort(names)
+	for _, name := range names[:10] {
+		obfuscated, ok := cs[name].(postscript.String)
+		if !ok || len(obfuscated) < 4 {
+			fmt.Println("warning: skipping non-string glyph", name)
+			continue
+		}
+		fmt.Println(name, len(obfuscated))
+		plain := deobfuscateCharstring(obfuscated, int(lenIV))
+		for _, b := range plain {
+			fmt.Printf("%02x %d\n", b, b)
+		}
+		fmt.Println()
+	}
+
 	res := &Font{
 		Info:    fi,
 		Private: private,
 	}
 	return res, nil
+}
+
+func deobfuscateCharstring(charstring []byte, n int) []byte {
+	var R uint16 = 4330
+	var c1 uint16 = 52845
+	var c2 uint16 = 22719
+	plain := charstring[:0]
+	for i, cipher := range charstring {
+		if i >= n {
+			plain = append(plain, cipher^byte(R>>8))
+		}
+		R = (uint16(cipher)+R)*c1 + c2
+	}
+	return plain
 }
