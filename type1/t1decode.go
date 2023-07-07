@@ -31,8 +31,10 @@ type decodeInfo struct {
 func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	const maxStack = 24
 	stack := make([]float64, 0, maxStack)
+	var otherStack []float64
 	clearStack := func() {
 		stack = stack[:0]
+		otherStack = otherStack[:0]
 	}
 
 	res := &Glyph{}
@@ -75,6 +77,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	for len(cmdStack) > 0 {
 		cmdStack, code = cmdStack[:len(cmdStack)-1], cmdStack[len(cmdStack)-1]
 
+	opLoop:
 		for len(code) > 0 {
 			if len(stack) > maxStack {
 				return nil, errStackOverflow
@@ -126,6 +129,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				code = code[1:]
 			}
 
+		opSwitch:
 			switch op {
 			case t1endchar:
 				fmt.Println("endchar")
@@ -282,17 +286,48 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				fmt.Printf("div(%g, %g)\n", stack[0], stack[1])
 				stack = append(stack, stack[len(stack)-2]/stack[len(stack)-1])
 			case t1callothersubr:
-				fmt.Println("callothersubr", stack)
-				panic("not implemented") // TODO
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				idx, err := getInt(stack[len(stack)-1])
+				if err != nil {
+					return nil, err
+				}
+				argN, err := getInt(stack[len(stack)-2])
+				if err != nil {
+					return nil, err
+				}
+				if len(stack) < argN+2 {
+					return nil, errIncomplete
+				}
+				args := stack[len(stack)-argN-2 : len(stack)-2]
+				stack = stack[:len(stack)-argN-2]
+				fmt.Println("callothersubr", idx, args)
+				switch idx { // pre-defined subroutines
+				case 3:
+					// hint replacement not supported
+					otherStack = append(otherStack, 3)
+				default:
+					panic("not implemented")
+				}
 			case t1callsubr:
 				if len(stack) < 1 {
 					return nil, errIncomplete
 				}
-				idx := int(stack[len(stack)-1])
-				if idx < 0 || idx >= len(info.subrs) || float64(idx) != stack[len(stack)-1] {
-					return nil, invalidSince("invalid subr index")
+				idx, err := getInt(stack[len(stack)-1])
+				if err != nil {
+					return nil, err
 				}
 				stack = stack[:len(stack)-1]
+				switch idx { // pre-defined subroutines
+				case 3:
+					// Entry 3 in the Subrs array is a charstring that does nothing.
+					break opSwitch
+				}
+
+				if idx < 0 || idx >= len(info.subrs) {
+					return nil, invalidSince("invalid subr index")
+				}
 				fmt.Printf("callsubr(%d)\n", idx)
 
 				cmdStack = append(cmdStack, code)
@@ -302,11 +337,15 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				code = info.subrs[idx]
 
 			case t1pop:
+				if len(otherStack) < 1 {
+					return nil, invalidSince("postscript interpreter operand stack underflow")
+				}
 				fmt.Println("pop")
-				panic("not implemented") // TODO
+				stack = append(stack, otherStack[len(otherStack)-1])
+				otherStack = otherStack[:len(otherStack)-1]
 			case t1return:
 				fmt.Println("return")
-				panic("not implemented") // TODO
+				break opLoop
 			case t1setcurrentpoint:
 				if len(stack) < 2 {
 					return nil, errIncomplete
@@ -324,6 +363,14 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	}
 
 	return res, nil
+}
+
+func getInt(x float64) (int, error) {
+	i := int(x)
+	if float64(i) != x {
+		return 0, invalidSince("invalid operand type")
+	}
+	return i, nil
 }
 
 type t1op uint16

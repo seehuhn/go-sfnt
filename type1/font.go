@@ -268,7 +268,7 @@ func Read(r io.Reader) (*Font, error) {
 	}
 	names := maps.Keys(cs)
 	slices.Sort(names)
-	for _, name := range names[34:35] {
+	for _, name := range names {
 		obfuscated, ok := cs[name].(postscript.String)
 		if !ok || len(obfuscated) < 4 {
 			fmt.Println("warning: skipping non-string glyph", name)
