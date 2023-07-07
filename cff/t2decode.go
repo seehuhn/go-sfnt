@@ -670,7 +670,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 				cmdStack = append(cmdStack, code)
 				if len(cmdStack) > 10 {
-					return nil, errors.New("maximum call stack size exceeded")
+					return nil, invalidSince("maximum call stack size exceeded")
 				}
 
 				var err error

@@ -16,23 +16,25 @@
 
 package type1
 
-import (
-	"os"
-	"testing"
-)
+import "testing"
 
-func TestXXX(t *testing.T) {
-	fname := "/Users/voss/project/pdf/type1/NimbusRoman-Regular.pfa"
-	fd, err := os.Open(fname)
-	if err != nil {
-		t.Fatal(err)
+func TestObfuscation(t *testing.T) {
+	iv := []byte{1, 2, 3, 4}
+	msg := "Hello World!"
+	plain := []byte(msg)
+	cipher := obfuscateCharstring(plain, iv)
+	if len(cipher) != len(plain)+len(iv) {
+		t.Errorf("cipher has wrong length")
 	}
-	defer fd.Close()
-
-	font, err := Read(fd)
-	if err != nil {
-		t.Fatal(err)
+	if len(cipher) != cap(cipher) {
+		t.Errorf("cipher has wrong capacity")
 	}
 
-	_ = font
+	plain2 := deobfuscateCharstring(cipher, len(iv))
+	if string(plain2) != msg {
+		t.Errorf("deobfuscation failed")
+	}
+	if len(plain2) != cap(plain2) {
+		t.Errorf("plain2 has wrong capacity")
+	}
 }

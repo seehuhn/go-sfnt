@@ -1,3 +1,19 @@
+// seehuhn.de/go/sfnt - a library for reading and writing font files
+// Copyright (C) 2023  Jochen Voss <voss@seehuhn.de>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package type1
 
 import (
@@ -233,13 +249,26 @@ func Read(r io.Reader) (*Font, error) {
 		lenIV = 4
 	}
 
+	ctx := &decodeInfo{}
+	if subrs, ok := pd["Subrs"].(postscript.Array); ok {
+		for _, cipherObj := range subrs {
+			cipher, ok := cipherObj.(postscript.String)
+			if !ok {
+				ctx.subrs = append(ctx.subrs, nil)
+				continue
+			}
+			plain := deobfuscateCharstring(cipher, int(lenIV))
+			ctx.subrs = append(ctx.subrs, plain)
+		}
+	}
+
 	cs, ok := fd["CharStrings"].(postscript.Dict)
 	if !ok {
 		return nil, errors.New("missing/invalid CharStrings dictionary")
 	}
 	names := maps.Keys(cs)
 	slices.Sort(names)
-	for _, name := range names[:2] {
+	for _, name := range names[34:35] {
 		obfuscated, ok := cs[name].(postscript.String)
 		if !ok || len(obfuscated) < 4 {
 			fmt.Println("warning: skipping non-string glyph", name)
@@ -247,8 +276,7 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		fmt.Println(name, len(obfuscated))
 		plain := deobfuscateCharstring(obfuscated, int(lenIV))
-		info := &decodeInfo{}
-		_, err = info.decodeCharString(plain)
+		_, err = ctx.decodeCharString(plain)
 		if err != nil {
 			return nil, err
 		}
@@ -260,18 +288,4 @@ func Read(r io.Reader) (*Font, error) {
 		Private: private,
 	}
 	return res, nil
-}
-
-func deobfuscateCharstring(charstring []byte, n int) []byte {
-	var R uint16 = 4330
-	var c1 uint16 = 52845
-	var c2 uint16 = 22719
-	plain := charstring[:0]
-	for i, cipher := range charstring {
-		if i >= n {
-			plain = append(plain, cipher^byte(R>>8))
-		}
-		R = (uint16(cipher)+R)*c1 + c2
-	}
-	return plain
 }

@@ -16,23 +16,31 @@
 
 package type1
 
-import (
-	"os"
-	"testing"
-)
-
-func TestXXX(t *testing.T) {
-	fname := "/Users/voss/project/pdf/type1/NimbusRoman-Regular.pfa"
-	fd, err := os.Open(fname)
-	if err != nil {
-		t.Fatal(err)
+func obfuscateCharstring(plain []byte, iv []byte) []byte {
+	var R uint16 = 4330
+	var c1 uint16 = 52845
+	var c2 uint16 = 22719
+	cipher := make([]byte, len(iv)+len(plain))
+	copy(cipher, iv)
+	copy(cipher[len(iv):], plain)
+	for i, c := range cipher {
+		c = c ^ byte(R>>8)
+		R = (uint16(c)+R)*c1 + c2
+		cipher[i] = c
 	}
-	defer fd.Close()
+	return cipher
+}
 
-	font, err := Read(fd)
-	if err != nil {
-		t.Fatal(err)
+func deobfuscateCharstring(cipher []byte, n int) []byte {
+	var R uint16 = 4330
+	var c1 uint16 = 52845
+	var c2 uint16 = 22719
+	plain := make([]byte, 0, len(cipher)-n)
+	for i, cipher := range cipher {
+		if i >= n {
+			plain = append(plain, cipher^byte(R>>8))
+		}
+		R = (uint16(cipher)+R)*c1 + c2
 	}
-
-	_ = font
+	return plain
 }

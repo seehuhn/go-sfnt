@@ -1,3 +1,19 @@
+// seehuhn.de/go/sfnt - a library for reading and writing font files
+// Copyright (C) 2023  Jochen Voss <voss@seehuhn.de>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 package type1
 
 import (
@@ -8,7 +24,9 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-type decodeInfo struct{}
+type decodeInfo struct {
+	subrs [][]byte
+}
 
 func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	const maxStack = 24
@@ -267,7 +285,22 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				fmt.Println("callothersubr", stack)
 				panic("not implemented") // TODO
 			case t1callsubr:
-				panic("not implemented") // TODO
+				if len(stack) < 1 {
+					return nil, errIncomplete
+				}
+				idx := int(stack[len(stack)-1])
+				if idx < 0 || idx >= len(info.subrs) || float64(idx) != stack[len(stack)-1] {
+					return nil, invalidSince("invalid subr index")
+				}
+				stack = stack[:len(stack)-1]
+				fmt.Printf("callsubr(%d)\n", idx)
+
+				cmdStack = append(cmdStack, code)
+				if len(cmdStack) > 10 {
+					return nil, invalidSince("maximum call stack size exceeded")
+				}
+				code = info.subrs[idx]
+
 			case t1pop:
 				fmt.Println("pop")
 				panic("not implemented") // TODO
