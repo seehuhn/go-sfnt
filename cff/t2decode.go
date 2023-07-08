@@ -64,8 +64,8 @@ func (x Fixed16) Byte() byte {
 }
 
 // Int16 converts the operand to an int16 (rounding towards zero).
-func (x Fixed16) Int16() int16 {
-	return int16(x >> 16)
+func (x Fixed16) Int16() funit.Int16 {
+	return funit.Int16(x >> 16)
 }
 
 // Int converts the operand to an int (rounding towards zero).
@@ -404,7 +404,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				}
 				stage = stageStems
 				setGlyphWidth(len(stack)%2 == 1)
-				var prev int16
+				var prev funit.Int16
 				for k := 0; k+1 < len(stack); k += 2 {
 					a := prev + stack[k].Int16()
 					b := a + stack[k+1].Int16()
@@ -421,7 +421,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				}
 				stage = stageStems
 				setGlyphWidth(len(stack)%2 == 1)
-				var prev int16
+				var prev funit.Int16
 				for k := 0; k+1 < len(stack); k += 2 {
 					a := prev + stack[k].Int16()
 					b := a + stack[k+1].Int16()
@@ -443,7 +443,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				// of a charstring, and this sequence is followed directly by
 				// the hintmask or cntrmask operators, the vstem hint operator
 				// need not be included."
-				var prev int16
+				var prev funit.Int16
 				for k := 0; k+1 < len(stack); k += 2 {
 					a := prev + stack[k].Int16()
 					b := a + stack[k+1].Int16()

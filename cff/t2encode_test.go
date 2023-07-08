@@ -320,8 +320,8 @@ func TestType2EncodeInt(t *testing.T) {
 	info := &decodeInfo{}
 	for i := -2000; i <= 2000; i += 2 {
 		var code []byte
-		code = append(code, encodeInt(int16(i))...)
-		code = append(code, encodeInt(int16(i+1))...)
+		code = append(code, encodeInt(funit.Int16(i))...)
+		code = append(code, encodeInt(funit.Int16(i+1))...)
 		code = append(code, t2rmoveto.Bytes()...)
 		code = append(code, t2endchar.Bytes()...)
 

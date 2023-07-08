@@ -30,8 +30,8 @@ import (
 // Glyph represents a glyph in a CFF font.
 type Glyph struct {
 	Cmds  []GlyphOp
-	HStem []int16 // TODO(voss): use funit.Int16?
-	VStem []int16 // TODO(voss): use funit.Int16?
+	HStem []funit.Int16
+	VStem []funit.Int16
 	Name  string
 	Width funit.Int16
 }
@@ -123,7 +123,7 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth funit.Int16) ([]byte
 	var header [][]byte
 	w := g.Width
 	if w != defaultWidth {
-		header = append(header, encodeInt(int16(w-nominalWidth)))
+		header = append(header, encodeInt(w-nominalWidth))
 	}
 
 	hintMaskUsed := false
@@ -135,7 +135,7 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth funit.Int16) ([]byte
 	}
 
 	type stemInfo struct {
-		stems []int16
+		stems []funit.Int16
 		op    t2op
 	}
 	allStems := []stemInfo{
@@ -160,7 +160,7 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth funit.Int16) ([]byte
 			}
 			chunk := stems[:2*k]
 			stems = stems[2*k:]
-			prev := int16(0)
+			prev := funit.Int16(0)
 			for _, x := range chunk {
 				header = append(header, encodeInt(x-prev))
 				prev = x
@@ -638,7 +638,7 @@ func encodeNumber(x Fixed16) encodedNumber {
 	}
 }
 
-func encodeInt(x int16) []byte {
+func encodeInt(x funit.Int16) []byte {
 	switch {
 	case x >= -107 && x <= 107:
 		return []byte{byte(x + 139)}
