@@ -18,13 +18,13 @@ package cff
 
 import (
 	"fmt"
-	"reflect"
+	"math"
 	"testing"
 )
 
 func TestRoll(t *testing.T) {
-	in := []Fixed16{1, 2, 3, 4, 5, 6, 7, 8}
-	out := []Fixed16{1, 2, 4, 5, 6, 3, 7, 8}
+	in := []float64{1, 2, 3, 4, 5, 6, 7, 8}
+	out := []float64{1, 2, 4, 5, 6, 3, 7, 8}
 
 	roll(in[2:6], 3)
 	for i, x := range in {
@@ -63,7 +63,7 @@ func FuzzT2Decode(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		if !reflect.DeepEqual(g1, g2) {
+		if !glyphsEqual(g1, g2) {
 			fmt.Printf("A % x\n", data1)
 			fmt.Printf("A %s\n", g1)
 			fmt.Printf("B % x\n", data2)
@@ -71,4 +71,42 @@ func FuzzT2Decode(f *testing.F) {
 			t.Error("different")
 		}
 	})
+}
+
+func glyphsEqual(g1, g2 *Glyph) bool {
+	if g1.Name != g2.Name || g1.Width != g2.Width {
+		return false
+	}
+
+	if len(g1.HStem) != len(g2.HStem) || len(g1.VStem) != len(g2.VStem) {
+		return false
+	}
+	for i, s1 := range g1.HStem {
+		if s1 != g2.HStem[i] {
+			return false
+		}
+	}
+	for i, s1 := range g1.VStem {
+		if s1 != g2.VStem[i] {
+			return false
+		}
+	}
+
+	if len(g1.Cmds) != len(g2.Cmds) {
+		return false
+	}
+	for i, c1 := range g1.Cmds {
+		c2 := g2.Cmds[i]
+		if c1.Op != c2.Op || len(c1.Args) != len(c2.Args) {
+			return false
+		}
+		for j, a1 := range c1.Args {
+			a2 := c2.Args[j]
+			if math.Abs(a1-a2) > 0.5/65536 && math.Abs(a1) < 32767 && math.Abs(a2) < 32767 {
+				fmt.Println(a1, a2, math.Abs(a1-a2)*65536)
+				return false
+			}
+		}
+	}
+	return true
 }

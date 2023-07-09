@@ -39,70 +39,13 @@ const (
 	stageHintMask
 )
 
-// Fixed16 is a 16.16-bit fixed number.
-type Fixed16 int32 // 16.16 fixed point numbers
-
-func f16FromByte(v byte) Fixed16 {
-	return Fixed16(v) << 16
-}
-
-func f16FromInt16(v int16) Fixed16 {
-	return Fixed16(v) << 16
-}
-
-func f16FromInt(v int) Fixed16 {
-	return Fixed16(v) << 16
-}
-
-func f16(v float64) Fixed16 {
-	return Fixed16(math.Round(v * 65536))
-}
-
-// Byte converts the operand to a byte (rounding towards zero).
-func (x Fixed16) Byte() byte {
-	return byte(x >> 16)
-}
-
-// Int16 converts the operand to an int16 (rounding towards zero).
-func (x Fixed16) Int16() funit.Int16 {
-	return funit.Int16(x >> 16)
-}
-
-// Int converts the operand to an int (rounding towards zero).
-func (x Fixed16) Int() int {
-	return int(x >> 16)
-}
-
-// Floor returns the largest int16 not greater than x.
-func (x Fixed16) Floor() int16 {
-	return int16(math.Floor(float64(x) / 65536))
-}
-
-// Ceil returns the smallest int16 not less than x.
-func (x Fixed16) Ceil() int16 {
-	return int16(math.Ceil(float64(x) / 65536))
-}
-
-// Float64 converts the operand to a float64.
-func (x Fixed16) Float64() float64 {
-	return float64(x) / 65536
-}
-
-// Abs returns the absolute value of the operand.
-func (x Fixed16) Abs() Fixed16 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
 // decodeCharString returns the commands for the given charstring.
 func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	res := &Glyph{
 		Width: info.defaultWidth,
 	}
 
-	stack := make([]Fixed16, 0, maxStack)
+	stack := make([]float64, 0, maxStack)
 	clearStack := func() {
 		stack = stack[:0]
 	}
@@ -113,26 +56,26 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			return
 		}
 		if isPresent {
-			res.Width = funit.Int16(stack[0].Int16()) + info.nominalWidth
+			res.Width = funit.Int16(math.Round(stack[0])) + info.nominalWidth
 			copy(stack, stack[1:])
 			stack = stack[:len(stack)-1]
 		}
 		widthIsSet = true
 	}
 
-	var posX, posY Fixed16
+	var posX, posY float64
 	hasMoved := false
 	var moveError error
-	rMoveTo := func(dx, dy Fixed16) {
+	rMoveTo := func(dx, dy float64) {
 		hasMoved = true
 		posX += dx
 		posY += dy
 		res.Cmds = append(res.Cmds, GlyphOp{
 			Op:   OpMoveTo,
-			Args: []Fixed16{posX, posY},
+			Args: []float64{posX, posY},
 		})
 	}
-	rLineTo := func(dx, dy Fixed16) {
+	rLineTo := func(dx, dy float64) {
 		if !hasMoved {
 			moveError = errors.New("lineTo before moveTo")
 		}
@@ -140,10 +83,10 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 		posY += dy
 		res.Cmds = append(res.Cmds, GlyphOp{
 			Op:   OpLineTo,
-			Args: []Fixed16{posX, posY},
+			Args: []float64{posX, posY},
 		})
 	}
-	rCurveTo := func(dxa, dya, dxb, dyb, dxc, dyc Fixed16) {
+	rCurveTo := func(dxa, dya, dxb, dyb, dxc, dyc float64) {
 		if !hasMoved {
 			moveError = errors.New("curveTo before moveTo")
 		}
@@ -155,7 +98,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 		posY = yb + dyc
 		res.Cmds = append(res.Cmds, GlyphOp{
 			Op: OpCurveTo,
-			Args: []Fixed16{
+			Args: []float64{
 				xa, ya,
 				xb, yb,
 				posX, posY,
@@ -165,7 +108,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 	stage := stageStart
 
-	var storage []Fixed16
+	var storage []float64
 	cmdStack := [][]byte{code}
 	for len(cmdStack) > 0 {
 		cmdStack, code = cmdStack[:len(cmdStack)-1], cmdStack[len(cmdStack)-1]
@@ -179,7 +122,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			op := t2op(code[0])
 
 			if op >= 32 && op <= 246 {
-				stack = append(stack, f16FromInt16(int16(op)-139))
+				stack = append(stack, float64(int16(op)-139))
 				code = code[1:]
 				continue
 			} else if op >= 247 && op <= 250 {
@@ -187,7 +130,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errIncomplete
 				}
 				val := (int16(op)-247)*256 + int16(code[1]) + 108
-				stack = append(stack, f16FromInt16(val))
+				stack = append(stack, float64(val))
 				code = code[2:]
 				continue
 			} else if op >= 251 && op <= 254 {
@@ -195,7 +138,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errIncomplete
 				}
 				val := (251-int16(op))*256 - int16(code[1]) - 108
-				stack = append(stack, f16FromInt16(val))
+				stack = append(stack, float64(val))
 				code = code[2:]
 				continue
 			} else if op == 28 {
@@ -203,16 +146,15 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errIncomplete
 				}
 				val := int16(code[1])<<8 | int16(code[2])
-				stack = append(stack, f16FromInt16(val))
+				stack = append(stack, float64(val))
 				code = code[3:]
 				continue
 			} else if op == 255 {
 				if len(code) < 5 {
 					return nil, errIncomplete
 				}
-				val := Fixed16(code[1])<<24 | Fixed16(code[2])<<16 |
-					Fixed16(code[3])<<8 | Fixed16(code[4])
-				stack = append(stack, val)
+				val := int32(code[1])<<24 | int32(code[2])<<16 | int32(code[3])<<8 | int32(code[4])
+				stack = append(stack, float64(val)/65536)
 				code = code[5:]
 				continue
 			}
@@ -288,7 +230,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 			case t2hhcurveto:
 				tmp := stack
-				var dy1 Fixed16
+				var dy1 float64
 				if len(tmp)%4 != 0 {
 					dy1, tmp = tmp[0], tmp[1:]
 				}
@@ -303,7 +245,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 			case t2vvcurveto:
 				tmp := stack
-				var dx1 Fixed16
+				var dx1 float64
 				if len(tmp)%4 != 0 {
 					dx1, tmp = tmp[0], tmp[1:]
 				}
@@ -320,7 +262,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				tmp := stack
 				horizontal := op == t2hvcurveto
 				for len(tmp) >= 4 {
-					var extra Fixed16
+					var extra float64
 					if len(tmp) == 5 {
 						extra = tmp[4]
 					}
@@ -357,7 +299,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					extra := stack[10]
 					dx := stack[0] + stack[2] + stack[4] + stack[6] + stack[8]
 					dy := stack[1] + stack[3] + stack[5] + stack[7] + stack[9]
-					if dx.Abs() > dy.Abs() {
+					if math.Abs(dx) > math.Abs(dy) {
 						rCurveTo(stack[6], stack[7],
 							stack[8], stack[9],
 							extra, 0)
@@ -406,8 +348,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				setGlyphWidth(len(stack)%2 == 1)
 				var prev funit.Int16
 				for k := 0; k+1 < len(stack); k += 2 {
-					a := prev + stack[k].Int16()
-					b := a + stack[k+1].Int16()
+					a := prev + funit.Int16(math.Round(stack[k]))
+					b := a + funit.Int16(math.Round(stack[k+1]))
 					res.HStem = append(res.HStem, a, b)
 					prev = b
 				}
@@ -423,8 +365,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				setGlyphWidth(len(stack)%2 == 1)
 				var prev funit.Int16
 				for k := 0; k+1 < len(stack); k += 2 {
-					a := prev + stack[k].Int16()
-					b := a + stack[k+1].Int16()
+					a := prev + funit.Int16(math.Round(stack[k]))
+					b := a + funit.Int16(math.Round(stack[k+1]))
 					res.VStem = append(res.VStem, a, b)
 					prev = b
 				}
@@ -445,8 +387,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				// need not be included."
 				var prev funit.Int16
 				for k := 0; k+1 < len(stack); k += 2 {
-					a := prev + stack[k].Int16()
-					b := a + stack[k+1].Int16()
+					a := prev + funit.Int16(math.Round(stack[k]))
+					b := a + funit.Int16(math.Round(stack[k+1]))
 					res.VStem = append(res.VStem, a, b)
 					prev = b
 				}
@@ -472,7 +414,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					cmd.Op = OpCntrMask
 				}
 				for _, b := range code[:k] {
-					cmd.Args = append(cmd.Args, f16FromByte(b))
+					cmd.Args = append(cmd.Args, float64(b))
 				}
 				res.Cmds = append(res.Cmds, cmd)
 
@@ -506,9 +448,9 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				var x Fixed16
+				var x float64
 				if stack[k+1] != 0 {
-					x = f16(stack[k].Float64() / stack[k+1].Float64())
+					x = stack[k] / stack[k+1]
 				}
 				stack[k] = x
 				stack = stack[:k+1]
@@ -519,22 +461,22 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				}
 				stack[k] = -stack[k]
 			case t2random:
-				stack = append(stack, 40501) // a random fixed16 in (0, 1]
+				stack = append(stack, 40501.0/65536) // a random value in (0, 1]
 			case t2mul:
 				k := len(stack) - 2
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				stack[k] = Fixed16(int64(stack[k]) * int64(stack[k+1]) >> 16)
+				stack[k] = float64(int64(stack[k]) * int64(stack[k+1]) >> 16)
 				stack = stack[:k+1]
 			case t2sqrt:
 				k := len(stack) - 1
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				var x Fixed16
+				var x float64
 				if stack[k] > 0 {
-					x = f16(math.Sqrt(stack[k].Float64()))
+					x = math.Sqrt(stack[k])
 				}
 				stack[k] = x
 			case t2drop:
@@ -554,7 +496,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				idx := stack[k].Int()
+				idx := int(stack[k])
 				if idx < 0 {
 					idx = 0
 				}
@@ -567,8 +509,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				n := stack[k].Int()
-				j := stack[k+1].Int()
+				n := int(stack[k])
+				j := int(stack[k+1])
 				if n <= 0 || n > k {
 					return nil, errors.New("invalid roll count")
 				}
@@ -586,12 +528,12 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				m := stack[k+1].Int()
+				m := int(stack[k+1])
 				if m < 0 || m >= 32 {
 					return nil, errors.New("cff: invalid store index")
 				}
 				if storage == nil {
-					storage = make([]Fixed16, 32)
+					storage = make([]float64, 32)
 				}
 				storage[m] = stack[k]
 				stack = stack[:k]
@@ -600,7 +542,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				m := stack[k].Int()
+				m := int(stack[k])
 				if m < 0 || m >= len(storage) {
 					return nil, errors.New("cff: invalid store index")
 				}
@@ -611,9 +553,9 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				var val Fixed16
+				var val float64
 				if stack[k] != 0 && stack[k+1] != 0 {
-					val = f16FromInt16(1)
+					val = float64(1)
 				}
 				stack = append(stack[:k], val)
 			case t2or:
@@ -621,9 +563,9 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				var val Fixed16
+				var val float64
 				if stack[k] != 0 || stack[k+1] != 0 {
-					val = f16FromInt16(1)
+					val = float64(1)
 				}
 				stack = append(stack[:k], val)
 			case t2not:
@@ -632,7 +574,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errStackUnderflow
 				}
 				if stack[k] == 0 {
-					stack[k] = f16FromInt16(1)
+					stack[k] = float64(1)
 				} else {
 					stack[k] = 0
 				}
@@ -642,7 +584,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errStackUnderflow
 				}
 				if stack[k] == stack[k+1] {
-					stack[k] = f16FromInt16(1)
+					stack[k] = float64(1)
 				} else {
 					stack[k] = 0
 				}
@@ -652,7 +594,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				var val Fixed16
+				var val float64
 				if stack[k+2] <= stack[k+3] {
 					val = stack[k]
 				} else {
@@ -665,7 +607,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				biased := stack[k].Int()
+				biased := int(stack[k])
 				stack = stack[:k]
 
 				cmdStack = append(cmdStack, code)
@@ -723,7 +665,7 @@ func getSubr(subrs cffIndex, biased int) ([]byte, error) {
 	return subrs[idx], nil
 }
 
-func roll(data []Fixed16, j int) {
+func roll(data []float64, j int) {
 	n := len(data)
 
 	j = j % n
@@ -731,7 +673,7 @@ func roll(data []Fixed16, j int) {
 		j += n
 	}
 
-	tmp := make([]Fixed16, j)
+	tmp := make([]float64, j)
 	copy(tmp, data[n-j:])
 	copy(data[j:], data[:n-j])
 	copy(data[:j], tmp)

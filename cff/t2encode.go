@@ -19,6 +19,7 @@ package cff
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"seehuhn.de/go/dijkstra"
@@ -47,10 +48,10 @@ func NewGlyph(name string, width funit.Int16) *Glyph {
 func (g *Glyph) String() string {
 	b := &strings.Builder{}
 	fmt.Fprintf(b, "Glyph %q (width %d):\n", g.Name, g.Width)
-	fmt.Fprintf(b, "  - HStem: %v\n", g.HStem)
-	fmt.Fprintf(b, "  - HStem: %v\n", g.VStem)
+	fmt.Fprintf(b, "  HStem: %v\n", g.HStem)
+	fmt.Fprintf(b, "  HStem: %v\n", g.VStem)
 	for i, cmd := range g.Cmds {
-		fmt.Fprintf(b, "  - Cmds[%d]: %s\n", i, cmd)
+		fmt.Fprintf(b, "  Cmds[%d]: %s\n", i, cmd)
 	}
 	return b.String()
 }
@@ -60,7 +61,7 @@ func (g *Glyph) String() string {
 func (g *Glyph) MoveTo(x, y float64) {
 	g.Cmds = append(g.Cmds, GlyphOp{
 		Op:   OpMoveTo,
-		Args: []Fixed16{f16(x), f16(y)},
+		Args: []float64{x, y},
 	})
 }
 
@@ -68,7 +69,7 @@ func (g *Glyph) MoveTo(x, y float64) {
 func (g *Glyph) LineTo(x, y float64) {
 	g.Cmds = append(g.Cmds, GlyphOp{
 		Op:   OpLineTo,
-		Args: []Fixed16{f16(x), f16(y)},
+		Args: []float64{x, y},
 	})
 }
 
@@ -76,17 +77,17 @@ func (g *Glyph) LineTo(x, y float64) {
 func (g *Glyph) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
 	g.Cmds = append(g.Cmds, GlyphOp{
 		Op:   OpCurveTo,
-		Args: []Fixed16{f16(x1), f16(y1), f16(x2), f16(y2), f16(x3), f16(y3)},
+		Args: []float64{x1, y1, x2, y2, x3, y3},
 	})
 }
 
 // Extent computes the Glyph extent in font design units
 func (g *Glyph) Extent() funit.Rect16 {
-	var left, right, top, bottom Fixed16
+	var left, right, top, bottom float64
 	first := true
 cmdLoop:
 	for _, cmd := range g.Cmds {
-		var x, y Fixed16
+		var x, y float64
 		switch cmd.Op {
 		case OpMoveTo, OpLineTo:
 			x = cmd.Args[0]
@@ -112,10 +113,10 @@ cmdLoop:
 		first = false
 	}
 	return funit.Rect16{
-		LLx: funit.Int16(left.Floor()),
-		LLy: funit.Int16(bottom.Floor()),
-		URx: funit.Int16(right.Ceil()),
-		URy: funit.Int16(top.Ceil()),
+		LLx: funit.Int16(math.Floor(left)),
+		LLy: funit.Int16(math.Floor(bottom)),
+		URx: funit.Int16(math.Ceil(right)),
+		URy: funit.Int16(math.Ceil(top)),
 	}
 }
 
@@ -244,8 +245,8 @@ func encodePaths(commands []GlyphOp) [][]byte {
 func encodeArgs(cmds []GlyphOp) []enCmd {
 	res := make([]enCmd, len(cmds))
 
-	var posX Fixed16
-	var posY Fixed16
+	var posX float64
+	var posY float64
 	for i, cmd := range cmds {
 		res[i] = enCmd{
 			Op: cmd.Op,
@@ -259,21 +260,21 @@ func encodeArgs(cmds []GlyphOp) []enCmd {
 			posY += dy.Val
 
 		case OpCurveTo:
-			dxa := encodeNumber(cmd.Args[0] - posX)
-			dya := encodeNumber(cmd.Args[1] - posY)
-			dxb := encodeNumber(cmd.Args[2] - cmd.Args[0])
-			dyb := encodeNumber(cmd.Args[3] - cmd.Args[1])
-			dxc := encodeNumber(cmd.Args[4] - cmd.Args[2])
-			dyc := encodeNumber(cmd.Args[5] - cmd.Args[3])
-			res[i].Args = []encodedNumber{dxa, dya, dxb, dyb, dxc, dyc}
-			posX += dxa.Val + dxb.Val + dxc.Val
-			posY += dya.Val + dyb.Val + dyc.Val
+			dax := encodeNumber(cmd.Args[0] - posX)
+			day := encodeNumber(cmd.Args[1] - posY)
+			dbx := encodeNumber(cmd.Args[2] - dax.Val - posX)
+			dby := encodeNumber(cmd.Args[3] - day.Val - posY)
+			dcx := encodeNumber(cmd.Args[4] - dbx.Val - dax.Val - posX)
+			dcy := encodeNumber(cmd.Args[5] - dby.Val - day.Val - posY)
+			res[i].Args = []encodedNumber{dax, day, dbx, dby, dcx, dcy}
+			posX += dax.Val + dbx.Val + dcx.Val
+			posY += day.Val + dby.Val + dcy.Val
 
 		case OpHintMask, OpCntrMask:
 			k := len(cmd.Args)
 			code := make([]byte, k)
 			for i, arg := range cmd.Args {
-				code[i] = arg.Byte()
+				code[i] = byte(arg)
 			}
 			res[i].Args = []encodedNumber{{Code: code}}
 
@@ -548,7 +549,7 @@ const maxStack = 48
 // GlyphOp is a CFF glyph drawing command.
 type GlyphOp struct {
 	Op   GlyphOpType
-	Args []Fixed16
+	Args []float64
 }
 
 // GlyphOpType is the type of a CFF glyph drawing command.
@@ -612,25 +613,29 @@ func (c enCmd) appendArgs(code [][]byte) [][]byte {
 
 // encodedNumber is a number together with the Type2 charstring encoding of that number.
 type encodedNumber struct {
-	Val  Fixed16
+	Val  float64
 	Code []byte
 }
 
 func (x encodedNumber) String() string {
-	return fmt.Sprintf("%g (% x)", x.Val.Float64(), x.Code)
+	return fmt.Sprintf("%g (% x)", x.Val, x.Code)
 }
 
 // encodeNumber encodes the given number into a CFF encoding.
-func encodeNumber(x Fixed16) encodedNumber {
+func encodeNumber(x float64) encodedNumber {
 	var code []byte
 
 	// TODO(voss): consider using t2dup here.
 	// TODO(voss): also consider fractions of two one-byte integers?
 
-	if x%65536 == 0 {
-		code = encodeInt(x.Int16())
+	x16 := funit.Int16(x)
+	if math.Abs(float64(x16)-x) <= 0.5/65536 {
+		code = encodeInt(x16)
+		x = float64(x16)
 	} else {
-		code = []byte{255, byte(x >> 24), byte(x >> 16), byte(x >> 8), byte(x)}
+		x32 := int32(math.Round(x * 65536))
+		code = []byte{255, byte(x32 >> 24), byte(x32 >> 16), byte(x32 >> 8), byte(x32)}
+		x = float64(x32) / 65536
 	}
 	return encodedNumber{
 		Val:  x,

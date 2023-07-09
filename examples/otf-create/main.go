@@ -18,6 +18,7 @@ package main
 
 import (
 	"log"
+	"math"
 	"os"
 	"time"
 
@@ -53,23 +54,23 @@ func main() {
 
 	cffInfo := &cff.Outlines{}
 
-	g := cff.NewGlyph(".notdef", 550)
+	g := cff.NewGlyph(".notdef", 550) // GID 0
 	g.MoveTo(0, 0)
 	g.LineTo(500, 0)
 	g.LineTo(500, 700)
 	g.LineTo(0, 700)
 	cffInfo.Glyphs = append(cffInfo.Glyphs, g)
 
-	g = cff.NewGlyph("space", 550)
+	g = cff.NewGlyph("space", 550) // GID 1
 	cffInfo.Glyphs = append(cffInfo.Glyphs, g)
 
-	g = cff.NewGlyph("A", 550)
+	g = cff.NewGlyph("A", 550) // GID 2
 	g.MoveTo(0, 0)
 	g.LineTo(500, 0)
 	g.LineTo(250, 710)
 	cffInfo.Glyphs = append(cffInfo.Glyphs, g)
 
-	g = cff.NewGlyph("B", 550)
+	g = cff.NewGlyph("B", 550) // GID 3
 	g.MoveTo(0, 0)
 	g.LineTo(200, 0)
 	g.CurveTo(300, 0, 500, 75, 500, 175)
@@ -78,6 +79,11 @@ func main() {
 	g.CurveTo(500, 625, 300, 700, 200, 700)
 	g.LineTo(0, 700)
 	cffInfo.Glyphs = append(cffInfo.Glyphs, g)
+
+	g = cff.NewGlyph("C", 650) // GID 4
+	circle(g, 300, 300, 300)
+	cffInfo.Glyphs = append(cffInfo.Glyphs, g)
+
 	cffInfo.Private = []*type1.PrivateDict{
 		{
 			BlueValues: []funit.Int16{-10, 0, 700, 710},
@@ -91,6 +97,7 @@ func main() {
 	cmap[0x00A0] = 1
 	cmap['A'] = 2
 	cmap['B'] = 3
+	cmap['C'] = 4
 	info.CMap = cmap
 
 	info.CodePageRange.Set(os2.CP1252) // Latin 1
@@ -108,5 +115,29 @@ func main() {
 	err = out.Close()
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+func circle(g *cff.Glyph, x, y, radius float64) {
+	nSegment := 4
+	dPhi := 2 * math.Pi / float64(nSegment)
+	k := 4.0 / 3.0 * radius * math.Tan(dPhi/4)
+
+	phi := 0.0
+	x0 := x + radius*math.Cos(phi)
+	y0 := y + radius*math.Sin(phi)
+	g.MoveTo(x0, y0)
+
+	for i := 0; i < nSegment; i++ {
+		x1 := x0 - k*math.Sin(phi)
+		y1 := y0 + k*math.Cos(phi)
+		phi += dPhi
+		x3 := x + radius*math.Cos(phi)
+		y3 := y + radius*math.Sin(phi)
+		x2 := x3 + k*math.Sin(phi)
+		y2 := y3 - k*math.Cos(phi)
+		g.CurveTo(x1, y1, x2, y2, x3, y3)
+		x0 = x3
+		y0 = y3
 	}
 }

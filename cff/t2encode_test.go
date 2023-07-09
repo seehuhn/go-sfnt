@@ -290,10 +290,10 @@ func TestType2EncodeNumber(t *testing.T) {
 	// charstring, and then use the decoder to this charstring.
 	info := &decodeInfo{}
 	for _, test := range cases {
-		enc := encodeNumber(f16(test))
+		enc := encodeNumber(test)
 
-		if math.Abs(enc.Val.Float64()-test) > 0.5/65536 {
-			t.Errorf("%f != %f", enc.Val.Float64(), test)
+		if math.Abs(enc.Val-test) > 0.5/65536 {
+			t.Errorf("%f != %f", enc.Val, test)
 			continue
 		}
 
@@ -308,7 +308,7 @@ func TestType2EncodeNumber(t *testing.T) {
 		}
 		args := glyph.Cmds[0].Args
 		if args[0] != enc.Val {
-			t.Errorf("%f != %f", args[0].Float64(), enc.Val.Float64())
+			t.Errorf("%f != %f", args[0], enc.Val)
 		}
 	}
 }
@@ -330,8 +330,28 @@ func TestType2EncodeInt(t *testing.T) {
 			t.Fatal(err)
 		}
 		args := glyph.Cmds[0].Args
-		if args[0] != f16FromInt(i) || args[1] != f16FromInt(i+1) {
-			t.Fatalf("%f,%f != %d,%d", args[0].Float64(), args[1].Float64(), i, i+1)
+		if args[0] != float64(i) || args[1] != float64(i+1) {
+			t.Fatalf("%f,%f != %d,%d", args[0], args[1], i, i+1)
 		}
+	}
+}
+
+func TestType2EncodeGlyphs(t *testing.T) {
+	info := &decodeInfo{}
+	g1 := NewGlyph("", 500)
+	g1.MoveTo(0, 0)
+	g1.CurveTo(0, 1, 2, 33000, 3, 4)
+	code, err := g1.encodeCharString(info.defaultWidth, info.nominalWidth)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	g2, err := info.decodeCharString(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !glyphsEqual(g1, g2) {
+		t.Errorf("different (-old +new):\n%s", cmp.Diff(g1, g2))
 	}
 }
