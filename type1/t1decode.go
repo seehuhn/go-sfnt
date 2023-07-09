@@ -40,6 +40,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	res := &Glyph{}
 
 	var posX, posY float64
+	var LsbX funit.Int16 // TODO(voss): use float64
+	var LsbY funit.Int16
 	rMoveTo := func(dx, dy float64) {
 		posX += dx
 		posY += dy
@@ -140,8 +142,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				fmt.Printf("hsbw(%g, %g)\n", stack[0], stack[1])
 				posX = stack[0]
 				posY = 0
-				res.LsbX = funit.Int16(math.Round(stack[0]))
-				res.LsbY = 0
+				LsbX = funit.Int16(math.Round(stack[0]))
+				LsbY = 0
 				res.WidthX = funit.Int16(math.Round(stack[1]))
 				res.WidthY = 0
 				clearStack()
@@ -158,8 +160,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				fmt.Printf("sbw(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
 				posX = stack[0]
 				posY = stack[1]
-				res.LsbX = funit.Int16(math.Round(stack[0]))
-				res.LsbY = funit.Int16(math.Round(stack[1]))
+				LsbX = funit.Int16(math.Round(stack[0]))
+				LsbY = funit.Int16(math.Round(stack[1]))
 				res.WidthX = funit.Int16(math.Round(stack[2]))
 				res.WidthY = funit.Int16(math.Round(stack[3]))
 				clearStack()
@@ -239,7 +241,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errIncomplete
 				}
 				fmt.Printf("hstem(%g, %g)\n", stack[0], stack[1])
-				a := res.LsbY + funit.Int16(math.Round(stack[0]))
+				a := LsbY + funit.Int16(math.Round(stack[0]))
 				b := a + funit.Int16(math.Round(stack[1]))
 				res.HStem = append(res.HStem, a, b)
 				clearStack()
@@ -248,11 +250,11 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errIncomplete
 				}
 				fmt.Printf("hstem3(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
-				a := res.LsbY + funit.Int16(math.Round(stack[0]))
+				a := LsbY + funit.Int16(math.Round(stack[0]))
 				b := a + funit.Int16(math.Round(stack[1]))
-				c := res.LsbY + funit.Int16(math.Round(stack[2]))
+				c := LsbY + funit.Int16(math.Round(stack[2]))
 				d := c + funit.Int16(math.Round(stack[3]))
-				e := res.LsbY + funit.Int16(math.Round(stack[4]))
+				e := LsbY + funit.Int16(math.Round(stack[4]))
 				f := e + funit.Int16(math.Round(stack[5]))
 				res.HStem = append(res.HStem[:0], a, b, c, d, e, f)
 				clearStack()
@@ -261,7 +263,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errIncomplete
 				}
 				fmt.Printf("vstem(%g, %g)\n", stack[0], stack[1])
-				a := res.LsbX + funit.Int16(math.Round(stack[0]))
+				a := LsbX + funit.Int16(math.Round(stack[0]))
 				b := a + funit.Int16(math.Round(stack[1]))
 				res.VStem = append(res.VStem, a, b)
 				clearStack()
@@ -270,11 +272,11 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errIncomplete
 				}
 				fmt.Printf("vstem3(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
-				a := res.LsbX + funit.Int16(math.Round(stack[0]))
+				a := LsbX + funit.Int16(math.Round(stack[0]))
 				b := a + funit.Int16(math.Round(stack[1]))
-				c := res.LsbX + funit.Int16(math.Round(stack[2]))
+				c := LsbX + funit.Int16(math.Round(stack[2]))
 				d := c + funit.Int16(math.Round(stack[3]))
-				e := res.LsbX + funit.Int16(math.Round(stack[4]))
+				e := LsbX + funit.Int16(math.Round(stack[4]))
 				f := e + funit.Int16(math.Round(stack[5]))
 				res.VStem = append(res.VStem[:0], a, b, c, d, e, f)
 				clearStack()

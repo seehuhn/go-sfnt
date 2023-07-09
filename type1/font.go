@@ -37,8 +37,6 @@ type Glyph struct {
 	Cmds   []GlyphOp
 	HStem  []funit.Int16
 	VStem  []funit.Int16
-	LsbX   funit.Int16
-	LsbY   funit.Int16
 	WidthX funit.Int16
 	WidthY funit.Int16
 }
