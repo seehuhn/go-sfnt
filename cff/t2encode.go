@@ -20,105 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 
 	"seehuhn.de/go/dijkstra"
 	"seehuhn.de/go/sfnt/funit"
 )
 
 // TODO(voss): use seehuhn.de/go/dag instead of seehuhn.de/go/dijkstra
-
-// Glyph represents a glyph in a CFF font.
-type Glyph struct {
-	Cmds  []GlyphOp
-	HStem []funit.Int16
-	VStem []funit.Int16
-	Name  string
-	Width funit.Int16
-}
-
-// NewGlyph allocates a new glyph.
-func NewGlyph(name string, width funit.Int16) *Glyph {
-	return &Glyph{
-		Name:  name,
-		Width: width,
-	}
-}
-
-func (g *Glyph) String() string {
-	b := &strings.Builder{}
-	fmt.Fprintf(b, "Glyph %q (width %d):\n", g.Name, g.Width)
-	fmt.Fprintf(b, "  HStem: %v\n", g.HStem)
-	fmt.Fprintf(b, "  HStem: %v\n", g.VStem)
-	for i, cmd := range g.Cmds {
-		fmt.Fprintf(b, "  Cmds[%d]: %s\n", i, cmd)
-	}
-	return b.String()
-}
-
-// MoveTo starts a new sub-path and moves the current point to (x, y).
-// The previous sub-path, if any, is closed.
-func (g *Glyph) MoveTo(x, y float64) {
-	g.Cmds = append(g.Cmds, GlyphOp{
-		Op:   OpMoveTo,
-		Args: []float64{x, y},
-	})
-}
-
-// LineTo adds a straight line to the current sub-path.
-func (g *Glyph) LineTo(x, y float64) {
-	g.Cmds = append(g.Cmds, GlyphOp{
-		Op:   OpLineTo,
-		Args: []float64{x, y},
-	})
-}
-
-// CurveTo adds a cubic Bezier curve to the current sub-path.
-func (g *Glyph) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
-	g.Cmds = append(g.Cmds, GlyphOp{
-		Op:   OpCurveTo,
-		Args: []float64{x1, y1, x2, y2, x3, y3},
-	})
-}
-
-// Extent computes the Glyph extent in font design units
-func (g *Glyph) Extent() funit.Rect16 {
-	var left, right, top, bottom float64
-	first := true
-cmdLoop:
-	for _, cmd := range g.Cmds {
-		var x, y float64
-		switch cmd.Op {
-		case OpMoveTo, OpLineTo:
-			x = cmd.Args[0]
-			y = cmd.Args[1]
-		case OpCurveTo:
-			x = cmd.Args[4]
-			y = cmd.Args[5]
-		default:
-			continue cmdLoop
-		}
-		if first || x < left {
-			left = x
-		}
-		if first || x > right {
-			right = x
-		}
-		if first || y < bottom {
-			bottom = y
-		}
-		if first || y > top {
-			top = y
-		}
-		first = false
-	}
-	return funit.Rect16{
-		LLx: funit.Int16(math.Floor(left)),
-		LLy: funit.Int16(math.Floor(bottom)),
-		URx: funit.Int16(math.Ceil(right)),
-		URy: funit.Int16(math.Ceil(top)),
-	}
-}
 
 func (g *Glyph) encodeCharString(defaultWidth, nominalWidth funit.Int16) ([]byte, error) {
 	var header [][]byte
@@ -545,53 +452,6 @@ func (enc encoder) Length(_ int, e edge) int {
 }
 
 const maxStack = 48
-
-// GlyphOp is a CFF glyph drawing command.
-type GlyphOp struct {
-	Op   GlyphOpType
-	Args []float64
-}
-
-// GlyphOpType is the type of a CFF glyph drawing command.
-type GlyphOpType byte
-
-func (op GlyphOpType) String() string {
-	switch op {
-	case OpMoveTo:
-		return "moveto"
-	case OpLineTo:
-		return "lineto"
-	case OpCurveTo:
-		return "curveto"
-	case OpHintMask:
-		return "hintmask"
-	case OpCntrMask:
-		return "cntrmask"
-	default:
-		return fmt.Sprintf("CommandType(%d)", op)
-	}
-}
-
-const (
-	// OpMoveTo closes the previous subpath and starts a new one at the given point.
-	OpMoveTo GlyphOpType = iota + 1
-
-	// OpLineTo appends a straight line segment from the previous point to the given point.
-	OpLineTo
-
-	// OpCurveTo appends a Bezier curve segment from the previous point to the given point.
-	OpCurveTo
-
-	// OpHintMask adds a CFF hintmask command.
-	OpHintMask
-
-	// OpCntrMask adds a CFF cntrmask command.
-	OpCntrMask
-)
-
-func (c GlyphOp) String() string {
-	return fmt.Sprint("cmd", c.Args, c.Op)
-}
 
 // enCmd encodes a single command, using relative coordinates for the arguments
 // and storing the argument values as EncodedNumbers.
