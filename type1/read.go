@@ -237,13 +237,49 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		fmt.Println(name, len(obfuscated))
 		plain := deobfuscateCharstring(obfuscated, int(lenIV))
-		glyph, err := ctx.decodeCharString(plain)
+		glyph, err := ctx.decodeCharString(plain, string(name))
 		if err != nil {
 			return nil, err
 		}
 		fmt.Println()
 
 		glyphs[string(name)] = glyph
+	}
+
+	for _, seac := range ctx.seacs {
+		base := glyphs[encoding[byte(seac.base)]]
+		accent := glyphs[encoding[byte(seac.accent)]]
+		if base == nil || accent == nil {
+			continue
+		}
+		g := glyphs[seac.name]
+		g.Cmds = append(g.Cmds[:0], base.Cmds...)
+		for _, cmd := range accent.Cmds {
+			switch cmd.Op {
+			case OpMoveTo:
+				g.Cmds = append(g.Cmds, GlyphOp{
+					Op:   OpMoveTo,
+					Args: []float64{cmd.Args[0] + seac.dx, cmd.Args[1] + seac.dy},
+				})
+			case OpLineTo:
+				g.Cmds = append(g.Cmds, GlyphOp{
+					Op:   OpLineTo,
+					Args: []float64{cmd.Args[0] + seac.dx, cmd.Args[1] + seac.dy},
+				})
+			case OpCurveTo:
+				g.Cmds = append(g.Cmds, GlyphOp{
+					Op: OpCurveTo,
+					Args: []float64{
+						cmd.Args[0] + seac.dx, cmd.Args[1] + seac.dy,
+						cmd.Args[2] + seac.dx, cmd.Args[3] + seac.dy,
+						cmd.Args[4] + seac.dx, cmd.Args[5] + seac.dy,
+					},
+				})
+			}
+		}
+		g.HStem = append(g.HStem[:0], base.HStem...)
+		g.VStem = append(g.VStem[:0], base.VStem...)
+		glyphs[seac.name] = g
 	}
 
 	res := &Font{

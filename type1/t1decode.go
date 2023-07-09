@@ -26,9 +26,16 @@ import (
 
 type decodeInfo struct {
 	subrs [][]byte
+	seacs []seacInfo
 }
 
-func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
+type seacInfo struct {
+	name         string
+	base, accent int
+	dx, dy       float64
+}
+
+func (info *decodeInfo) decodeCharString(code []byte, name string) (*Glyph, error) {
 	const maxStack = 24
 	stack := make([]float64, 0, maxStack)
 	var otherStack []float64
@@ -76,6 +83,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	}
 
 	cmdStack := [][]byte{code}
+glyphLoop:
 	for len(cmdStack) > 0 {
 		cmdStack, code = cmdStack[:len(cmdStack)-1], cmdStack[len(cmdStack)-1]
 
@@ -135,6 +143,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			switch op {
 			case t1endchar:
 				fmt.Println("endchar")
+				break glyphLoop
 			case t1hsbw:
 				if len(stack) < 2 {
 					return nil, errIncomplete
@@ -152,7 +161,26 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					return nil, errIncomplete
 				}
 				fmt.Printf("seac(%g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4])
-				panic("not implemented") // TODO(voss): implement
+				// asb := stack[0]
+				adX := stack[1]
+				adY := stack[2]
+				bchar, err := getInt(stack[3])
+				if err != nil {
+					return nil, err
+				}
+				achar, err := getInt(stack[4])
+				if err != nil {
+					return nil, err
+				}
+				info.seacs = append(info.seacs, seacInfo{
+					name:   name,
+					base:   bchar,
+					accent: achar,
+					dx:     adX,
+					dy:     adY,
+				})
+				// clearStack()
+				break glyphLoop
 			case t1sbw:
 				if len(stack) < 4 {
 					return nil, errIncomplete

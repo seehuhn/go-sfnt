@@ -32,6 +32,7 @@ import (
 	"seehuhn.de/go/sfnt/afm"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
+	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/os2"
@@ -52,7 +53,7 @@ func main() {
 	case 1:
 		fname = flag.Arg(0)
 	default:
-		fmt.Fprintf(os.Stderr, "usage: %s font.{pfa,pfb} [font.afm]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s font.pf? [font.afm]\n", os.Args[0])
 	}
 
 	outName := *outNameFlag
@@ -85,8 +86,13 @@ func main() {
 }
 
 func readAfm(afmName string) (*afm.Info, error) {
-	// TODO(voss): implement
-	return nil, nil
+	fd, err := os.Open(afmName)
+	if err != nil {
+		return nil, err
+	}
+	defer fd.Close()
+
+	return afm.Read(fd)
 }
 
 func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
@@ -176,8 +182,8 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 	if err != nil {
 		return nil, err // TODO(voss)
 	}
-	creationTime := time.Now() // TODO(voss)
-	modificationTime := creationTime
+	modificationTime := time.Now()
+	creationTime := modificationTime // TODO(voss)
 
 	cmap := cmap.Format4{}
 	for gid, name := range glyphNames {
@@ -195,6 +201,19 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		cmap[r] = glyph.ID(gid)
 	}
 
+	var ascent funit.Int16
+	var descent funit.Int16
+	var capHeight funit.Int16
+	var xHeight funit.Int16
+	if afm != nil {
+		ascent = afm.Ascent
+		descent = afm.Descent
+		capHeight = afm.CapHeight
+		xHeight = afm.XHeight
+	} else {
+		// TODO(voss): take a guess if no afm given
+	}
+
 	otfInfo := sfnt.Info{
 		FamilyName:         t1Info.Info.FamilyName,
 		Width:              width,
@@ -209,25 +228,20 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		Version:            version,
 		CreationTime:       creationTime,
 		ModificationTime:   modificationTime,
-		Description:        "", // TODO(voss)
-		SampleText:         "", // TODO(voss)
 		Copyright:          t1Info.Info.Copyright,
 		Trademark:          t1Info.Info.Notice,
-		License:            "",   // TODO(voss)
-		LicenseURL:         "",   // TODO(voss)
 		PermUse:            0,    // TODO(voss)
-		UnitsPerEm:         1000, // TODO(voss)
-		Ascent:             0,    // TODO(voss)
-		Descent:            0,    // TODO(voss)
-		LineGap:            0,    // TODO(voss)
-		CapHeight:          0,    // TODO(voss)
-		XHeight:            0,    // TODO(voss)
+		UnitsPerEm:         1000, // TODO(voss): get from font matrix
+		Ascent:             ascent,
+		Descent:            descent,
+		LineGap:            0, // TODO(voss)
+		CapHeight:          capHeight,
+		XHeight:            xHeight,
 		ItalicAngle:        t1Info.Info.ItalicAngle,
 		UnderlinePosition:  t1Info.Info.UnderlinePosition,
 		UnderlineThickness: t1Info.Info.UnderlineThickness,
 		CMap:               cmap,
 		Outlines:           outlines,
-		// Gdef:               &gdef.Table{},   // TODO(voss)
 		// Gsub:               &gtab.Info{},   // TODO(voss)
 		// Gpos:               &gtab.Info{},   // TODO(voss)
 	}
