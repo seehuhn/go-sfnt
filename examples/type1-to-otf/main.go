@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"golang.org/x/exp/maps"
+	"golang.org/x/text/language"
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/afm"
 	"seehuhn.de/go/sfnt/cff"
@@ -35,6 +36,8 @@ import (
 	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
+	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/type1"
 	"seehuhn.de/go/sfnt/type1/names"
@@ -214,6 +217,9 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		// TODO(voss): take a guess if no afm given
 	}
 
+	gsub := makeLigatures(afm)
+	gpos := makeKerningTable(afm)
+
 	otfInfo := sfnt.Info{
 		FamilyName:         t1Info.Info.FamilyName,
 		Width:              width,
@@ -230,11 +236,10 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		ModificationTime:   modificationTime,
 		Copyright:          t1Info.Info.Copyright,
 		Trademark:          t1Info.Info.Notice,
-		PermUse:            0,    // TODO(voss)
 		UnitsPerEm:         1000, // TODO(voss): get from font matrix
 		Ascent:             ascent,
 		Descent:            descent,
-		LineGap:            0, // TODO(voss)
+		LineGap:            (ascent + descent) / 5, // TODO(voss)
 		CapHeight:          capHeight,
 		XHeight:            xHeight,
 		ItalicAngle:        t1Info.Info.ItalicAngle,
@@ -242,11 +247,89 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		UnderlineThickness: t1Info.Info.UnderlineThickness,
 		CMap:               cmap,
 		Outlines:           outlines,
-		// Gsub:               &gtab.Info{},   // TODO(voss)
-		// Gpos:               &gtab.Info{},   // TODO(voss)
+		Gsub:               gsub,
+		Gpos:               gpos,
 	}
 
 	return &otfInfo, nil
+}
+
+func makeLigatures(afm *afm.Info) *gtab.Info {
+	if afm == nil || len(afm.Ligatures) == 0 {
+		return nil
+	}
+
+	var gsub *gtab.Info
+	var ll []gtab.Ligature
+	for pair, repl := range afm.Ligatures {
+		ll = append(ll, gtab.Ligature{
+			In:  []glyph.ID{pair.Left, pair.Right},
+			Out: repl,
+		})
+	}
+
+	// sort lexicographically by `In`
+	sort.Slice(ll, func(i, j int) bool {
+		a := ll[i].In
+		b := ll[j].In
+		k := len(a)
+		if k > len(b) {
+			k = len(b)
+		}
+		for i := 0; i < k; i++ {
+			if a[i] != b[i] {
+				return a[i] < b[i]
+			}
+		}
+		return len(a) < len(b)
+	})
+
+	cov := coverage.Table{}
+	var repl [][]gtab.Ligature
+	start := -1
+	var cur glyph.ID
+	for i, l := range ll {
+		if start >= 0 && l.In[0] == cur {
+			continue
+		}
+		if start >= 0 {
+			cov[cur] = len(repl)
+			repl = append(repl, ll[start:i])
+		}
+		start = i
+		cur = l.In[0]
+	}
+	if start >= 0 {
+		cov[cur] = len(repl)
+		repl = append(repl, ll[start:])
+	}
+
+	subst := &gtab.Gsub4_1{
+		Cov:  cov,
+		Repl: repl,
+	}
+	gsub = &gtab.Info{
+		ScriptList: map[language.Tag]*gtab.Features{
+			language.Und: {Optional: []gtab.FeatureIndex{0}},
+		},
+		FeatureList: []*gtab.Feature{
+			{Tag: "liga", Lookups: []gtab.LookupIndex{0}},
+		},
+		LookupList: []*gtab.LookupTable{
+			{
+				Meta:      &gtab.LookupMetaInfo{},
+				Subtables: []gtab.Subtable{subst},
+			},
+		},
+	}
+	return gsub
+}
+
+func makeKerningTable(afm *afm.Info) *gtab.Info {
+	if afm == nil || len(afm.Kern) == 0 {
+		return nil
+	}
+	panic("TODO")
 }
 
 func writeOtf(outname string, info *sfnt.Info) error {
