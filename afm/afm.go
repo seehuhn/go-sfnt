@@ -45,7 +45,7 @@ type Info struct {
 	GlyphName    []string
 
 	Ligatures map[glyph.Pair]glyph.ID
-	Kern      map[glyph.Pair]funit.Int16
+	Kern      map[glyph.Pair]funit.Int16 // negative = move glyphs closer together
 }
 
 func Read(fd io.Reader) (*Info, error) {

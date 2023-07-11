@@ -259,7 +259,6 @@ func makeLigatures(afm *afm.Info) *gtab.Info {
 		return nil
 	}
 
-	var gsub *gtab.Info
 	var ll []gtab.Ligature
 	for pair, repl := range afm.Ligatures {
 		ll = append(ll, gtab.Ligature{
@@ -308,7 +307,7 @@ func makeLigatures(afm *afm.Info) *gtab.Info {
 		Cov:  cov,
 		Repl: repl,
 	}
-	gsub = &gtab.Info{
+	gsub := &gtab.Info{
 		ScriptList: map[language.Tag]*gtab.Features{
 			language.Und: {Optional: []gtab.FeatureIndex{0}},
 		},
@@ -329,7 +328,49 @@ func makeKerningTable(afm *afm.Info) *gtab.Info {
 	if afm == nil || len(afm.Kern) == 0 {
 		return nil
 	}
-	panic("TODO")
+
+	all := make(map[glyph.ID]map[glyph.ID]*gtab.PairAdjust)
+	for pair, adj := range afm.Kern {
+		if _, exists := all[pair.Left]; !exists {
+			all[pair.Left] = make(map[glyph.ID]*gtab.PairAdjust)
+		}
+		pa := &gtab.PairAdjust{
+			First: &gtab.GposValueRecord{XAdvance: adj},
+		}
+		all[pair.Left][pair.Right] = pa
+	}
+	keys := maps.Keys(all)
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i] < keys[j]
+	})
+
+	cov := coverage.Table{}
+	adjust := make([]map[glyph.ID]*gtab.PairAdjust, len(keys))
+	for idx, key := range keys {
+		cov[key] = idx
+		adjust[idx] = all[key]
+	}
+
+	kern := &gtab.Gpos2_1{
+		Cov:    cov,
+		Adjust: adjust,
+	}
+
+	gpos := &gtab.Info{
+		ScriptList: map[language.Tag]*gtab.Features{
+			language.Und: {Optional: []gtab.FeatureIndex{0}},
+		},
+		FeatureList: []*gtab.Feature{
+			{Tag: "kern", Lookups: []gtab.LookupIndex{0}},
+		},
+		LookupList: []*gtab.LookupTable{
+			{
+				Meta:      &gtab.LookupMetaInfo{},
+				Subtables: []gtab.Subtable{kern},
+			},
+		},
+	}
+	return gpos
 }
 
 func writeOtf(outname string, info *sfnt.Info) error {
