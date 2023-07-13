@@ -18,7 +18,6 @@ package type1
 
 import (
 	"errors"
-	"fmt"
 	"io"
 
 	"golang.org/x/exp/maps"
@@ -188,7 +187,6 @@ func Read(r io.Reader) (*Font, error) {
 			}
 			encoding[i] = string(glyphName)
 		}
-		fmt.Println("found encoding")
 	}
 
 	private := &PrivateDict{
@@ -232,16 +230,13 @@ func Read(r io.Reader) (*Font, error) {
 	for _, name := range names {
 		obfuscated, ok := cs[name].(postscript.String)
 		if !ok || len(obfuscated) < 4 {
-			fmt.Println("warning: skipping non-string glyph", name)
 			continue
 		}
-		fmt.Println(name, len(obfuscated))
 		plain := deobfuscateCharstring(obfuscated, int(lenIV))
 		glyph, err := ctx.decodeCharString(plain, string(name))
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println()
 
 		glyphs[string(name)] = glyph
 	}

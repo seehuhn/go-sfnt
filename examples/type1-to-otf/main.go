@@ -216,7 +216,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		cmap[r] = glyph.ID(gid)
 	}
 
-	unitsPerEm := 1000 // TODO(voss): get from font matrix
+	unitsPerEm := 1000 // TODO(voss): get from the font matrix
 
 	var ascent funit.Int16
 	var descent funit.Int16
@@ -232,12 +232,15 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 	}
 
 	minBaseLineSkip := funit.Int16(math.Round(1.2 * float64(unitsPerEm)))
-	if ascent-descent < minBaseLineSkip {
-		descent = ascent - minBaseLineSkip
+	if d := minBaseLineSkip - (ascent - descent); d > 0 {
+		d1 := d / 3
+		d2 := d - d1
+		descent -= d1
+		ascent += d2
 	}
 
-	gsub := makeLigatures(afm)
-	gpos := makeKerningTable(afm)
+	gsub := makeLigatures(afm, name2gid)
+	gpos := makeKerningTable(afm, name2gid)
 
 	otfInfo := sfnt.Info{
 		FamilyName:         t1Info.Info.FamilyName,
@@ -274,55 +277,39 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 	return &otfInfo, nil
 }
 
-func makeLigatures(afm *afm.Info) *gtab.Info {
+func makeLigatures(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
 	if afm == nil || len(afm.Ligatures) == 0 {
 		return nil
 	}
 
-	var ll []gtab.Ligature
+	afmNames := make(map[glyph.ID]string, len(afm.GlyphName))
+	for gid, name := range afm.GlyphName {
+		afmNames[glyph.ID(gid)] = name
+	}
+	t := func(gid glyph.ID) glyph.ID {
+		return name2gid[afmNames[gid]]
+	}
+
+	ll := map[glyph.ID][]gtab.Ligature{}
 	for pair, repl := range afm.Ligatures {
-		ll = append(ll, gtab.Ligature{
-			In:  []glyph.ID{pair.Left, pair.Right},
-			Out: repl,
+		a := t(pair.Left)
+		b := t(pair.Right)
+
+		ll[a] = append(ll[a], gtab.Ligature{
+			In:  []glyph.ID{b},
+			Out: t(repl),
 		})
 	}
 
-	// sort lexicographically by `In`
-	sort.Slice(ll, func(i, j int) bool {
-		a := ll[i].In
-		b := ll[j].In
-		k := len(a)
-		if k > len(b) {
-			k = len(b)
-		}
-		for i := 0; i < k; i++ {
-			if a[i] != b[i] {
-				return a[i] < b[i]
-			}
-		}
-		return len(a) < len(b)
-	})
+	keys := maps.Keys(ll)
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
 	cov := coverage.Table{}
 	var repl [][]gtab.Ligature
-	start := -1
-	var cur glyph.ID
-	for i, l := range ll {
-		if start >= 0 && l.In[0] == cur {
-			continue
-		}
-		if start >= 0 {
-			cov[cur] = len(repl)
-			repl = append(repl, ll[start:i])
-		}
-		start = i
-		cur = l.In[0]
+	for i, gid := range keys {
+		cov[gid] = i
+		repl = append(repl, ll[gid])
 	}
-	if start >= 0 {
-		cov[cur] = len(repl)
-		repl = append(repl, ll[start:])
-	}
-
 	subst := &gtab.Gsub4_1{
 		Cov:  cov,
 		Repl: repl,
@@ -344,20 +331,30 @@ func makeLigatures(afm *afm.Info) *gtab.Info {
 	return gsub
 }
 
-func makeKerningTable(afm *afm.Info) *gtab.Info {
+func makeKerningTable(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
 	if afm == nil || len(afm.Kern) == 0 {
 		return nil
 	}
 
+	afmNames := make(map[glyph.ID]string, len(afm.GlyphName))
+	for gid, name := range afm.GlyphName {
+		afmNames[glyph.ID(gid)] = name
+	}
+	t := func(gid glyph.ID) glyph.ID {
+		return name2gid[afmNames[gid]]
+	}
+
 	all := make(map[glyph.ID]map[glyph.ID]*gtab.PairAdjust)
 	for pair, adj := range afm.Kern {
-		if _, exists := all[pair.Left]; !exists {
-			all[pair.Left] = make(map[glyph.ID]*gtab.PairAdjust)
+		left := t(pair.Left)
+		right := t(pair.Right)
+		if _, exists := all[left]; !exists {
+			all[left] = make(map[glyph.ID]*gtab.PairAdjust)
 		}
 		pa := &gtab.PairAdjust{
 			First: &gtab.GposValueRecord{XAdvance: adj},
 		}
-		all[pair.Left][pair.Right] = pa
+		all[left][right] = pa
 	}
 	keys := maps.Keys(all)
 	sort.Slice(keys, func(i, j int) bool {
@@ -370,7 +367,6 @@ func makeKerningTable(afm *afm.Info) *gtab.Info {
 		cov[key] = idx
 		adjust[idx] = all[key]
 	}
-
 	kern := &gtab.Gpos2_1{
 		Cov:    cov,
 		Adjust: adjust,

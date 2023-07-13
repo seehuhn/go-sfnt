@@ -39,7 +39,7 @@ func (r *pfbReader) Read(b []byte) (n int, err error) {
 			var buf [6]byte
 			k, err := io.ReadFull(r.r, buf[:])
 			if k >= 2 && buf[0] == 0x80 && buf[1] == 0x03 && err == io.ErrUnexpectedEOF {
-				err = nil
+				// pass
 			} else if err != nil {
 				return n, err
 			}

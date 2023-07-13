@@ -470,7 +470,13 @@ type Gsub4_1 struct {
 // Ligature represents a substitution of a sequence of glyphs into a single glyph
 // in a Gsub4_1 subtable.
 type Ligature struct {
-	In  []glyph.ID // excludes the first input glyph, since this is in Cov
+	// In is the sequence of input glyphs that is replaced by Out, excluding
+	// the first glyph in the sequence (since this is in Cov).
+	//
+	// The order in the Ligature offset array defines the preference for using
+	// the ligatures, for example "ffl" is only applied if it comes before "ff".
+	In []glyph.ID
+
 	Out glyph.ID
 }
 

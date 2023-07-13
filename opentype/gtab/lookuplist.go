@@ -36,7 +36,13 @@ type LookupList []*LookupTable
 // font.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#lookup-table
 type LookupTable struct {
-	Meta      *LookupMetaInfo
+	Meta *LookupMetaInfo
+
+	// Subtables contains subtables to try for this lookup.  The subtables
+	// are tried in order, until one of them can be applied.
+	//
+	// The type of the subtables must match Meta.LookupType, but the
+	// subtables may use any format within that type.
 	Subtables Subtables
 }
 

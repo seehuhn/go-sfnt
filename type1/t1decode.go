@@ -97,7 +97,7 @@ glyphLoop:
 			if op >= 32 && op <= 246 {
 				stack = append(stack, float64(op)-139)
 				code = code[1:]
-				fmt.Println("# push", stack[len(stack)-1])
+				// fmt.Println("# push", stack[len(stack)-1])
 				continue
 			} else if op >= 247 && op <= 250 {
 				if len(code) < 2 {
@@ -106,7 +106,7 @@ glyphLoop:
 				val := (float64(op)-247)*256 + float64(code[1]) + 108
 				stack = append(stack, val)
 				code = code[2:]
-				fmt.Println("# push", stack[len(stack)-1])
+				// fmt.Println("# push", stack[len(stack)-1])
 				continue
 			} else if op >= 251 && op <= 254 {
 				if len(code) < 2 {
@@ -115,7 +115,7 @@ glyphLoop:
 				val := (251-float64(op))*256 - float64(code[1]) - 108
 				stack = append(stack, val)
 				code = code[2:]
-				fmt.Println("# push", stack[len(stack)-1])
+				// fmt.Println("# push", stack[len(stack)-1])
 				continue
 			} else if op == 255 {
 				if len(code) < 5 {
@@ -125,7 +125,7 @@ glyphLoop:
 					int32(code[3])<<8 | int32(code[4])
 				stack = append(stack, float64(val))
 				code = code[5:]
-				fmt.Println("# push", stack[len(stack)-1])
+				// fmt.Println("# push", stack[len(stack)-1])
 				continue
 			}
 
@@ -142,13 +142,13 @@ glyphLoop:
 		opSwitch:
 			switch op {
 			case t1endchar:
-				fmt.Println("endchar")
+				// fmt.Println("endchar")
 				break glyphLoop
 			case t1hsbw:
 				if len(stack) < 2 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("hsbw(%g, %g)\n", stack[0], stack[1])
+				// fmt.Printf("hsbw(%g, %g)\n", stack[0], stack[1])
 				posX = stack[0]
 				posY = 0
 				LsbX = funit.Int16(math.Round(stack[0]))
@@ -160,7 +160,7 @@ glyphLoop:
 				if len(stack) < 5 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("seac(%g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4])
+				// fmt.Printf("seac(%g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4])
 				// asb := stack[0]
 				adX := stack[1]
 				adY := stack[2]
@@ -185,7 +185,7 @@ glyphLoop:
 				if len(stack) < 4 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("sbw(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
+				// fmt.Printf("sbw(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
 				posX = stack[0]
 				posY = stack[1]
 				LsbX = funit.Int16(math.Round(stack[0]))
@@ -195,80 +195,80 @@ glyphLoop:
 				clearStack()
 
 			case t1closepath:
-				fmt.Println("closepath")
-			// TODO(voss): what to do here?
+				// fmt.Println("closepath")
+				// TODO(voss): what to do here?
 			case t1hlineto:
 				if len(stack) < 1 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("hlineto(%g)\n", stack[0])
+				// fmt.Printf("hlineto(%g)\n", stack[0])
 				rLineTo(stack[0], 0)
 				clearStack()
 			case t1hmoveto:
 				if len(stack) < 1 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("hmoveto(%g)\n", stack[0])
+				// fmt.Printf("hmoveto(%g)\n", stack[0])
 				rMoveTo(stack[0], 0)
 				clearStack()
 			case t1hvcurveto:
 				if len(stack) < 4 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("hvcurveto(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
+				// fmt.Printf("hvcurveto(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
 				rCurveTo(stack[0], 0, stack[1], stack[2], 0, stack[3])
 				clearStack()
 			case t1rlineto:
 				if len(stack) < 2 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("rlineto(%g, %g)\n", stack[0], stack[1])
+				// fmt.Printf("rlineto(%g, %g)\n", stack[0], stack[1])
 				rLineTo(stack[0], stack[1])
 				clearStack()
 			case t1rmoveto:
 				if len(stack) < 2 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("rmoveto(%g, %g)\n", stack[0], stack[1])
+				// fmt.Printf("rmoveto(%g, %g)\n", stack[0], stack[1])
 				rMoveTo(stack[0], stack[1])
 				clearStack()
 			case t1rrcurveto:
 				if len(stack) < 6 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("rrcurveto(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
+				// fmt.Printf("rrcurveto(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
 				rCurveTo(stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
 				clearStack()
 			case t1vhcurveto:
 				if len(stack) < 4 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("vhcurveto(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
+				// fmt.Printf("vhcurveto(%g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3])
 				rCurveTo(0, stack[0], stack[1], stack[2], stack[3], 0)
 				clearStack()
 			case t1vlineto:
 				if len(stack) < 1 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("vlineto(%g)\n", stack[0])
+				// fmt.Printf("vlineto(%g)\n", stack[0])
 				rLineTo(0, stack[0])
 				clearStack()
 			case t1vmoveto:
 				if len(stack) < 1 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("vmoveto(%g)\n", stack[0])
+				// fmt.Printf("vmoveto(%g)\n", stack[0])
 				rMoveTo(0, stack[0])
 				clearStack()
 
 			case t1dotsection:
-				fmt.Println("dotsection")
+				// fmt.Println("dotsection")
 				clearStack()
 			case t1hstem:
 				if len(stack) < 2 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("hstem(%g, %g)\n", stack[0], stack[1])
+				// fmt.Printf("hstem(%g, %g)\n", stack[0], stack[1])
 				a := LsbY + funit.Int16(math.Round(stack[0]))
 				b := a + funit.Int16(math.Round(stack[1]))
 				res.HStem = append(res.HStem, a, b)
@@ -277,7 +277,7 @@ glyphLoop:
 				if len(stack) < 6 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("hstem3(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
+				// fmt.Printf("hstem3(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
 				a := LsbY + funit.Int16(math.Round(stack[0]))
 				b := a + funit.Int16(math.Round(stack[1]))
 				c := LsbY + funit.Int16(math.Round(stack[2]))
@@ -290,7 +290,7 @@ glyphLoop:
 				if len(stack) < 2 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("vstem(%g, %g)\n", stack[0], stack[1])
+				// fmt.Printf("vstem(%g, %g)\n", stack[0], stack[1])
 				a := LsbX + funit.Int16(math.Round(stack[0]))
 				b := a + funit.Int16(math.Round(stack[1]))
 				res.VStem = append(res.VStem, a, b)
@@ -299,7 +299,7 @@ glyphLoop:
 				if len(stack) < 6 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("vstem3(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
+				// fmt.Printf("vstem3(%g, %g, %g, %g, %g, %g)\n", stack[0], stack[1], stack[2], stack[3], stack[4], stack[5])
 				a := LsbX + funit.Int16(math.Round(stack[0]))
 				b := a + funit.Int16(math.Round(stack[1]))
 				c := LsbX + funit.Int16(math.Round(stack[2]))
@@ -313,7 +313,7 @@ glyphLoop:
 				if len(stack) < 2 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("div(%g, %g)\n", stack[0], stack[1])
+				// fmt.Printf("div(%g, %g)\n", stack[0], stack[1])
 				stack = append(stack, stack[len(stack)-2]/stack[len(stack)-1])
 			case t1callothersubr:
 				if len(stack) < 2 {
@@ -330,9 +330,9 @@ glyphLoop:
 				if len(stack) < argN+2 {
 					return nil, errIncomplete
 				}
-				args := stack[len(stack)-argN-2 : len(stack)-2]
+				// args := stack[len(stack)-argN-2 : len(stack)-2]
 				stack = stack[:len(stack)-argN-2]
-				fmt.Println("callothersubr", idx, args)
+				// fmt.Println("callothersubr", idx, args)
 				switch idx { // pre-defined subroutines
 				case 3:
 					// hint replacement not supported
@@ -358,7 +358,7 @@ glyphLoop:
 				if idx < 0 || idx >= len(info.subrs) {
 					return nil, invalidSince("invalid subr index")
 				}
-				fmt.Printf("callsubr(%d)\n", idx)
+				// fmt.Printf("callsubr(%d)\n", idx)
 
 				cmdStack = append(cmdStack, code)
 				if len(cmdStack) > 10 {
@@ -370,17 +370,17 @@ glyphLoop:
 				if len(otherStack) < 1 {
 					return nil, invalidSince("postscript interpreter operand stack underflow")
 				}
-				fmt.Println("pop")
+				// fmt.Println("pop")
 				stack = append(stack, otherStack[len(otherStack)-1])
 				otherStack = otherStack[:len(otherStack)-1]
 			case t1return:
-				fmt.Println("return")
+				// fmt.Println("return")
 				break opLoop
 			case t1setcurrentpoint:
 				if len(stack) < 2 {
 					return nil, errIncomplete
 				}
-				fmt.Printf("setcurrentpoint(%g, %g)\n", stack[0], stack[1])
+				// fmt.Printf("setcurrentpoint(%g, %g)\n", stack[0], stack[1])
 				posX = stack[0]
 				posY = stack[1]
 				clearStack()

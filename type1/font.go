@@ -18,15 +18,17 @@ package type1
 
 import (
 	"fmt"
+	"time"
 
 	"seehuhn.de/go/sfnt/funit"
 )
 
 type Font struct {
-	Info     *FontInfo
-	Private  *PrivateDict
-	Glyphs   map[string]*Glyph
-	Encoding []string
+	CreationDate time.Time
+	Info         *FontInfo
+	Private      *PrivateDict
+	Glyphs       map[string]*Glyph
+	Encoding     []string
 }
 
 // Glyph represents a glyph in a Type 1 font.

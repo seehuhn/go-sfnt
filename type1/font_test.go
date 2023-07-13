@@ -19,6 +19,7 @@ package type1
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestXXX(t *testing.T) {
@@ -33,6 +34,10 @@ func TestXXX(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	font.CreationDate = time.Now()
 
-	_ = font
+	err = font.Write(os.Stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
