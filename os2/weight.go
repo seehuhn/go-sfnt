@@ -35,7 +35,7 @@ func WeightFromString(s string) Weight {
 		return WeightExtraLight
 	case "Light":
 		return WeightLight
-	case "Normal":
+	case "Normal", "Regular":
 		return WeightNormal
 	case "Medium":
 		return WeightMedium

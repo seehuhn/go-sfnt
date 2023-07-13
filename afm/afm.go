@@ -26,20 +26,20 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 )
 
-// Info represent the font metrics and built-in character encoding
+// Info represents the font metrics and built-in character encoding
 // of an Adobe Type 1 font.
 type Info struct {
 	FontName string
 
 	IsFixedPitch bool
-	IsDingbats   bool
 
 	Ascent    funit.Int16
 	Descent   funit.Int16 // negative
 	CapHeight funit.Int16
 	XHeight   funit.Int16
 
-	Code         []int16 // code byte, or -1 if unmapped
+	Encoding []string
+
 	GlyphExtents []funit.Rect16
 	Widths       []funit.Int16
 	GlyphName    []string
@@ -64,8 +64,12 @@ func Read(fd io.Reader) (*Info, error) {
 
 	nameToGid := make(map[string]glyph.ID)
 
+	res.Encoding = make([]string, 256)
+	for i := range res.Encoding {
+		res.Encoding[i] = ".notdef"
+	}
+
 	// add the .notdef glyph
-	res.Code = append(res.Code, -1)
 	res.Widths = append(res.Widths, 0) // TODO(voss): how to find the width?
 	res.GlyphExtents = append(res.GlyphExtents, funit.Rect16{})
 	res.GlyphName = append(res.GlyphName, ".notdef")
@@ -117,9 +121,11 @@ func Read(fd io.Reader) (*Info, error) {
 				}
 			}
 
-			nameToGid[name] = glyph.ID(len(res.Code))
+			if code >= 0 && code < 256 {
+				res.Encoding[code] = name
+			}
 
-			res.Code = append(res.Code, int16(code))
+			nameToGid[name] = glyph.ID(len(res.Widths))
 			res.Widths = append(res.Widths, width)
 			res.GlyphExtents = append(res.GlyphExtents, BBox)
 			res.GlyphName = append(res.GlyphName, name)
@@ -176,7 +182,7 @@ func Read(fd io.Reader) (*Info, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		panic("corrupted afm data for " + res.FontName) // TODO(voss): return error
+		return nil, err
 	}
 
 	res.Ligatures = make(map[glyph.Pair]glyph.ID)
@@ -198,10 +204,8 @@ func Read(fd io.Reader) (*Info, error) {
 		}
 	}
 
-	// guess: maybe the notdef character has the same width as the space character?
+	// guess: maybe the .notdef character has the same width as the space character?
 	res.Widths[0] = res.Widths[nameToGid["space"]]
-
-	res.IsDingbats = res.FontName == "ZapfDingbats"
 
 	return res, nil
 }

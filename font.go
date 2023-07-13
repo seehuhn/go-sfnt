@@ -41,10 +41,10 @@ type Info struct {
 	FamilyName string
 	Width      os2.Width
 	Weight     os2.Weight
-	IsItalic   bool // Glyphs have dominant vertical strokes that are slanted.
-	IsBold     bool
-	IsRegular  bool
-	IsOblique  bool
+	IsBold     bool // glyphs are emboldened
+	IsItalic   bool // font contains italic or oblique glyphs
+	IsRegular  bool // glyphs are in the standard weight/style for the font
+	IsOblique  bool // font contains oblique glyphs
 	IsSerif    bool
 	IsScript   bool // Glyphs resemble cursive handwriting.
 

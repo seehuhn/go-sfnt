@@ -33,19 +33,21 @@ type Info struct {
 	WeightClass Weight
 	WidthClass  Width
 
-	IsBold    bool
-	IsItalic  bool
-	IsRegular bool
-	IsOblique bool
+	IsBold    bool // glyphs are emboldened
+	IsItalic  bool // font contains italic or oblique glyphs
+	IsRegular bool // glyphs are in the standard weight/style for the font
+	IsOblique bool // font contains oblique glyphs
 
 	FirstCharIndex uint16
 	LastCharIndex  uint16
 
-	Ascent    funit.Int16
-	Descent   funit.Int16 // as a negative number
-	LineGap   funit.Int16
-	CapHeight funit.Int16
-	XHeight   funit.Int16
+	Ascent     funit.Int16
+	Descent    funit.Int16 // negative
+	WinAscent  funit.Int16
+	WinDescent funit.Int16 // positive
+	LineGap    funit.Int16
+	CapHeight  funit.Int16
+	XHeight    funit.Int16
 
 	AvgGlyphWidth funit.Int16 // arithmetic average of the width of all non-zero width glyphs
 
@@ -154,14 +156,11 @@ func Read(r io.Reader) (*Info, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	if sel&0x0080 != 0 {
-		info.Ascent = v0ms.TypoAscender
-		info.Descent = v0ms.TypoDescender
-	} else {
-		info.Ascent = v0ms.WinAscent
-		info.Descent = -v0ms.WinDescent
-	}
+	info.Ascent = v0ms.TypoAscender
+	info.Descent = v0ms.TypoDescender
 	info.LineGap = v0ms.TypoLineGap
+	info.WinAscent = v0ms.WinAscent
+	info.WinDescent = v0ms.WinDescent
 
 	if v0.Version < 2 {
 		return info, nil
@@ -279,8 +278,8 @@ func (info *Info) Encode() []byte {
 		TypoAscender:  info.Ascent,
 		TypoDescender: info.Descent,
 		TypoLineGap:   info.LineGap,
-		WinAscent:     info.Ascent,   // TODO(voss)
-		WinDescent:    -info.Descent, // TODO(voss)
+		WinAscent:     info.WinAscent,
+		WinDescent:    info.WinDescent,
 	}
 	_ = binary.Write(buf, binary.BigEndian, v0ms)
 

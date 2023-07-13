@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -181,12 +182,23 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 
 	width := os2.WidthNormal // TODO(voss)
 	weight := os2.WeightFromString(t1Info.Info.Weight)
+	if weight == 0 {
+		weight = os2.WeightNormal
+	}
 	version, err := head.VersionFromString(t1Info.Info.Version)
 	if err != nil {
 		return nil, err // TODO(voss)
 	}
 	modificationTime := time.Now()
 	creationTime := modificationTime // TODO(voss)
+
+	// TODO(voss): can this be improved?
+	isItalic := t1Info.Info.ItalicAngle != 0
+	isBold := weight >= os2.WeightBold
+	isRegular := strings.Contains(t1Info.Info.FullName, "Regular")
+	isOblique := t1Info.Info.ItalicAngle != 0 && !strings.Contains(t1Info.Info.FullName, "Italic")
+	isSerif := false  // TODO(voss)
+	isScript := false // TODO(voss)
 
 	cmap := cmap.Format4{}
 	for gid, name := range glyphNames {
@@ -204,6 +216,8 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		cmap[r] = glyph.ID(gid)
 	}
 
+	unitsPerEm := 1000 // TODO(voss): get from font matrix
+
 	var ascent funit.Int16
 	var descent funit.Int16
 	var capHeight funit.Int16
@@ -217,6 +231,11 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		// TODO(voss): take a guess if no afm given
 	}
 
+	minBaseLineSkip := funit.Int16(math.Round(1.2 * float64(unitsPerEm)))
+	if ascent-descent < minBaseLineSkip {
+		descent = ascent - minBaseLineSkip
+	}
+
 	gsub := makeLigatures(afm)
 	gpos := makeKerningTable(afm)
 
@@ -224,22 +243,20 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		FamilyName:         t1Info.Info.FamilyName,
 		Width:              width,
 		Weight:             weight,
-		IsItalic:           t1Info.Info.ItalicAngle != 0,
-		IsBold:             weight >= os2.WeightBold,
-		IsRegular:          false, // TODO(voss)
-		IsOblique:          false, // TODO(voss)
-		IsSerif:            false, // TODO(voss)
-		IsScript:           false, // TODO(voss)
-		CodePageRange:      0,     // TODO(voss)
+		IsItalic:           isItalic,
+		IsBold:             isBold,
+		IsRegular:          isRegular,
+		IsOblique:          isOblique,
+		IsSerif:            isSerif,
+		IsScript:           isScript,
 		Version:            version,
 		CreationTime:       creationTime,
 		ModificationTime:   modificationTime,
 		Copyright:          t1Info.Info.Copyright,
 		Trademark:          t1Info.Info.Notice,
-		UnitsPerEm:         1000, // TODO(voss): get from font matrix
+		UnitsPerEm:         uint16(unitsPerEm),
 		Ascent:             ascent,
 		Descent:            descent,
-		LineGap:            (ascent + descent) / 5, // TODO(voss)
 		CapHeight:          capHeight,
 		XHeight:            xHeight,
 		ItalicAngle:        t1Info.Info.ItalicAngle,
@@ -250,6 +267,9 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		Gsub:               gsub,
 		Gpos:               gpos,
 	}
+
+	// TODO(voss): how to choose this?
+	otfInfo.CodePageRange.Set(os2.CP1252) // Latin 1
 
 	return &otfInfo, nil
 }
@@ -316,7 +336,7 @@ func makeLigatures(afm *afm.Info) *gtab.Info {
 		},
 		LookupList: []*gtab.LookupTable{
 			{
-				Meta:      &gtab.LookupMetaInfo{},
+				Meta:      &gtab.LookupMetaInfo{LookupType: 4},
 				Subtables: []gtab.Subtable{subst},
 			},
 		},
@@ -365,7 +385,7 @@ func makeKerningTable(afm *afm.Info) *gtab.Info {
 		},
 		LookupList: []*gtab.LookupTable{
 			{
-				Meta:      &gtab.LookupMetaInfo{},
+				Meta:      &gtab.LookupMetaInfo{LookupType: 2},
 				Subtables: []gtab.Subtable{kern},
 			},
 		},

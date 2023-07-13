@@ -176,21 +176,6 @@ func (info *Info) WriteCFFOpenTypePDF(w io.Writer) (int64, error) {
 }
 
 func (info *Info) makeHead(locaFormat int16) []byte {
-	var bbox funit.Rect16
-	switch outlines := info.Outlines.(type) {
-	case *cff.Outlines:
-		for _, g := range outlines.Glyphs {
-			bbox.Extend(g.Extent())
-		}
-	case *glyf.Outlines:
-		for _, g := range outlines.Glyphs {
-			if g == nil {
-				continue
-			}
-			bbox.Extend(g.Rect16)
-		}
-	}
-
 	headInfo := head.Info{
 		FontRevision:  info.Version,
 		HasYBaseAt0:   true,
@@ -198,10 +183,10 @@ func (info *Info) makeHead(locaFormat int16) []byte {
 		UnitsPerEm:    info.UnitsPerEm,
 		Created:       info.CreationTime,
 		Modified:      info.ModificationTime,
-		FontBBox:      bbox,
+		FontBBox:      info.BBox(),
 		IsBold:        info.IsBold,
 		IsItalic:      info.ItalicAngle != 0,
-		LowestRecPPEM: 7,
+		LowestRecPPEM: 7, // TODO(voss)
 		LocaFormat:    locaFormat,
 	}
 	return headInfo.Encode()
@@ -254,6 +239,12 @@ func (info *Info) makeOS2() []byte {
 		}
 	}
 
+	bbox := info.BBox()
+	winAscent := bbox.URy
+	winDescent := -bbox.LLy
+	// TODO(voss): larger values may be needed, if GPOS rules move some
+	// glyphs outside this range.
+
 	os2Info := &os2.Info{
 		WeightClass: info.Weight,
 		WidthClass:  info.Width,
@@ -266,11 +257,13 @@ func (info *Info) makeOS2() []byte {
 		FirstCharIndex: firstCharIndex,
 		LastCharIndex:  lastCharIndex,
 
-		Ascent:    info.Ascent,
-		Descent:   info.Descent,
-		LineGap:   info.LineGap,
-		CapHeight: info.CapHeight,
-		XHeight:   info.XHeight,
+		Ascent:     info.Ascent,
+		Descent:    info.Descent,
+		LineGap:    info.LineGap,
+		WinAscent:  winAscent,
+		WinDescent: winDescent,
+		CapHeight:  info.CapHeight,
+		XHeight:    info.XHeight,
 
 		AvgGlyphWidth: funit.Int16(avgGlyphWidth),
 
