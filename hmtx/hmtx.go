@@ -292,7 +292,7 @@ func fromAngle(caretAngle float64) (rise, run int16) {
 }
 
 // bestRationalApproximation returns a rational approximation of x
-// with abs(p)<=N and 0<q <= N and p/q ≈ x.
+// with abs(p)<=N and 0<q<= N and p/q ≈ x.
 func bestRationalApproximation(x float64, N int) (p int, q int) {
 	sign := 1
 	if x < 0 {

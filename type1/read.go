@@ -19,6 +19,7 @@ package type1
 import (
 	"errors"
 	"io"
+	"time"
 
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -34,6 +35,21 @@ func Read(r io.Reader) (*Font, error) {
 	}
 	if len(intp.Fonts) != 1 {
 		return nil, errors.New("expected exactly one font in file")
+	}
+
+	var creationDate time.Time
+creationDateLoop:
+	for _, c := range intp.DSC {
+		if c.Key != "CreationDate" || c.Value == "" {
+			continue
+		}
+		for _, layout := range dateFormats {
+			t, err := time.Parse(layout, c.Value)
+			if err == nil {
+				creationDate = t
+				break creationDateLoop
+			}
+		}
 	}
 
 	var key postscript.Name
@@ -77,7 +93,11 @@ func Read(r io.Reader) (*Font, error) {
 
 	fontMatrixArray, ok := fd["FontMatrix"].(postscript.Array)
 	if !ok || len(fontMatrixArray) != 6 {
-		return nil, errors.New("invalid FontMatrix")
+		fontMatrixArray = postscript.Array{
+			postscript.Real(0.001), postscript.Integer(0),
+			postscript.Integer(0), postscript.Real(0.001),
+			postscript.Integer(0), postscript.Integer(0),
+		}
 	}
 	fontMatrix := make([]float64, 6)
 	for i, v := range fontMatrixArray {
@@ -113,17 +133,17 @@ func Read(r io.Reader) (*Font, error) {
 	if !ok {
 		return nil, errors.New("missing/invalid Private dictionary")
 	}
-	blueValuesArray, ok := pd["BlueValues"].(postscript.Array)
-	if !ok {
-		return nil, errors.New("missing/invalid BlueValues array")
-	}
-	blueValues := make([]funit.Int16, len(blueValuesArray))
-	for i, v := range blueValuesArray {
-		vInt, ok := v.(postscript.Integer)
-		if !ok {
-			return nil, errors.New("invalid BlueValues array")
+	var blueValues []funit.Int16
+	if blueValuesArray, ok := pd["BlueValues"].(postscript.Array); ok && len(blueValuesArray) > 0 {
+		blueValues = make([]funit.Int16, len(blueValuesArray))
+		for i, v := range blueValuesArray {
+			vInt, ok := v.(postscript.Integer)
+			if !ok {
+				blueValues = nil
+				break
+			}
+			blueValues[i] = funit.Int16(vInt)
 		}
-		blueValues[i] = funit.Int16(vInt)
 	}
 	var otherBlues []funit.Int16 // optional
 	otherBluesArray, ok := pd["OtherBlues"].(postscript.Array)
@@ -142,31 +162,39 @@ func Read(r io.Reader) (*Font, error) {
 	blueScaleReal, ok := pd["BlueScale"].(postscript.Real)
 	if ok {
 		blueScale = float64(blueScaleReal)
+	} else {
+		blueScale = 0.039625
 	}
 	var blueShift int32 // optional
 	blueShiftInt, ok := pd["BlueShift"].(postscript.Integer)
 	if ok {
 		blueShift = int32(blueShiftInt)
+	} else {
+		blueShift = 7
 	}
 	var blueFuzz int32 // optional
 	blueFuzzInt, ok := pd["BlueFuzz"].(postscript.Integer)
 	if ok {
 		blueFuzz = int32(blueFuzzInt)
+	} else {
+		blueFuzz = 1
 	}
 	var stdHW float64
 	stdHWArray, ok := pd["StdHW"].(postscript.Array)
 	if ok && len(stdHWArray) == 1 {
-		stdHWReal, ok := stdHWArray[0].(postscript.Real)
-		if ok {
+		if stdHWReal, ok := stdHWArray[0].(postscript.Real); ok {
 			stdHW = float64(stdHWReal)
+		} else if stdHWInt, ok := stdHWArray[0].(postscript.Integer); ok {
+			stdHW = float64(stdHWInt)
 		}
 	}
 	var stdVW float64
 	stdVWArray, ok := pd["StdVW"].(postscript.Array)
 	if ok && len(stdVWArray) == 1 {
-		stdVWReal, ok := stdVWArray[0].(postscript.Real)
-		if ok {
+		if stdVWReal, ok := stdVWArray[0].(postscript.Real); ok {
 			stdVW = float64(stdVWReal)
+		} else if stdVWInt, ok := stdVWArray[0].(postscript.Integer); ok {
+			stdVW = float64(stdVWInt)
 		}
 	}
 	forceBold := false
@@ -278,10 +306,18 @@ func Read(r io.Reader) (*Font, error) {
 	}
 
 	res := &Font{
-		Info:     fi,
-		Private:  private,
-		Glyphs:   glyphs,
-		Encoding: encoding,
+		CreationDate: creationDate,
+		Info:         fi,
+		Private:      private,
+		Glyphs:       glyphs,
+		Encoding:     encoding,
 	}
 	return res, nil
+}
+
+var dateFormats = []string{
+	"2006-01-02 15:04:05 -0700 MST",
+	"Mon Jan 2 15:04:05 2006",
+	"Mon, 2 Jan 2006 15:04:05",
+	"Mon Jan 2 2006",
 }

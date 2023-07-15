@@ -32,6 +32,10 @@ func obfuscateCharstring(plain []byte, iv []byte) []byte {
 }
 
 func deobfuscateCharstring(cipher []byte, n int) []byte {
+	if len(cipher) < n {
+		return nil
+	}
+
 	var R uint16 = 4330
 	var c1 uint16 = 52845
 	var c2 uint16 = 22719

@@ -190,7 +190,10 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		return nil, err // TODO(voss)
 	}
 	modificationTime := time.Now()
-	creationTime := modificationTime // TODO(voss)
+	creationTime := modificationTime
+	if !t1Info.CreationDate.IsZero() {
+		creationTime = t1Info.CreationDate
+	}
 
 	// TODO(voss): can this be improved?
 	isItalic := t1Info.Info.ItalicAngle != 0

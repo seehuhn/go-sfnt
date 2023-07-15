@@ -1,7 +1,7 @@
 #! /bin/bash
 
 find / \( -name .Trash -o -type l -o -path "/Volumes/*" -o -path "/System/Volumes/*" -o -path "/Users/voss/Library/CloudStorage/*" \) -prune \
-    -o -type f \( -name "*.pfa" -o -name "*.pfb" -o -name "*.afm" \) -print 2>/dev/null \
+    -o -type f \( -iname "*.pfa" -o -iname "*.pfb" -o -iname "*.afm" \) -print 2>/dev/null \
 | sort \
 >all-fonts
 

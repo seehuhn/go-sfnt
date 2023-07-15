@@ -18,7 +18,6 @@ package type1
 
 import (
 	"bytes"
-	"reflect"
 	"testing"
 	"time"
 
@@ -26,19 +25,11 @@ import (
 	"seehuhn.de/go/sfnt/funit"
 )
 
-func makeEmptyEncoding() []string {
-	encoding := make([]string, 256)
-	for i := range encoding {
-		encoding[i] = ".notdef"
-	}
-	return encoding
-}
-
-func FuzzFont(f *testing.F) {
+func TestWrite(t *testing.T) {
 	encoding := makeEmptyEncoding()
-	encoding[65] = "A"
+	encoding[1] = "A"
 	F := &Font{
-		CreationDate: time.Now(),
+		CreationDate: time.Now().Round(time.Second),
 		Info: &FontInfo{
 			FontName:           "Test",
 			Version:            "1.000",
@@ -77,32 +68,20 @@ func FuzzFont(f *testing.F) {
 	g.LineTo(200, 10)
 	g.LineTo(100, 110)
 	F.Glyphs["A"] = g
+
 	buf := &bytes.Buffer{}
 	err := F.Write(buf)
 	if err != nil {
-		f.Fatal(err)
+		t.Fatal(err)
 	}
-	f.Add(buf.Bytes())
 
-	f.Fuzz(func(t *testing.T, data []byte) {
-		i1, err := Read(bytes.NewReader(data))
-		if err != nil {
-			return
-		}
+	r := bytes.NewReader(buf.Bytes())
+	G, err := Read(r)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		buf := &bytes.Buffer{}
-		err = i1.Write(buf)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		i2, err := Read(buf)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !reflect.DeepEqual(i1, i2) {
-			t.Fatal(cmp.Diff(i1, i2))
-		}
-	})
+	if d := cmp.Diff(F, G); d != "" {
+		t.Errorf("F and G differ: %s", d)
+	}
 }

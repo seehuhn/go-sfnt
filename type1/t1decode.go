@@ -308,13 +308,12 @@ glyphLoop:
 				f := e + funit.Int16(math.Round(stack[5]))
 				res.VStem = append(res.VStem[:0], a, b, c, d, e, f)
 				clearStack()
-
 			case t1div:
 				if len(stack) < 2 {
 					return nil, errIncomplete
 				}
 				// fmt.Printf("div(%g, %g)\n", stack[0], stack[1])
-				stack = append(stack, stack[len(stack)-2]/stack[len(stack)-1])
+				stack = append(stack[:len(stack)-2], stack[len(stack)-2]/stack[len(stack)-1])
 			case t1callothersubr:
 				if len(stack) < 2 {
 					return nil, errIncomplete
