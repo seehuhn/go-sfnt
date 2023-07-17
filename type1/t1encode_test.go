@@ -69,6 +69,7 @@ func TestLineTo(t *testing.T) {
 		g1 := &Glyph{}
 		g1.MoveTo(baseX, baseY)
 		g1.LineTo(baseX+c.dx, baseY+c.dy)
+		g1.ClosePath()
 		buf := g1.encodeCharString()
 
 		ctx := &decodeInfo{}

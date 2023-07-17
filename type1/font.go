@@ -66,6 +66,10 @@ func (g *Glyph) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
 	})
 }
 
+func (g *Glyph) ClosePath() {
+	g.Cmds = append(g.Cmds, GlyphOp{Op: OpClosePath})
+}
+
 // Extent computes the Glyph extent in font design units
 func (g *Glyph) Extent() funit.Rect16 {
 	var left, right, top, bottom float64
@@ -122,6 +126,8 @@ func (op GlyphOpType) String() string {
 		return "lineto"
 	case OpCurveTo:
 		return "curveto"
+	case OpClosePath:
+		return "closepath"
 	default:
 		return fmt.Sprintf("CommandType(%d)", op)
 	}
@@ -131,11 +137,18 @@ const (
 	// OpMoveTo tarts a new subpath at the given point.
 	OpMoveTo GlyphOpType = iota + 1
 
-	// OpLineTo appends a straight line segment from the previous point to the given point.
+	// OpLineTo appends a straight line segment from the previous point to the
+	// given point.
 	OpLineTo
 
-	// OpCurveTo appends a Bezier curve segment from the previous point to the given point.
+	// OpCurveTo appends a Bezier curve segment from the previous point to the
+	// given point.
 	OpCurveTo
+
+	// OpClosePath closes the current subpath by appending a straight line from
+	// the current point to the starting point of the current subpath.  This
+	// does not change the current point.
+	OpClosePath
 )
 
 func (c GlyphOp) String() string {

@@ -57,7 +57,7 @@ func main() {
 	case 1:
 		fname = flag.Arg(0)
 	default:
-		fmt.Fprintf(os.Stderr, "usage: %s font.pf? [font.afm]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s font.pf{a,b} [font.afm]\n", os.Args[0])
 	}
 
 	outName := *outNameFlag

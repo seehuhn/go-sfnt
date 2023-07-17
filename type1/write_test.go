@@ -62,11 +62,13 @@ func TestWrite(t *testing.T) {
 	g.LineTo(20, 10)
 	g.LineTo(20, 20)
 	g.LineTo(10, 20)
+	g.ClosePath()
 	F.Glyphs[".notdef"] = g
 	g = &Glyph{WidthX: 200}
 	g.MoveTo(0, 10)
 	g.LineTo(200, 10)
 	g.LineTo(100, 110)
+	g.ClosePath()
 	F.Glyphs["A"] = g
 
 	buf := &bytes.Buffer{}

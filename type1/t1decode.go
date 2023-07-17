@@ -49,7 +49,15 @@ func (info *decodeInfo) decodeCharString(code []byte, name string) (*Glyph, erro
 	var posX, posY float64
 	var LsbX funit.Int16 // TODO(voss): use float64
 	var LsbY funit.Int16
+	isClosed := true
+	rClosePath := func() {
+		res.Cmds = append(res.Cmds, GlyphOp{Op: OpClosePath})
+		isClosed = true
+	}
 	rMoveTo := func(dx, dy float64) {
+		if !isClosed {
+			rClosePath()
+		}
 		posX += dx
 		posY += dy
 		res.Cmds = append(res.Cmds, GlyphOp{
@@ -64,6 +72,7 @@ func (info *decodeInfo) decodeCharString(code []byte, name string) (*Glyph, erro
 			Op:   OpLineTo,
 			Args: []float64{posX, posY},
 		})
+		isClosed = false
 	}
 	rCurveTo := func(dxa, dya, dxb, dyb, dxc, dyc float64) {
 		xa := posX + dxa
@@ -143,6 +152,9 @@ glyphLoop:
 			switch op {
 			case t1endchar:
 				// fmt.Println("endchar")
+				if !isClosed {
+					rClosePath()
+				}
 				break glyphLoop
 			case t1hsbw:
 				if len(stack) < 2 {
@@ -196,7 +208,7 @@ glyphLoop:
 
 			case t1closepath:
 				// fmt.Println("closepath")
-				// TODO(voss): what to do here?
+				rClosePath()
 			case t1hlineto:
 				if len(stack) < 1 {
 					return nil, errIncomplete

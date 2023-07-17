@@ -113,6 +113,8 @@ func (g *Glyph) encodeCharString() []byte {
 				posX += dxa + dxb + dxc
 				posY += dya + dyb + dyc
 			}
+		case OpClosePath:
+			buf = appendOp(buf, t1closepath)
 		default:
 			panic("unreachable")
 		}
