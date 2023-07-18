@@ -19,6 +19,7 @@ package cff
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -65,12 +66,75 @@ func FuzzT2Decode(f *testing.F) {
 
 		if !glyphsEqual(g1, g2) {
 			fmt.Printf("A % x\n", data1)
+			fmt.Println(formatT2CharString(data1))
 			fmt.Printf("A %s\n", g1)
 			fmt.Printf("B % x\n", data2)
+			fmt.Println(formatT2CharString(data2))
 			fmt.Printf("B %s\n", g2)
 			t.Error("different")
 		}
 	})
+}
+
+func formatT2CharString(code []byte) string {
+	buf := &strings.Builder{}
+
+	for len(code) > 0 {
+		op := t2op(code[0])
+
+		if op >= 32 && op <= 246 {
+			fmt.Fprintf(buf, "%d ", int16(op)-139)
+			code = code[1:]
+			continue
+		} else if op >= 247 && op <= 250 {
+			if len(code) < 2 {
+				buf.WriteString("{stack underflow}\n")
+				continue
+			}
+			fmt.Fprintf(buf, "%d ", (int16(op)-247)*256+int16(code[1])+108)
+			code = code[2:]
+			continue
+		} else if op >= 251 && op <= 254 {
+			if len(code) < 2 {
+				buf.WriteString("{stack underflow}\n")
+				continue
+			}
+			fmt.Fprintf(buf, "%d ", (251-int16(op))*256-int16(code[1])-108)
+			code = code[2:]
+			continue
+		} else if op == 28 {
+			if len(code) < 3 {
+				buf.WriteString("{stack underflow}\n")
+				continue
+			}
+			fmt.Fprintf(buf, "%d ", int16(code[1])<<8|int16(code[2]))
+			code = code[3:]
+			continue
+		} else if op == 255 {
+			if len(code) < 5 {
+				buf.WriteString("{stack underflow}\n")
+				continue
+			}
+			val := int32(code[1])<<24 | int32(code[2])<<16 | int32(code[3])<<8 | int32(code[4])
+			fmt.Fprintf(buf, "%g ", float64(val)/65536)
+			code = code[5:]
+			continue
+		}
+
+		if op == 12 {
+			if len(code) < 2 {
+				buf.WriteString("{incomplete opcode}\n")
+				continue
+			}
+			op = op<<8 | t2op(code[1])
+			code = code[2:]
+		} else {
+			code = code[1:]
+		}
+
+		fmt.Fprintf(buf, "%s\n", op)
+	}
+	return buf.String()
 }
 
 func glyphsEqual(g1, g2 *Glyph) bool {

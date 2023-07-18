@@ -340,7 +340,7 @@ func TestType2EncodeGlyphs(t *testing.T) {
 	info := &decodeInfo{}
 	g1 := NewGlyph("", 500)
 	g1.MoveTo(0, 0)
-	g1.CurveTo(0, 1, 2, 33000, 3, 4)
+	g1.CurveTo(0, 1, 2, 31000, 3, 4)
 	code, err := g1.encodeCharString(info.defaultWidth, info.nominalWidth)
 	if err != nil {
 		t.Fatal(err)

@@ -68,8 +68,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	var moveError error
 	rMoveTo := func(dx, dy float64) {
 		hasMoved = true
-		posX += dx
-		posY += dy
+		posX += fix(dx)
+		posY += fix(dy)
 		res.Cmds = append(res.Cmds, GlyphOp{
 			Op:   OpMoveTo,
 			Args: []float64{posX, posY},
@@ -79,8 +79,8 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 		if !hasMoved {
 			moveError = errors.New("lineTo before moveTo")
 		}
-		posX += dx
-		posY += dy
+		posX += fix(dx)
+		posY += fix(dy)
 		res.Cmds = append(res.Cmds, GlyphOp{
 			Op:   OpLineTo,
 			Args: []float64{posX, posY},
@@ -90,12 +90,12 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 		if !hasMoved {
 			moveError = errors.New("curveTo before moveTo")
 		}
-		xa := posX + dxa
-		ya := posY + dya
-		xb := xa + dxb
-		yb := ya + dyb
-		posX = xb + dxc
-		posY = yb + dyc
+		xa := posX + fix(dxa)
+		ya := posY + fix(dya)
+		xb := xa + fix(dxb)
+		yb := ya + fix(dyb)
+		posX = xb + fix(dxc)
+		posY = yb + fix(dyc)
 		res.Cmds = append(res.Cmds, GlyphOp{
 			Op: OpCurveTo,
 			Args: []float64{
@@ -647,6 +647,16 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	return nil, errIncomplete
 }
 
+// Fix a float64 to a 16.16 fixed point number in the range [-32000, 32000].
+func fix(x float64) float64 {
+	if x > 32000 {
+		return 32000
+	} else if x < -32000 {
+		return -32000
+	}
+	return math.Round(x*65536) / 65536
+}
+
 func getSubr(subrs cffIndex, biased int) ([]byte, error) {
 	var offset int
 	nSubrs := len(subrs)
@@ -691,111 +701,111 @@ func (op t2op) Bytes() []byte {
 func (op t2op) String() string {
 	switch op {
 	case t2hstem:
-		return "t2hstem"
+		return "hstem"
 	case t2vstem:
-		return "t2vstem"
+		return "vstem"
 	case t2vmoveto:
-		return "t2vmoveto"
+		return "vmoveto"
 	case t2rlineto:
-		return "t2rlineto"
+		return "rlineto"
 	case t2hlineto:
-		return "t2hlineto"
+		return "hlineto"
 	case t2vlineto:
-		return "t2vlineto"
+		return "vlineto"
 	case t2rrcurveto:
-		return "t2rrcurveto"
+		return "rrcurveto"
 	case t2callsubr:
-		return "t2callsubr"
+		return "callsubr"
 	case t2return:
-		return "t2return"
+		return "return"
 	case t2endchar:
-		return "t2endchar"
+		return "endchar"
 	case t2hstemhm:
-		return "t2hstemhm"
+		return "hstemhm"
 	case t2hintmask:
-		return "t2hintmask"
+		return "hintmask"
 	case t2cntrmask:
-		return "t2cntrmask"
+		return "cntrmask"
 	case t2rmoveto:
-		return "t2rmoveto"
+		return "rmoveto"
 	case t2hmoveto:
-		return "t2hmoveto"
+		return "hmoveto"
 	case t2vstemhm:
-		return "t2vstemhm"
+		return "vstemhm"
 	case t2rcurveline:
-		return "t2rcurveline"
+		return "rcurveline"
 	case t2rlinecurve:
-		return "t2rlinecurve"
+		return "rlinecurve"
 	case t2vvcurveto:
-		return "t2vvcurveto"
+		return "vvcurveto"
 	case t2hhcurveto:
-		return "t2hhcurveto"
+		return "hhcurveto"
 	case t2shortint:
-		return "t2int3"
+		return "int3"
 	case t2callgsubr:
-		return "t2callgsubr"
+		return "callgsubr"
 	case t2vhcurveto:
-		return "t2vhcurveto"
+		return "vhcurveto"
 	case t2hvcurveto:
-		return "t2hvcurveto"
+		return "hvcurveto"
 	case t2dotsection:
-		return "t2dotsection"
+		return "dotsection"
 	case t2and:
-		return "t2and"
+		return "and"
 	case t2or:
-		return "t2or"
+		return "or"
 	case t2not:
-		return "t2not"
+		return "not"
 	case t2abs:
-		return "t2abs"
+		return "abs"
 	case t2add:
-		return "t2add"
+		return "add"
 	case t2sub:
-		return "t2sub"
+		return "sub"
 	case t2div:
-		return "t2div"
+		return "div"
 	case t2neg:
-		return "t2neg"
+		return "neg"
 	case t2eq:
-		return "t2eq"
+		return "eq"
 	case t2drop:
-		return "t2drop"
+		return "drop"
 	case t2put:
-		return "t2put"
+		return "put"
 	case t2get:
-		return "t2get"
+		return "get"
 	case t2ifelse:
-		return "t2ifelse"
+		return "ifelse"
 	case t2random:
-		return "t2random"
+		return "random"
 	case t2mul:
-		return "t2mul"
+		return "mul"
 	case t2sqrt:
-		return "t2sqrt"
+		return "sqrt"
 	case t2dup:
-		return "t2dup"
+		return "dup"
 	case t2exch:
-		return "t2exch"
+		return "exch"
 	case t2index:
-		return "t2index"
+		return "index"
 	case t2roll:
-		return "t2roll"
+		return "roll"
 	case t2hflex:
-		return "t2hflex"
+		return "hflex"
 	case t2flex:
-		return "t2flex"
+		return "flex"
 	case t2hflex1:
-		return "t2hflex1"
+		return "hflex1"
 	case t2flex1:
-		return "t2flex1"
+		return "flex1"
 	case 255:
-		return "t2float4"
+		return "float4"
 	}
 	if 32 <= op && op <= 246 {
-		return fmt.Sprintf("t2int1(%d)", op)
+		return fmt.Sprintf("int1(%d)", op)
 	}
 	if 247 <= op && op <= 254 {
-		return fmt.Sprintf("t2int2(%d)", op)
+		return fmt.Sprintf("int2(%d)", op)
 	}
 	return fmt.Sprintf("t2op(%d)", op)
 }

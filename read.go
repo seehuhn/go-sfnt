@@ -372,6 +372,9 @@ func Read(r io.Reader) (*Info, error) {
 	} else if hmtxInfo != nil {
 		info.ItalicAngle = hmtxInfo.CaretAngle * 180 / math.Pi
 	}
+	// Round the italic angle so that the value can be exactly represented
+	// in the post table.
+	info.ItalicAngle = math.Round(info.ItalicAngle*65536) / 65536
 
 	if postInfo != nil {
 		info.UnderlinePosition = postInfo.UnderlinePosition

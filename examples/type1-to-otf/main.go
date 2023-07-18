@@ -73,9 +73,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "warning: no AFM file specified")
 	}
 
-	afm, err := readAfm(afmName)
-	if err != nil {
-		log.Fatal(err)
+	var afm *afm.Info
+	if afmName != "" {
+		var err error
+		afm, err = readAfm(afmName)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	info, err := readType1(fname, afm)
@@ -203,21 +207,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 	isSerif := false  // TODO(voss)
 	isScript := false // TODO(voss)
 
-	cmap := cmap.Format4{}
-	for gid, name := range glyphNames {
-		rr := names.ToUnicode(name, false)
-		if len(rr) != 1 {
-			continue
-		}
-		if rr[0] > 65535 {
-			return nil, fmt.Errorf("need format 12 cmap for glyph %q", name)
-		}
-		r := uint16(rr[0])
-		if _, exists := cmap[r]; exists {
-			continue
-		}
-		cmap[r] = glyph.ID(gid)
-	}
+	cmap := makeCmap(t1Info, glyphNames)
 
 	unitsPerEm := 1000 // TODO(voss): get from the font matrix
 
@@ -231,7 +221,38 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 		capHeight = afm.CapHeight
 		xHeight = afm.XHeight
 	} else {
-		// TODO(voss): take a guess if no afm given
+		for _, name := range []string{"b", "d", "h", "l", "f"} {
+			if gid, exists := name2gid[name]; exists {
+				g := glyphs[gid]
+				bb := g.Extent()
+				ascent = bb.URy
+				break
+			}
+		}
+		for _, name := range []string{"p", "q", "g", "j", "y"} {
+			if gid, exists := name2gid[name]; exists {
+				g := glyphs[gid]
+				bb := g.Extent()
+				descent = bb.LLy
+				break
+			}
+		}
+		for _, name := range []string{"H", "I", "K", "L", "T"} {
+			if gid, exists := name2gid[name]; exists {
+				g := glyphs[gid]
+				bb := g.Extent()
+				capHeight = bb.URy
+				break
+			}
+		}
+		for _, name := range []string{"x", "u", "v", "w", "z"} {
+			if gid, exists := name2gid[name]; exists {
+				g := glyphs[gid]
+				bb := g.Extent()
+				xHeight = bb.URy
+				break
+			}
+		}
 	}
 
 	minBaseLineSkip := funit.Int16(math.Round(1.2 * float64(unitsPerEm)))
@@ -278,6 +299,37 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 	otfInfo.CodePageRange.Set(os2.CP1252) // Latin 1
 
 	return &otfInfo, nil
+}
+
+func makeCmap(t1Info *type1.Font, glyphNames []string) cmap.Subtable {
+	canUseFormat4 := true
+	codes := make([]rune, len(glyphNames))
+	for gid, name := range glyphNames {
+		rr := names.ToUnicode(name, false)
+		if len(rr) != 1 {
+			continue
+		}
+		r := rr[0]
+		if r > 65535 {
+			canUseFormat4 = false
+		}
+		codes[gid] = r
+	}
+
+	if canUseFormat4 {
+		cmap := cmap.Format4{}
+		for gid, r := range codes {
+			r16 := uint16(r)
+			if _, exists := cmap[r16]; exists {
+				continue
+			}
+			cmap[r16] = glyph.ID(gid)
+		}
+		return cmap
+	}
+
+	// TODO(voss): use a format 12 subtable
+	panic("not implemented")
 }
 
 func makeLigatures(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {

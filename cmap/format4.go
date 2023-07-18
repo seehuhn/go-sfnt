@@ -104,6 +104,7 @@ func (cmap Format4) Lookup(r rune) glyph.ID {
 // Encode encodes the subtable into a byte slice.
 func (cmap Format4) Encode(language uint16) []byte {
 	g := makeSegments(cmap)
+	// TODO(voss): try dag.ShortestPath
 	segments, err := dijkstra.ShortestPath[uint32, *segment, int](g, 0, 0x10000)
 	if err != nil {
 		panic(err)

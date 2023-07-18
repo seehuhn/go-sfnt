@@ -426,47 +426,47 @@ func (op t1op) Bytes() []byte {
 func (op t1op) String() string {
 	switch op {
 	case t1hstem:
-		return "t1hstem"
+		return "hstem"
 	case t1vstem:
-		return "t1vstem"
+		return "vstem"
 	case t1vmoveto:
-		return "t1vmoveto"
+		return "vmoveto"
 	case t1rlineto:
-		return "t1rlineto"
+		return "rlineto"
 	case t1hlineto:
-		return "t1hlineto"
+		return "hlineto"
 	case t1vlineto:
-		return "t1vlineto"
+		return "vlineto"
 	case t1rrcurveto:
-		return "t1rrcurveto"
+		return "rrcurveto"
 	case t1callsubr:
-		return "t1callsubr"
+		return "callsubr"
 	case t1return:
-		return "t1return"
+		return "return"
 	case t1hsbw:
-		return "t1hsbw"
+		return "hsbw"
 	case t1endchar:
-		return "t1endchar"
+		return "endchar"
 	case t1rmoveto:
-		return "t1rmoveto"
+		return "rmoveto"
 	case t1hmoveto:
-		return "t1hmoveto"
+		return "hmoveto"
 	case t1vhcurveto:
-		return "t1vhcurveto"
+		return "vhcurveto"
 	case t1hvcurveto:
-		return "t1hvcurveto"
+		return "hvcurveto"
 	case t1dotsection:
-		return "t1dotsection"
+		return "dotsection"
 	case t1div:
-		return "t1div"
+		return "div"
 	case 255:
-		return "t1int32"
+		return "int32"
 	}
 	if 32 <= op && op <= 246 {
-		return fmt.Sprintf("t1int1(%d)", op)
+		return fmt.Sprintf("int1(%d)", op)
 	}
 	if 247 <= op && op <= 254 {
-		return fmt.Sprintf("t1int2(%d)", op)
+		return fmt.Sprintf("int2(%d)", op)
 	}
 	return fmt.Sprintf("t1op(%d)", op)
 }

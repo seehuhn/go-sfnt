@@ -28,6 +28,7 @@ import (
 )
 
 func Read(r io.Reader) (*Font, error) {
+	// TODO(voss): check for "%!PS"?
 	intp := postscript.NewInterpreter()
 	err := intp.Execute(r)
 	if err != nil {
