@@ -129,8 +129,8 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 
 	glyphNames := maps.Keys(t1Info.Glyphs)
 	order := make(map[string]int, len(glyphNames))
-	for i := range order {
-		order[i] = 256
+	for _, name := range glyphNames {
+		order[name] = 256
 	}
 	order[".notdef"] = -1
 	for i, name := range t1Info.Encoding {

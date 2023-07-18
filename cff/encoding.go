@@ -118,7 +118,15 @@ func readEncoding(p *parser.Parser, charset []int32) ([]glyph.ID, error) {
 	return res, nil
 }
 
-func encodeEncoding(encoding []glyph.ID, cc []int32) ([]byte, error) {
+// encodeEncoding creates the CFF binary representation of an encoding vector.
+// The encoding vector is given as a slice of glyph IDs (length 256),
+// where the glyph ID 0 is used to indicate a missing glyph.
+//
+// The encoded glyphs must form a contiguous range starting at glyph ID 1.
+//
+// The glyphNames argument is only used for supplemented encodings, where
+// one or more glyphs have multiple codes.
+func encodeEncoding(encoding []glyph.ID, glyphNames []int32) ([]byte, error) {
 	var maxGid glyph.ID
 	codes := map[glyph.ID]uint8{}
 	type suppl struct {
@@ -152,7 +160,7 @@ func encodeEncoding(encoding []glyph.ID, cc []int32) ([]byte, error) {
 	for gid := glyph.ID(1); gid <= maxGid; gid++ {
 		code, ok := codes[gid]
 		if !ok {
-			msg := fmt.Sprintf("glyph %d not in encoding", gid)
+			msg := fmt.Sprintf("encoded glyphs not contiguous (glyph %d not encoded)", gid)
 			return nil, invalidSince(msg)
 		}
 		if int(gid-startGid) != int(code)-int(startCode) {
@@ -198,7 +206,7 @@ func encodeEncoding(encoding []glyph.ID, cc []int32) ([]byte, error) {
 		buf[extraBase] = byte(len(extra))
 		for i, s := range extra {
 			buf[extraBase+i*3+1] = s.code
-			sid := uint16(cc[s.gid])
+			sid := uint16(glyphNames[s.gid])
 			buf[extraBase+i*3+2] = byte(sid >> 8)
 			buf[extraBase+i*3+3] = byte(sid)
 		}
