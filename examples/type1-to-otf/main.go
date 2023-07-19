@@ -30,6 +30,7 @@ import (
 
 	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
+	"seehuhn.de/go/postscript/pfb"
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/afm"
 	"seehuhn.de/go/sfnt/cff"
@@ -120,7 +121,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 
 	var r io.Reader = fd
 	if buf[0] == 0x80 {
-		r = type1.DecodePFB(r)
+		r = pfb.Decode(r)
 	}
 	t1Info, err := type1.Read(r)
 	if err != nil {
@@ -328,8 +329,15 @@ func makeCmap(t1Info *type1.Font, glyphNames []string) cmap.Subtable {
 		return cmap
 	}
 
-	// TODO(voss): use a format 12 subtable
-	panic("not implemented")
+	cmap := cmap.Format12{}
+	for gid, r := range codes {
+		r32 := uint32(r)
+		if _, exists := cmap[r32]; exists {
+			continue
+		}
+		cmap[r32] = glyph.ID(gid)
+	}
+	return cmap
 }
 
 func makeLigatures(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {

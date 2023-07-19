@@ -18,6 +18,9 @@ package cmap
 
 import "seehuhn.de/go/sfnt/glyph"
 
+// TODO(voss): add a way to iterate over CMap Subtables
+// TODO(voss): change lookup to map uint32 to glyph.ID?
+
 // Subtable represents a decoded cmap subtable.
 type Subtable interface {
 	// Lookup returns the glyph index for the given rune.
@@ -30,8 +33,6 @@ type Subtable interface {
 	// CodeRange returns the smallest and largest code point in the subtable.
 	CodeRange() (low, high rune)
 }
-
-// TODO(voss): add a way to iterate over CMap Subtables
 
 // From the font files on my laptop, I extracted all cmap subtables
 // and removed duplicates.  The following table is the result.

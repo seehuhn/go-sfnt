@@ -20,18 +20,16 @@ import (
 	"errors"
 	"sort"
 
+	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt/glyph"
 )
 
-// format12 represents a format 12 cmap subtable.
+// Format12 represents a format 12 cmap subtable.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-12-segmented-coverage
-type format12 []format12segment
-
-type format12segment struct {
-	StartCharCode rune
-	EndCharCode   rune
-	StartGlyphID  glyph.ID
-}
+//
+// The binary encoding is most efficient, if consecutive code points are mapped
+// to consecutive glyph IDs.
+type Format12 map[uint32]glyph.ID
 
 func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 	if code2rune != nil {
@@ -47,30 +45,63 @@ func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 		return nil, errMalformedSubtable
 	}
 
-	segments := make(format12, nSegments)
-	prevEnd := rune(-1)
+	cmap := Format12{}
+
+	var size uint32
+	var prevEnd uint32
 	for i := uint32(0); i < nSegments; i++ {
 		base := 16 + i*12
-		segments[i].StartCharCode = rune(data[base])<<24 | rune(data[base+1])<<16 | rune(data[base+2])<<8 | rune(data[base+3])
-		segments[i].EndCharCode = rune(data[base+4])<<24 | rune(data[base+5])<<16 | rune(data[base+6])<<8 | rune(data[base+7])
+		startCharCode := uint32(data[base])<<24 | uint32(data[base+1])<<16 | uint32(data[base+2])<<8 | uint32(data[base+3])
+		endCharCode := uint32(data[base+4])<<24 | uint32(data[base+5])<<16 | uint32(data[base+6])<<8 | uint32(data[base+7])
 		startGlyphID := uint32(data[base+8])<<24 | uint32(data[base+9])<<16 | uint32(data[base+10])<<8 | uint32(data[base+11])
 
-		if segments[i].StartCharCode <= prevEnd ||
-			segments[i].EndCharCode < segments[i].StartCharCode ||
+		if (i > 0 && startCharCode <= prevEnd) ||
+			endCharCode < startCharCode ||
+			endCharCode == 0xFFFF_FFFF || // avoid integer overflow in the loop below
 			startGlyphID > 0x10_FFFF ||
-			startGlyphID+uint32(segments[i].EndCharCode-segments[i].StartCharCode) > 0x10_FFFF {
+			startGlyphID+(endCharCode-startCharCode) > 0x10_FFFF {
 			return nil, errMalformedSubtable
 		}
-		segments[i].StartGlyphID = glyph.ID(startGlyphID)
+		prevEnd = endCharCode
 
-		prevEnd = segments[i].EndCharCode
+		size += endCharCode - startCharCode + 1
+		if size > 65536 {
+			// avoid excessive memory allocation from malformed subtables
+			return nil, errMalformedSubtable
+		}
+
+		for c := startCharCode; c <= endCharCode; c++ {
+			cmap[c] = glyph.ID(startGlyphID + c - startCharCode)
+		}
 	}
 
-	return segments, nil
+	return cmap, nil
 }
 
-func (cmap format12) Encode(language uint16) []byte {
-	nSegments := len(cmap)
+func (cmap Format12) Encode(language uint16) []byte {
+	var ss []format12segment
+	keys := maps.Keys(cmap)
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	segStart := 0
+	for i := 1; i < len(keys); i++ {
+		if keys[i] != keys[i-1]+1 || cmap[keys[i]] != cmap[keys[i-1]]+1 {
+			ss = append(ss, format12segment{
+				StartCharCode: keys[segStart],
+				EndCharCode:   keys[i-1],
+				StartGlyphID:  cmap[keys[segStart]],
+			})
+			segStart = i
+		}
+	}
+	if len(keys) > 0 {
+		ss = append(ss, format12segment{
+			StartCharCode: keys[segStart],
+			EndCharCode:   keys[len(keys)-1],
+			StartGlyphID:  cmap[keys[segStart]],
+		})
+	}
+
+	nSegments := len(ss)
 	l := uint32(16 + nSegments*12)
 	out := make([]byte, l)
 	copy(out, []byte{
@@ -81,35 +112,43 @@ func (cmap format12) Encode(language uint16) []byte {
 	})
 	for i := 0; i < nSegments; i++ {
 		base := 16 + i*12
-		out[base] = byte(cmap[i].StartCharCode >> 24)
-		out[base+1] = byte(cmap[i].StartCharCode >> 16)
-		out[base+2] = byte(cmap[i].StartCharCode >> 8)
-		out[base+3] = byte(cmap[i].StartCharCode)
-		out[base+4] = byte(cmap[i].EndCharCode >> 24)
-		out[base+5] = byte(cmap[i].EndCharCode >> 16)
-		out[base+6] = byte(cmap[i].EndCharCode >> 8)
-		out[base+7] = byte(cmap[i].EndCharCode)
+		out[base] = byte(ss[i].StartCharCode >> 24)
+		out[base+1] = byte(ss[i].StartCharCode >> 16)
+		out[base+2] = byte(ss[i].StartCharCode >> 8)
+		out[base+3] = byte(ss[i].StartCharCode)
+		out[base+4] = byte(ss[i].EndCharCode >> 24)
+		out[base+5] = byte(ss[i].EndCharCode >> 16)
+		out[base+6] = byte(ss[i].EndCharCode >> 8)
+		out[base+7] = byte(ss[i].EndCharCode)
 		// out[base+8] = 0
 		// out[base+9] = 0
-		out[base+10] = byte(cmap[i].StartGlyphID >> 8)
-		out[base+11] = byte(cmap[i].StartGlyphID)
+		out[base+10] = byte(ss[i].StartGlyphID >> 8)
+		out[base+11] = byte(ss[i].StartGlyphID)
 	}
 	return out
 }
 
-func (cmap format12) Lookup(code rune) glyph.ID {
-	idx := sort.Search(len(cmap), func(i int) bool {
-		return code <= cmap[i].EndCharCode
-	})
-	if idx == len(cmap) || cmap[idx].StartCharCode > code {
-		return 0
-	}
-	return cmap[idx].StartGlyphID + glyph.ID(code-cmap[idx].StartCharCode)
+func (cmap Format12) Lookup(code rune) glyph.ID {
+	return cmap[uint32(code)]
 }
 
-func (cmap format12) CodeRange() (low, high rune) {
-	if len(cmap) == 0 {
-		return 0, 0
+func (cmap Format12) CodeRange() (low, high rune) {
+	first := true
+	for c := range cmap {
+		cr := rune(c)
+		if first || cr < low {
+			low = cr
+		}
+		if first || cr > high {
+			high = cr
+		}
+		first = false
 	}
-	return cmap[0].StartCharCode, cmap[len(cmap)-1].EndCharCode
+	return
+}
+
+type format12segment struct {
+	StartCharCode uint32
+	EndCharCode   uint32
+	StartGlyphID  glyph.ID
 }

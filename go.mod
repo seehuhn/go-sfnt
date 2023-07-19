@@ -10,4 +10,4 @@ require (
 	seehuhn.de/go/dijkstra v0.9.3
 )
 
-require seehuhn.de/go/postscript v0.0.0-20230715171554-954afd49c6ec
+require seehuhn.de/go/postscript v0.0.0-20230719130059-068cd13d0e5d

@@ -19,13 +19,65 @@ package cmap
 import (
 	"reflect"
 	"testing"
+
+	"seehuhn.de/go/sfnt/glyph"
 )
 
+func TestFormat12(t *testing.T) {
+	in := []byte{
+		0, 12, // uint16 format
+		0, 0, // uint16 reserved
+		0, 0, 0, 16 + 12 + 12, // uint32 length
+		0, 0, 0, 0, // uint32 language
+		0, 0, 0, 2, // uint32 numGroups
+
+		0, 0, 0, 'A', // uint32 startCharCode
+		0, 0, 0, 'Z', // uint32 endCharCode
+		0, 0, 0, 2, // uint32 startGlyphID
+
+		0, 0, 0, '~', // uint32 startCharCode
+		0, 0, 0, '~', // uint32 endCharCode
+		0, 0, 0, 1, // uint32 startGlyphID
+	}
+	cmap, err := decodeFormat12(in, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type testCase struct {
+		code uint32
+		gid  glyph.ID
+	}
+	cases := []testCase{
+		{'A', 2},
+		{'B', 3},
+		{'Z', 27},
+		{'a', 0},
+		{'~', 1},
+	}
+	for _, c := range cases {
+		gid := cmap.Lookup(rune(c.code))
+		if gid != c.gid {
+			t.Errorf("Lookup(%d)=%d, want %d", c.code, gid, c.gid)
+		}
+	}
+}
+
 func FuzzFormat12(f *testing.F) {
-	f.Add(format12{
-		{StartCharCode: 10, EndCharCode: 20, StartGlyphID: 30},
-		{StartCharCode: 1000, EndCharCode: 2000, StartGlyphID: 41},
-		{StartCharCode: 2000, EndCharCode: 3000, StartGlyphID: 1},
+	f.Add(Format12{}.Encode(0))
+	f.Add(Format12{
+		1: 1,
+	}.Encode(0))
+	f.Add(Format12{
+		65:  1,
+		66:  2,
+		67:  3,
+		100: 4,
+	}.Encode(0))
+	f.Add(Format12{
+		1: 3,
+		2: 2,
+		3: 1,
 	}.Encode(0))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -50,4 +102,4 @@ func FuzzFormat12(f *testing.F) {
 	})
 }
 
-var _ Subtable = format12(nil)
+var _ Subtable = Format12(nil)
