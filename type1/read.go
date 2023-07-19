@@ -76,6 +76,9 @@ creationDateLoop:
 	}
 
 	Version, _ := fontInfo["version"].(postscript.String)
+	if len(Version) == 0 {
+		Version, _ = fontInfo["Version"].(postscript.String)
+	}
 	Notice, _ := fontInfo["Notice"].(postscript.String)
 	Copyright, _ := fontInfo["Copyright"].(postscript.String)
 	FullName, _ := fontInfo["FullName"].(postscript.String)

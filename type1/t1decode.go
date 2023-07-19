@@ -38,11 +38,12 @@ type seacInfo struct {
 func (info *decodeInfo) decodeCharString(code []byte, name string) (*Glyph, error) {
 	const maxStack = 24
 	stack := make([]float64, 0, maxStack)
-	var otherStack []float64
 	clearStack := func() {
 		stack = stack[:0]
-		otherStack = otherStack[:0]
 	}
+
+	var postscriptStack []float64
+	var flexData []float64
 
 	res := &Glyph{}
 
@@ -326,31 +327,7 @@ glyphLoop:
 				}
 				// fmt.Printf("div(%g, %g)\n", stack[0], stack[1])
 				stack = append(stack[:len(stack)-2], stack[len(stack)-2]/stack[len(stack)-1])
-			case t1callothersubr:
-				if len(stack) < 2 {
-					return nil, errIncomplete
-				}
-				idx, err := getInt(stack[len(stack)-1])
-				if err != nil {
-					return nil, err
-				}
-				argN, err := getInt(stack[len(stack)-2])
-				if err != nil {
-					return nil, err
-				}
-				if len(stack) < argN+2 {
-					return nil, errIncomplete
-				}
-				// args := stack[len(stack)-argN-2 : len(stack)-2]
-				stack = stack[:len(stack)-argN-2]
-				// fmt.Println("callothersubr", idx, args)
-				switch idx { // pre-defined subroutines
-				case 3:
-					// hint replacement not supported
-					otherStack = append(otherStack, 3)
-				default:
-					panic("not implemented")
-				}
+
 			case t1callsubr:
 				if len(stack) < 1 {
 					return nil, errIncomplete
@@ -376,14 +353,85 @@ glyphLoop:
 					return nil, invalidSince("maximum call stack size exceeded")
 				}
 				code = info.subrs[idx]
+			case t1callothersubr:
+				if len(stack) < 2 {
+					return nil, errIncomplete
+				}
+				idx, err := getInt(stack[len(stack)-1])
+				if err != nil {
+					return nil, err
+				}
+				argN, err := getInt(stack[len(stack)-2])
+				if err != nil {
+					return nil, err
+				}
+				if len(stack) < argN+2 {
+					return nil, errIncomplete
+				}
+				// fmt.Println("callothersubr", idx, args)
+				stack = stack[:len(stack)-2]
+				postscriptStack = postscriptStack[:0]
+				for i := 0; i < argN; i++ {
+					val := stack[len(stack)-1]
+					stack = stack[:len(stack)-1]
+					postscriptStack = append(postscriptStack, val)
+				}
+				// horizontal flex:
+				// starting point: x0 A
+				// reference point: x3 A
+				//     x1 y1  x2  B  x3 B curveto
+				//     x4  B  x5 y5  x6 A curveto
+				// seven coordinate pairs:
+				//     x3-x0 0     rmoveto   reference point relative to starting point
+				//     x1-x3 y1-A  rmoveto   first rrcurveto pair relative to reference point
+				//     x2-x1 B-y1  rmoveto
+				//     x3-x2 0     rmoveto
+				//     x4-x3 0     rmoveto   second rrcurveto
+				//     x5-x4 y5-B  rmoveto
+				//     x6-x5 A-y5  rmoveto
 
+				switch idx {
+				case 0: // flex end (3 args, 2 returns)
+					if len(flexData) == 14 {
+						res.Cmds = append(res.Cmds, GlyphOp{
+							Op: OpCurveTo,
+							Args: []float64{
+								flexData[2], flexData[3],
+								flexData[4], flexData[5],
+								flexData[6], flexData[7],
+							},
+						}, GlyphOp{
+							Op: OpCurveTo,
+							Args: []float64{
+								flexData[8], flexData[9],
+								flexData[10], flexData[11],
+								flexData[12], flexData[13],
+							},
+						})
+					}
+					postscriptStack = postscriptStack[:len(postscriptStack)-1]
+				case 1: // flex start (0 args)
+					flexData = flexData[:0]
+				case 2: // flex coordinate pair (0 args)
+					flexData = append(flexData, posX, posY)
+					if len(res.Cmds) > 0 {
+						// remove the rmoveTo command
+						res.Cmds = res.Cmds[:len(res.Cmds)-1]
+					}
+				case 3: // hint replacement (1 arg)
+					postscriptStack = append(postscriptStack[:0], 3)
+				default:
+					// can be ignored
+				}
 			case t1pop:
-				if len(otherStack) < 1 {
+				if len(postscriptStack) < 1 {
 					return nil, invalidSince("postscript interpreter operand stack underflow")
 				}
 				// fmt.Println("pop")
-				stack = append(stack, otherStack[len(otherStack)-1])
-				otherStack = otherStack[:len(otherStack)-1]
+				val := postscriptStack[len(postscriptStack)-1]
+				postscriptStack = postscriptStack[:len(postscriptStack)-1]
+				stack = append(stack, val)
+
 			case t1return:
 				// fmt.Println("return")
 				break opLoop

@@ -190,10 +190,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 	if weight == 0 {
 		weight = os2.WeightNormal
 	}
-	version, err := head.VersionFromString(t1Info.Info.Version)
-	if err != nil {
-		return nil, err // TODO(voss)
-	}
+	version, _ := head.VersionFromString(t1Info.Info.Version)
 	modificationTime := time.Now()
 	creationTime := modificationTime
 	if !t1Info.CreationDate.IsZero() {
