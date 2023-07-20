@@ -55,8 +55,11 @@ creationDateLoop:
 
 	var key postscript.Name
 	var fd postscript.Dict
-	for key, fd = range intp.Fonts {
-		break
+	for _, val := range intp.Fonts {
+		if dict, ok := val.(postscript.Dict); ok {
+			fd = dict
+			break
+		}
 	}
 	fontType, ok := fd["FontType"].(postscript.Integer)
 	if !ok || fontType != 1 {
