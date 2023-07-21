@@ -24,13 +24,22 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"seehuhn.de/go/postscript"
+	"seehuhn.de/go/postscript/pfb"
 	"seehuhn.de/go/sfnt/funit"
 )
 
 func Read(r io.Reader) (*Font, error) {
-	// TODO(voss): check for "%!PS"?
+	head, r, err := peek(r, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(head) > 0 && head[0] == 0x80 {
+		r = pfb.Decode(r)
+	}
+
 	intp := postscript.NewInterpreter()
-	err := intp.Execute(r)
+	intp.CheckStart = true
+	err = intp.Execute(r)
 	if err != nil {
 		return nil, err
 	}

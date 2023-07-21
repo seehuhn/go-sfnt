@@ -29,7 +29,10 @@ import (
 // Info represents the font metrics and built-in character encoding
 // of an Adobe Type 1 font.
 type Info struct {
+	// FontName is the fontname as used with the Postscript "findfont" command.
 	FontName string
+
+	FullName string
 
 	IsFixedPitch bool
 
@@ -139,6 +142,9 @@ func Read(fd io.Reader) (*Info, error) {
 		}
 
 		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
 
 		if fields[0] == "EndKernPairs" {
 			kernPairs = false
@@ -161,6 +167,8 @@ func Read(fd io.Reader) (*Info, error) {
 		switch fields[0] {
 		case "FontName":
 			res.FontName = fields[1]
+		case "FullName":
+			res.FullName = strings.Join(fields[1:], " ")
 		case "IsFixedPitch":
 			res.IsFixedPitch = fields[1] == "true"
 		case "CapHeight":

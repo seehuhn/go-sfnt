@@ -19,7 +19,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"os"
@@ -30,7 +29,6 @@ import (
 
 	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
-	"seehuhn.de/go/postscript/pfb"
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/afm"
 	"seehuhn.de/go/sfnt/cff"
@@ -111,19 +109,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 	}
 	defer fd.Close()
 
-	// read the first byte of fd to determine the file type
-	var buf [1]byte
-	_, err = io.ReadFull(fd, buf[:])
-	if err != nil {
-		return nil, err
-	}
-	fd.Seek(0, 0)
-
-	var r io.Reader = fd
-	if buf[0] == 0x80 {
-		r = pfb.Decode(r)
-	}
-	t1Info, err := type1.Read(r)
+	t1Info, err := type1.Read(fd)
 	if err != nil {
 		return nil, err
 	}
