@@ -16,10 +16,12 @@
 
 package type1
 
+import "io"
+
 func obfuscateCharstring(plain []byte, iv []byte) []byte {
 	var R uint16 = 4330
-	var c1 uint16 = 52845
-	var c2 uint16 = 22719
+	var c1 uint16 = eexecC1
+	var c2 uint16 = eexecC2
 	cipher := make([]byte, len(iv)+len(plain))
 	copy(cipher, iv)
 	copy(cipher[len(iv):], plain)
@@ -37,8 +39,8 @@ func deobfuscateCharstring(cipher []byte, n int) []byte {
 	}
 
 	var R uint16 = 4330
-	var c1 uint16 = 52845
-	var c2 uint16 = 22719
+	var c1 uint16 = eexecC1
+	var c2 uint16 = eexecC2
 	plain := make([]byte, 0, len(cipher)-n)
 	for i, cipher := range cipher {
 		if i >= n {
@@ -48,3 +50,63 @@ func deobfuscateCharstring(cipher []byte, n int) []byte {
 	}
 	return plain
 }
+
+type eexecWriter struct {
+	w   io.Writer
+	buf []byte
+	pos int
+	R   uint16
+}
+
+func newEExecWriter(w io.Writer) *eexecWriter {
+	res := &eexecWriter{
+		w:   w,
+		buf: make([]byte, 512),
+		R:   eexecR0,
+	}
+	iv := []byte{'X' ^ byte(eexecR0>>8), 0, 0, 0}
+	res.Write(iv)
+
+	return res
+}
+
+func (w *eexecWriter) Write(p []byte) (n int, err error) {
+	for len(p) > 0 {
+		k := copy(w.buf[w.pos:], p)
+		w.pos += k
+		n += k
+		p = p[k:]
+
+		if w.pos >= len(w.buf) {
+			err = w.flush()
+			if err != nil {
+				return n, err
+			}
+		}
+	}
+	return n, nil
+}
+
+func (w *eexecWriter) Close() error {
+	return w.flush()
+}
+
+func (w *eexecWriter) flush() error {
+	for i := 0; i < w.pos; i++ {
+		w.buf[i] = w.buf[i] ^ byte(w.R>>8)
+		w.R = (uint16(w.buf[i])+w.R)*eexecC1 + eexecC2
+	}
+
+	_, err := w.w.Write(w.buf[:w.pos])
+	if err != nil {
+		return err
+	}
+	w.pos = 0
+	return nil
+}
+
+const (
+	eexecC1 = 52845
+	eexecC2 = 22719
+	eexecR0 = 55665
+)

@@ -17,6 +17,7 @@
 package type1
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -27,13 +28,193 @@ import (
 	"seehuhn.de/go/sfnt/funit"
 )
 
-func (f *Font) Write(w io.Writer) error {
+type FileFormat int
+
+const (
+	FormatPFA     FileFormat = iota // hex eexec
+	FormatPFB                       // hex eexec, pfb wrapper
+	FormatBinary                    // binary eexec
+	FormatNoEExec                   // no eexec
+)
+
+type WriterOptions struct {
+	Format FileFormat
+}
+
+var defaultWriterOptions = &WriterOptions{
+	Format: FormatPFA,
+}
+
+// Write writes the font to the given writer.
+func (f *Font) Write(w io.Writer, opt *WriterOptions) error {
+	if opt == nil {
+		opt = defaultWriterOptions
+	}
+
+	info := f.makeTemplateData(opt)
+
+	switch opt.Format {
+	case FormatPFA:
+		err := tmpl.ExecuteTemplate(w, "SectionA", info)
+		if err != nil {
+			return err
+		}
+
+		wh := &hexWriter{w: w}
+		we := newEExecWriter(wh)
+		err = tmpl.ExecuteTemplate(we, "SectionB", info)
+		if err != nil {
+			return err
+		}
+		err = we.Close()
+		if err != nil {
+			return err
+		}
+		err = wh.Close()
+		if err != nil {
+			return err
+		}
+
+		return tmpl.ExecuteTemplate(w, "SectionC", info)
+
+	case FormatPFB:
+		buf := &bytes.Buffer{}
+
+		err := tmpl.ExecuteTemplate(buf, "SectionA", info)
+		if err != nil {
+			return err
+		}
+		n := uint32(buf.Len())
+		_, err = w.Write([]byte{128, 1, byte(n), byte(n >> 8), byte(n >> 16), byte(n >> 24)})
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(buf.Bytes())
+		if err != nil {
+			return err
+		}
+
+		buf.Reset()
+		we := newEExecWriter(buf)
+		err = tmpl.ExecuteTemplate(we, "SectionB", info)
+		if err != nil {
+			return err
+		}
+		err = we.Close()
+		if err != nil {
+			return err
+		}
+		n = uint32(buf.Len())
+		_, err = w.Write([]byte{128, 2, byte(n), byte(n >> 8), byte(n >> 16), byte(n >> 24)})
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(buf.Bytes())
+		if err != nil {
+			return err
+		}
+
+		buf.Reset()
+		err = tmpl.ExecuteTemplate(buf, "SectionC", info)
+		if err != nil {
+			return err
+		}
+		n = uint32(buf.Len())
+		_, err = w.Write([]byte{128, 1, byte(n), byte(n >> 8), byte(n >> 16), byte(n >> 24)})
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(buf.Bytes())
+		if err != nil {
+			return err
+		}
+
+		_, err = w.Write([]byte{128, 3})
+		if err != nil {
+			return err
+		}
+
+	case FormatBinary:
+		err := tmpl.ExecuteTemplate(w, "SectionA", info)
+		if err != nil {
+			return err
+		}
+
+		we := newEExecWriter(w)
+		err = tmpl.ExecuteTemplate(we, "SectionB", info)
+		if err != nil {
+			return err
+		}
+		err = we.Close()
+		if err != nil {
+			return err
+		}
+
+		_, err = w.Write([]byte{'\n'})
+		if err != nil {
+			return err
+		}
+		return tmpl.ExecuteTemplate(w, "SectionC", info)
+
+	case FormatNoEExec:
+		return tmpl.Execute(w, info)
+
+	default:
+		panic("invalid font file format")
+	}
+
+	return nil
+}
+
+// WritePDF writes the font in the format required for embedding in a PDF file.
+func (f *Font) WritePDF(w io.Writer, opt *WriterOptions) (int, int, int, error) {
+	if opt == nil {
+		opt = defaultWriterOptions
+	}
+	info := f.makeTemplateData(opt)
+
+	wc := &countingWriter{w: w}
+
+	err := tmpl.ExecuteTemplate(wc, "SectionA", info)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	length1 := wc.n
+
+	we := newEExecWriter(wc)
+	err = tmpl.ExecuteTemplate(we, "SectionB", info)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	err = we.Close()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	length2 := wc.n - length1
+
+	length3 := 0
+
+	return length1, length2, length3, nil
+}
+
+type countingWriter struct {
+	w io.Writer
+	n int
+}
+
+func (w *countingWriter) Write(p []byte) (n int, err error) {
+	n, err = w.w.Write(p)
+	w.n += n
+	return n, err
+}
+
+func (f *Font) makeTemplateData(opt *WriterOptions) *fontInfo {
 	fontMatrix := f.Info.FontMatrix
 	if len(fontMatrix) != 6 {
 		fontMatrix = []float64{0.001, 0, 0, 0.001, 0, 0}
 	}
 
-	info := fontInfo{
+	info := &fontInfo{
 		BlueFuzz:           f.Private.BlueFuzz,
 		BlueScale:          f.Private.BlueScale,
 		BlueShift:          f.Private.BlueShift,
@@ -55,7 +236,7 @@ func (f *Font) Write(w io.Writer) error {
 		UnderlineThickness: float64(f.Info.UnderlineThickness),
 		Version:            f.Info.Version,
 		Weight:             f.Info.Weight,
-		// EExec: 1,
+		EExec:              opt.Format != FormatNoEExec,
 	}
 	if f.Private.StdHW != 0 {
 		info.StdHW = []float64{f.Private.StdHW}
@@ -63,8 +244,7 @@ func (f *Font) Write(w io.Writer) error {
 	if f.Private.StdVW != 0 {
 		info.StdVW = []float64{f.Private.StdVW}
 	}
-
-	return tmpl.Execute(w, info)
+	return info
 }
 
 func (f *Font) encodeCharstrings() map[string]string {
@@ -151,8 +331,6 @@ var tmpl = template.Must(template.New("type1").Funcs(template.FuncMap{
 %!FontType1-1.1: {{.FontName}} {{.Version}}
 {{if not .CreationDate.IsZero}}%%CreationDate: {{.CreationDate.Format "2006-01-02 15:04:05 -0700 MST"}}
 {{end -}}
-{{if .Copyright}}% {{.Copyright}}
-{{end -}}
 10 dict begin
 /FontInfo 11 dict dup begin
 /version {{.Version|PS}} def
@@ -175,7 +353,7 @@ end def
 /FontMatrix {{ .FontMatrix }} def
 /FontBBox [0 0 0 0] def
 currentdict end
-{{if gt .EExec 0}}currentfile eexec
+{{if .EExec}}currentfile eexec
 {{end -}}
 {{end -}}
 
@@ -192,7 +370,7 @@ dup {{ $index }} {{ len $subr }} RD {{ $subr }} NP
 {{end -}}
 {{ if .OtherBlues}}/OtherBlues {{ .OtherBlues }} def
 {{end -}}
-{{ if and (ne .BlueScale 0.0) (or (lt .BlueScale .039624) (gt .BlueScale .039626)) -}}
+{{ if (or (lt .BlueScale .039624) (gt .BlueScale .039626)) -}}
 /BlueScale {{.BlueScale}} def
 {{end -}}
 {{ if ne .BlueShift 7 }}/BlueShift {{.BlueShift}} def
@@ -216,12 +394,12 @@ end
 readonly put
 put
 dup /FontName get exch definefont pop
-{{if gt .EExec 0}}mark currentfile closefile
+{{if .EExec}}mark currentfile closefile
 {{end -}}
 {{end -}}
 
 {{define "SectionC" -}}
-{{if gt .EExec 0 -}}
+{{if .EExec -}}
 0000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000
 0000000000000000000000000000000000000000000000000000000000000000
@@ -265,5 +443,5 @@ type fontInfo struct {
 	Version            string
 	Weight             string
 
-	EExec int // 0 = no eexec, 1 = hex eexec, 2 = binary eexec, 3 = binary eexec, no zeros
+	EExec bool
 }

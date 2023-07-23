@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("%!\n0 dict begin/FontInfo 0 dict dup begin/Copyright(\\rA)def def/FontType 1 def/ currentdict dup/Private 0 dict%00000000000000000000000000000000000000000000000000000000\n2 index/CharStrings 0 dict put put definefont")
+byte('%')

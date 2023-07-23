@@ -18,6 +18,7 @@ package type1
 
 import (
 	"bytes"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -77,27 +78,33 @@ func FuzzFont(f *testing.F) {
 	g.LineTo(200, 10)
 	g.LineTo(100, 110)
 	F.Glyphs["A"] = g
-	buf := &bytes.Buffer{}
-	err := F.Write(buf)
-	if err != nil {
-		f.Fatal(err)
-	}
-	f.Add(buf.Bytes())
 
-	f.Fuzz(func(t *testing.T, data []byte) {
+	buf := &bytes.Buffer{}
+	ff := []FileFormat{FormatPFA, FormatPFB, FormatBinary, FormatNoEExec}
+	for _, format := range ff {
+		buf.Reset()
+		err := F.Write(buf, &WriterOptions{Format: format})
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(buf.Bytes(), uint8(format))
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte, format uint8) {
 		i1, err := Read(bytes.NewReader(data))
 		if err != nil {
 			return
 		}
 
 		buf := &bytes.Buffer{}
-		err = i1.Write(buf)
+		err = i1.Write(buf, &WriterOptions{Format: FileFormat(format % uint8(len(ff)))})
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		i2, err := Read(buf)
+		i2, err := Read(bytes.NewReader(buf.Bytes()))
 		if err != nil {
+			os.WriteFile("debug.pfa", buf.Bytes(), 0644)
 			t.Fatal(err)
 		}
 

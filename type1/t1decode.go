@@ -153,9 +153,6 @@ glyphLoop:
 			switch op {
 			case t1endchar:
 				// fmt.Println("endchar")
-				if !isClosed {
-					rClosePath()
-				}
 				break glyphLoop
 			case t1hsbw:
 				if len(stack) < 2 {
@@ -449,6 +446,9 @@ glyphLoop:
 					fmt.Sprintf("unsupported type 1 opcode %d", op))
 			}
 		}
+	}
+	if !isClosed {
+		rClosePath()
 	}
 
 	return res, nil

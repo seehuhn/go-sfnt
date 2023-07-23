@@ -28,6 +28,8 @@ import (
 	"seehuhn.de/go/sfnt/funit"
 )
 
+// Read reads a Type 1 font from a reader.
+// The function supports both PFA and PFB files.
 func Read(r io.Reader) (*Font, error) {
 	head, r, err := peek(r, 1)
 	if err != nil {
@@ -39,12 +41,13 @@ func Read(r io.Reader) (*Font, error) {
 
 	intp := postscript.NewInterpreter()
 	intp.CheckStart = true
-	intp.MaxOps = 3_000_000 // TODO(voss): Is this enough?  I have seen a font needing 310_788.
+	// TODO(voss): Is this enough?  I have seen a font with NumOps=310_788.
+	intp.MaxOps = 3_000_000
 	err = intp.Execute(r)
 	if err != nil {
 		return nil, err
 	}
-	if len(intp.Fonts) != 1 {
+	if len(intp.FontDirectory) != 1 {
 		return nil, errors.New("expected exactly one font in file")
 	}
 
@@ -65,7 +68,7 @@ creationDateLoop:
 
 	var key postscript.Name
 	var fd postscript.Dict
-	for _, val := range intp.Fonts {
+	for _, val := range intp.FontDirectory {
 		if dict, ok := val.(postscript.Dict); ok {
 			fd = dict
 			break
@@ -164,7 +167,7 @@ creationDateLoop:
 	}
 	var otherBlues []funit.Int16 // optional
 	otherBluesArray, ok := pd["OtherBlues"].(postscript.Array)
-	if ok {
+	if ok && len(otherBluesArray) > 0 {
 		otherBlues = make([]funit.Int16, len(otherBluesArray))
 		for i, v := range otherBluesArray {
 			vInt, ok := v.(postscript.Integer)
@@ -176,7 +179,7 @@ creationDateLoop:
 		}
 	}
 	var blueScale float64 // optional
-	blueScaleReal, ok := pd["BlueScale"].(postscript.Real)
+	blueScaleReal, ok := getReal(pd["BlueScale"])
 	if ok {
 		blueScale = float64(blueScaleReal)
 	} else {
@@ -287,6 +290,9 @@ creationDateLoop:
 	}
 
 	for _, seac := range ctx.seacs {
+		if seac.base < 0 || len(encoding) <= int(seac.base) || seac.accent < 0 || len(encoding) <= int(seac.accent) {
+			continue
+		}
 		base := glyphs[encoding[byte(seac.base)]]
 		accent := glyphs[encoding[byte(seac.accent)]]
 		if base == nil || accent == nil {
@@ -322,6 +328,12 @@ creationDateLoop:
 		glyphs[seac.name] = g
 	}
 
+	for i, name := range encoding {
+		if _, ok := glyphs[name]; !ok {
+			encoding[i] = ".notdef"
+		}
+	}
+
 	res := &Font{
 		CreationDate: creationDate,
 		Info:         fi,
@@ -330,6 +342,17 @@ creationDateLoop:
 		Encoding:     encoding,
 	}
 	return res, nil
+}
+
+func getReal(x postscript.Object) (float64, bool) {
+	switch x := x.(type) {
+	case postscript.Real:
+		return float64(x), true
+	case postscript.Integer:
+		return float64(x), true
+	default:
+		return 0, false
+	}
 }
 
 var dateFormats = []string{

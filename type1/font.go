@@ -24,6 +24,7 @@ import (
 	"seehuhn.de/go/sfnt/funit"
 )
 
+// Font represents a Type 1 font.
 type Font struct {
 	CreationDate time.Time
 	Info         *FontInfo

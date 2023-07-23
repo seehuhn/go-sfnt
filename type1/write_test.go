@@ -26,64 +26,78 @@ import (
 )
 
 func TestWrite(t *testing.T) {
-	encoding := makeEmptyEncoding()
-	encoding[1] = "A"
-	F := &Font{
-		CreationDate: time.Now().Round(time.Second),
-		Info: &FontInfo{
-			FontName:           "Test",
-			Version:            "1.000",
-			Notice:             "Notice",
-			Copyright:          "Copyright",
-			FullName:           "Test Font",
-			FamilyName:         "Test Family",
-			Weight:             "Bold",
-			ItalicAngle:        -11.5,
-			IsFixedPitch:       false,
-			UnderlinePosition:  12,
-			UnderlineThickness: 14,
-			FontMatrix:         []float64{0.001, 0, 0, 0.001, 0, 0},
-		},
-		Private: &PrivateDict{
-			BlueValues: []funit.Int16{0, 10, 40, 50, 100, 120},
-			OtherBlues: []funit.Int16{-20, -10},
-			BlueScale:  0.1,
-			BlueShift:  8,
-			BlueFuzz:   2,
-			StdHW:      10,
-			StdVW:      20,
-			ForceBold:  true,
-		},
-		Glyphs:   map[string]*Glyph{},
-		Encoding: encoding,
-	}
-	g := &Glyph{WidthX: 100}
-	g.MoveTo(10, 10)
-	g.LineTo(20, 10)
-	g.LineTo(20, 20)
-	g.LineTo(10, 20)
-	g.ClosePath()
-	F.Glyphs[".notdef"] = g
-	g = &Glyph{WidthX: 200}
-	g.MoveTo(0, 10)
-	g.LineTo(200, 10)
-	g.LineTo(100, 110)
-	g.ClosePath()
-	F.Glyphs["A"] = g
+	for _, useStdEnc := range []bool{false, true} {
+		encoding := makeEmptyEncoding()
+		if useStdEnc {
+			encoding[StandardEncoding["A"]] = "A"
+		} else {
+			encoding[1] = "A"
+		}
+		F := &Font{
+			CreationDate: time.Now().Round(time.Second),
+			Info: &FontInfo{
+				FontName:           "Test",
+				Version:            "1.000",
+				Notice:             "Notice",
+				Copyright:          "Copyright",
+				FullName:           "Test Font",
+				FamilyName:         "Test Family",
+				Weight:             "Bold",
+				ItalicAngle:        -11.5,
+				IsFixedPitch:       false,
+				UnderlinePosition:  12,
+				UnderlineThickness: 14,
+				FontMatrix:         []float64{0.001, 0, 0, 0.001, 0, 0},
+			},
+			Private: &PrivateDict{
+				BlueValues: []funit.Int16{0, 10, 40, 50, 100, 120},
+				OtherBlues: []funit.Int16{-20, -10},
+				BlueScale:  0.1,
+				BlueShift:  8,
+				BlueFuzz:   2,
+				StdHW:      10,
+				StdVW:      20,
+				ForceBold:  true,
+			},
+			Glyphs:   map[string]*Glyph{},
+			Encoding: encoding,
+		}
+		g := &Glyph{WidthX: 100}
+		g.MoveTo(10, 10)
+		g.LineTo(20, 10)
+		g.LineTo(20, 20)
+		g.LineTo(10, 20)
+		g.ClosePath()
+		F.Glyphs[".notdef"] = g
+		g = &Glyph{WidthX: 200}
+		g.MoveTo(0, 10)
+		g.LineTo(200, 10)
+		g.LineTo(100, 110)
+		g.ClosePath()
+		F.Glyphs["A"] = g
 
-	buf := &bytes.Buffer{}
-	err := F.Write(buf)
-	if err != nil {
-		t.Fatal(err)
-	}
+		buf := &bytes.Buffer{}
+		for _, format := range []FileFormat{FormatPFA, FormatPFB, FormatBinary, FormatNoEExec} {
+			buf.Reset()
+			err := F.Write(buf, &WriterOptions{Format: format})
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	r := bytes.NewReader(buf.Bytes())
-	G, err := Read(r)
-	if err != nil {
-		t.Fatal(err)
-	}
+			isStdEnc := bytes.Contains(buf.Bytes(), []byte("/Encoding StandardEncoding def\n"))
+			if isStdEnc != useStdEnc {
+				t.Errorf("standardencoding: got %t, want %t", isStdEnc, useStdEnc)
+			}
 
-	if d := cmp.Diff(F, G); d != "" {
-		t.Errorf("F and G differ: %s", d)
+			r := bytes.NewReader(buf.Bytes())
+			G, err := Read(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if d := cmp.Diff(F, G); d != "" {
+				t.Errorf("F and G differ: %s", d)
+			}
+		}
 	}
 }
