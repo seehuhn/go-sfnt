@@ -39,6 +39,7 @@ func Read(r io.Reader) (*Font, error) {
 
 	intp := postscript.NewInterpreter()
 	intp.CheckStart = true
+	intp.MaxOps = 3_000_000 // TODO(voss): Is this enough?  I have seen a font needing 310_788.
 	err = intp.Execute(r)
 	if err != nil {
 		return nil, err
