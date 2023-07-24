@@ -25,6 +25,9 @@ import (
 )
 
 // Font represents a Type 1 font.
+//
+// TODO(voss): make this more similar to cff.Font
+// TODO(voss): how does this relate to sfnt.Font?
 type Font struct {
 	CreationDate time.Time
 	Info         *FontInfo

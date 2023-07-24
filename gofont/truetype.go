@@ -22,7 +22,7 @@ import (
 	"seehuhn.de/go/sfnt"
 )
 
-func TrueType(font FontID) (*sfnt.Info, error) {
+func TrueType(font FontID) (*sfnt.Font, error) {
 	raw, ok := ttf[font]
 	if !ok {
 		return nil, ErrInvalidFontID

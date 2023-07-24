@@ -33,11 +33,11 @@ import (
 	"seehuhn.de/go/sfnt/type1"
 )
 
-// Info contains information about a font.
+// Font contains information about a font.
 //
 // TODO(voss): clarify the relation between IsOblique, IsItalic, and
 // ItalicAngle != 0.
-type Info struct {
+type Font struct {
 	FamilyName string
 	Width      os2.Width
 	Weight     os2.Weight
@@ -85,60 +85,60 @@ type Info struct {
 // TODO(voss): read https://github.com/googlefonts/gf-docs/tree/main/VerticalMetrics
 
 // GetFontInfo returns an Adobe FontInfo structure for the given font.
-func (info *Info) GetFontInfo() *type1.FontInfo {
-	q := 1 / float64(info.UnitsPerEm)
+func (f *Font) GetFontInfo() *type1.FontInfo {
+	q := 1 / float64(f.UnitsPerEm)
 	fontInfo := &type1.FontInfo{
-		FullName:   info.FullName(),
-		FamilyName: info.FamilyName,
-		Weight:     info.Weight.String(),
-		FontName:   info.PostscriptName(),
-		Version:    info.Version.String(),
+		FullName:   f.FullName(),
+		FamilyName: f.FamilyName,
+		Weight:     f.Weight.String(),
+		FontName:   f.PostscriptName(),
+		Version:    f.Version.String(),
 
-		Copyright: strings.ReplaceAll(info.Copyright, "©", "(c)"),
-		Notice:    info.Trademark,
+		Copyright: strings.ReplaceAll(f.Copyright, "©", "(c)"),
+		Notice:    f.Trademark,
 
 		FontMatrix: []float64{q, 0, 0, q, 0, 0},
 
-		ItalicAngle:  info.ItalicAngle,
-		IsFixedPitch: info.IsFixedPitch(),
+		ItalicAngle:  f.ItalicAngle,
+		IsFixedPitch: f.IsFixedPitch(),
 
-		UnderlinePosition:  info.UnderlinePosition,
-		UnderlineThickness: info.UnderlineThickness,
+		UnderlinePosition:  f.UnderlinePosition,
+		UnderlineThickness: f.UnderlineThickness,
 	}
 	return fontInfo
 }
 
 // IsGlyf returns true if the font contains TrueType glyph outlines.
-func (info *Info) IsGlyf() bool {
-	_, ok := info.Outlines.(*glyf.Outlines)
+func (f *Font) IsGlyf() bool {
+	_, ok := f.Outlines.(*glyf.Outlines)
 	return ok
 }
 
 // IsCFF returns true if the font contains CFF glyph outlines.
-func (info *Info) IsCFF() bool {
-	_, ok := info.Outlines.(*cff.Outlines)
+func (f *Font) IsCFF() bool {
+	_, ok := f.Outlines.(*cff.Outlines)
 	return ok
 }
 
 // FullName returns the full name of the font.
-func (info *Info) FullName() string {
-	return info.FamilyName + " " + info.Subfamily()
+func (f *Font) FullName() string {
+	return f.FamilyName + " " + f.Subfamily()
 }
 
 // Subfamily returns the subfamily name of the font.
-func (info *Info) Subfamily() string {
+func (f *Font) Subfamily() string {
 	var words []string
-	if info.Width != 0 && info.Width != os2.WidthNormal {
-		words = append(words, info.Width.String())
+	if f.Width != 0 && f.Width != os2.WidthNormal {
+		words = append(words, f.Width.String())
 	}
-	if info.Weight != 0 && info.Weight != os2.WeightNormal {
-		words = append(words, info.Weight.SimpleString())
-	} else if info.IsBold {
+	if f.Weight != 0 && f.Weight != os2.WeightNormal {
+		words = append(words, f.Weight.SimpleString())
+	} else if f.IsBold {
 		words = append(words, "Bold")
 	}
-	if info.IsOblique {
+	if f.IsOblique {
 		words = append(words, "Oblique")
-	} else if info.IsItalic {
+	} else if f.IsItalic {
 		words = append(words, "Italic")
 	}
 	if len(words) == 0 {
@@ -148,17 +148,17 @@ func (info *Info) Subfamily() string {
 }
 
 // PostscriptName returns the Postscript name of the font.
-func (info *Info) PostscriptName() string {
-	name := info.FamilyName + "-" + info.Subfamily()
+func (f *Font) PostscriptName() string {
+	name := f.FamilyName + "-" + f.Subfamily()
 	re := regexp.MustCompile(`[^!-$&-'*-.0-;=?-Z\\^-z|~]+`)
 	return re.ReplaceAllString(name, "")
 }
 
 // BBox returns the bounding box of the font.
-func (info *Info) BBox() (bbox funit.Rect16) {
+func (f *Font) BBox() (bbox funit.Rect16) {
 	first := true
-	for i := 0; i < info.NumGlyphs(); i++ {
-		ext := info.GlyphExtent(glyph.ID(i))
+	for i := 0; i < f.NumGlyphs(); i++ {
+		ext := f.GlyphExtent(glyph.ID(i))
 		if ext.IsZero() {
 			continue
 		}
@@ -174,8 +174,8 @@ func (info *Info) BBox() (bbox funit.Rect16) {
 }
 
 // NumGlyphs returns the number of glyphs in the font.
-func (info *Info) NumGlyphs() int {
-	switch outlines := info.Outlines.(type) {
+func (f *Font) NumGlyphs() int {
+	switch outlines := f.Outlines.(type) {
 	case *cff.Outlines:
 		return len(outlines.Glyphs)
 	case *glyf.Outlines:
@@ -187,8 +187,8 @@ func (info *Info) NumGlyphs() int {
 
 // GlyphWidth returns the advance width of the glyph with the given glyph ID,
 // in font design units.
-func (info *Info) GlyphWidth(gid glyph.ID) funit.Int16 {
-	switch f := info.Outlines.(type) {
+func (f *Font) GlyphWidth(gid glyph.ID) funit.Int16 {
+	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
 		return f.Glyphs[gid].Width
 	case *glyf.Outlines:
@@ -202,25 +202,25 @@ func (info *Info) GlyphWidth(gid glyph.ID) funit.Int16 {
 }
 
 // Widths returns the advance widths of the glyphs in the font.
-func (info *Info) Widths() []funit.Int16 {
-	switch f := info.Outlines.(type) {
+func (f *Font) Widths() []funit.Int16 {
+	switch outlines := f.Outlines.(type) {
 	case *cff.Outlines:
-		widths := make([]funit.Int16, info.NumGlyphs())
-		for gid, g := range f.Glyphs {
+		widths := make([]funit.Int16, f.NumGlyphs())
+		for gid, g := range outlines.Glyphs {
 			widths[gid] = g.Width
 		}
 		return widths
 	case *glyf.Outlines:
-		return f.Widths
+		return outlines.Widths
 	default:
 		panic("unexpected font type")
 	}
 }
 
 // Extents returns the glyph bounding boxes for the font.
-func (info *Info) Extents() []funit.Rect16 {
-	extents := make([]funit.Rect16, info.NumGlyphs())
-	switch f := info.Outlines.(type) {
+func (f *Font) Extents() []funit.Rect16 {
+	extents := make([]funit.Rect16, f.NumGlyphs())
+	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
 		for i, g := range f.Glyphs {
 			extents[i] = g.Extent()
@@ -241,8 +241,8 @@ func (info *Info) Extents() []funit.Rect16 {
 
 // GlyphExtent returns the glyph bounding box for one glyph in font design
 // units.
-func (info *Info) GlyphExtent(gid glyph.ID) funit.Rect16 {
-	switch f := info.Outlines.(type) {
+func (f *Font) GlyphExtent(gid glyph.ID) funit.Rect16 {
+	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
 		return f.Glyphs[gid].Extent()
 	case *glyf.Outlines:
@@ -256,8 +256,8 @@ func (info *Info) GlyphExtent(gid glyph.ID) funit.Rect16 {
 	}
 }
 
-func (info *Info) glyphHeight(gid glyph.ID) funit.Int16 {
-	switch f := info.Outlines.(type) {
+func (f *Font) glyphHeight(gid glyph.ID) funit.Int16 {
+	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
 		return f.Glyphs[gid].Extent().URy
 	case *glyf.Outlines:
@@ -271,10 +271,10 @@ func (info *Info) glyphHeight(gid glyph.ID) funit.Int16 {
 	}
 }
 
-// GlyphName returns the name of a glyph.  If the name is not known,
-// the empty string is returned.
-func (info *Info) GlyphName(gid glyph.ID) string {
-	switch f := info.Outlines.(type) {
+// GlyphName returns the name of a glyph.
+// If the name is not known, the empty string is returned.
+func (f *Font) GlyphName(gid glyph.ID) string {
+	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
 		return f.Glyphs[gid].Name
 	case *glyf.Outlines:
@@ -288,8 +288,8 @@ func (info *Info) GlyphName(gid glyph.ID) string {
 }
 
 // IsFixedPitch returns true if all glyphs in the font have the same width.
-func (info *Info) IsFixedPitch() bool {
-	ww := info.Widths()
+func (f *Font) IsFixedPitch() bool {
+	ww := f.Widths()
 	if len(ww) == 0 {
 		return false
 	}
@@ -309,29 +309,29 @@ func (info *Info) IsFixedPitch() bool {
 	return true
 }
 
-func (info *Info) Layout(rr []rune, gsubLookups, gposLookups []gtab.LookupIndex) glyph.Seq {
+func (f *Font) Layout(rr []rune, gsubLookups, gposLookups []gtab.LookupIndex) glyph.Seq {
 	// TODO(voss): should this take a string as an argument, instead of rr?
 	seq := make(glyph.Seq, len(rr))
 	for i, r := range rr {
-		gid := info.CMap.Lookup(r)
+		gid := f.CMap.Lookup(r)
 		seq[i].Gid = gid
 		seq[i].Text = []rune{r}
 	}
 
-	if info.Gsub != nil {
+	if f.Gsub != nil {
 		for _, lookupIndex := range gsubLookups {
-			seq = info.Gsub.LookupList.ApplyLookup(seq, lookupIndex, info.Gdef)
+			seq = f.Gsub.LookupList.ApplyLookup(seq, lookupIndex, f.Gdef)
 		}
 	}
 
 	for i := range seq {
 		gid := seq[i].Gid
-		if !info.Gdef.IsMark(gid) {
-			seq[i].Advance = info.GlyphWidth(gid)
+		if !f.Gdef.IsMark(gid) {
+			seq[i].Advance = f.GlyphWidth(gid)
 		}
 	}
 	for _, lookupIndex := range gposLookups {
-		seq = info.Gpos.LookupList.ApplyLookup(seq, lookupIndex, info.Gdef)
+		seq = f.Gpos.LookupList.ApplyLookup(seq, lookupIndex, f.Gdef)
 	}
 
 	return seq

@@ -61,7 +61,10 @@ func (f *Font) Write(w io.Writer, opt *WriterOptions) error {
 		}
 
 		wh := &hexWriter{w: w}
-		we := newEExecWriter(wh)
+		we, err := newEExecWriter(wh)
+		if err != nil {
+			return err
+		}
 		err = tmpl.ExecuteTemplate(we, "SectionB", info)
 		if err != nil {
 			return err
@@ -95,7 +98,10 @@ func (f *Font) Write(w io.Writer, opt *WriterOptions) error {
 		}
 
 		buf.Reset()
-		we := newEExecWriter(buf)
+		we, err := newEExecWriter(buf)
+		if err != nil {
+			return err
+		}
 		err = tmpl.ExecuteTemplate(we, "SectionB", info)
 		if err != nil {
 			return err
@@ -140,7 +146,10 @@ func (f *Font) Write(w io.Writer, opt *WriterOptions) error {
 			return err
 		}
 
-		we := newEExecWriter(w)
+		we, err := newEExecWriter(w)
+		if err != nil {
+			return err
+		}
 		err = tmpl.ExecuteTemplate(we, "SectionB", info)
 		if err != nil {
 			return err
@@ -181,7 +190,10 @@ func (f *Font) WritePDF(w io.Writer, opt *WriterOptions) (int, int, int, error) 
 	}
 	length1 := wc.n
 
-	we := newEExecWriter(wc)
+	we, err := newEExecWriter(wc)
+	if err != nil {
+		return 0, 0, 0, err
+	}
 	err = tmpl.ExecuteTemplate(we, "SectionB", info)
 	if err != nil {
 		return 0, 0, 0, err

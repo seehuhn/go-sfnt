@@ -29,6 +29,8 @@ import (
 // TODO(voss): implement support for font matrices
 
 // Font stores a CFF font.
+//
+// TODO(voss): make this more similar to type1.Font
 type Font struct {
 	*type1.FontInfo
 	*Outlines

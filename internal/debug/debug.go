@@ -34,7 +34,7 @@ import (
 )
 
 // MakeSimpleFont creates a simple font for use in unit tests.
-func MakeSimpleFont() *sfnt.Info {
+func MakeSimpleFont() *sfnt.Font {
 	info, err := sfnt.Read(bytes.NewReader(goregular.TTF))
 	if err != nil {
 		panic(err)
@@ -206,7 +206,7 @@ func MakeSimpleFont() *sfnt.Info {
 	newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 
 	now := time.Now()
-	res := &sfnt.Info{
+	res := &sfnt.Font{
 		FamilyName:       "Debug",
 		Width:            info.Width,
 		Weight:           info.Weight,
@@ -232,7 +232,7 @@ func MakeSimpleFont() *sfnt.Info {
 }
 
 // MakeCompleteFont creates a font for use in unit tests.
-func MakeCompleteFont() *sfnt.Info {
+func MakeCompleteFont() *sfnt.Font {
 	info, err := sfnt.Read(bytes.NewReader(goregular.TTF))
 	if err != nil {
 		panic(err)
@@ -383,7 +383,7 @@ func MakeCompleteFont() *sfnt.Info {
 	newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 
 	now := time.Now()
-	res := &sfnt.Info{
+	res := &sfnt.Font{
 		FamilyName:       "Debug",
 		Width:            info.Width,
 		Weight:           info.Weight,

@@ -37,7 +37,7 @@ import (
 )
 
 // Write writes the binary form of the font to the given writer.
-func (info *Info) Write(w io.Writer) (int64, error) {
+func (info *Font) Write(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
 
 	hheaData, hmtxData := info.makeHmtx()
@@ -115,7 +115,7 @@ func (info *Info) Write(w io.Writer) (int64, error) {
 // The generated cmap assumes that the font is "non-symbolic".
 //
 // The function panics, if the font does not use TrueType outlines.
-func (info *Info) WriteTrueTypePDF(w io.Writer) (int64, error) {
+func (info *Font) WriteTrueTypePDF(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
 
 	if info.CMap != nil {
@@ -146,7 +146,7 @@ func (info *Info) WriteTrueTypePDF(w io.Writer) (int64, error) {
 	return header.Write(w, header.ScalerTypeTrueType, tableData)
 }
 
-func (info *Info) WriteCFFOpenTypePDF(w io.Writer) (int64, error) {
+func (info *Font) WriteCFFOpenTypePDF(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
 
 	var ss cmap.Table
@@ -175,7 +175,7 @@ func (info *Info) WriteCFFOpenTypePDF(w io.Writer) (int64, error) {
 	return header.Write(w, header.ScalerTypeCFF, tableData)
 }
 
-func (info *Info) makeHead(locaFormat int16) []byte {
+func (info *Font) makeHead(locaFormat int16) []byte {
 	headInfo := head.Info{
 		FontRevision:  info.Version,
 		HasYBaseAt0:   true,
@@ -192,7 +192,7 @@ func (info *Info) makeHead(locaFormat int16) []byte {
 	return headInfo.Encode()
 }
 
-func (info *Info) makeHmtx() ([]byte, []byte) {
+func (info *Font) makeHmtx() ([]byte, []byte) {
 	hmtxInfo := &hmtx.Info{
 		Widths:       info.Widths(),
 		GlyphExtents: info.Extents(),
@@ -205,7 +205,7 @@ func (info *Info) makeHmtx() ([]byte, []byte) {
 	return hmtxInfo.Encode()
 }
 
-func (info *Info) makeOS2() []byte {
+func (info *Font) makeOS2() []byte {
 	avgGlyphWidth := 0
 	count := 0
 	ww := info.Widths()
@@ -276,7 +276,7 @@ func (info *Info) makeOS2() []byte {
 	return os2Info.Encode()
 }
 
-func (info *Info) makeName(ss cmap.Table) []byte {
+func (info *Font) makeName(ss cmap.Table) []byte {
 	day := info.ModificationTime
 	if day.IsZero() {
 		day = info.CreationTime
@@ -313,7 +313,7 @@ func (info *Info) makeName(ss cmap.Table) []byte {
 	return nameInfo.Encode(1)
 }
 
-func (info *Info) makePost() []byte {
+func (info *Font) makePost() []byte {
 	postInfo := &post.Info{
 		ItalicAngle:        info.ItalicAngle,
 		UnderlinePosition:  info.UnderlinePosition,
@@ -326,7 +326,7 @@ func (info *Info) makePost() []byte {
 	return postInfo.Encode()
 }
 
-func (info *Info) makeCFF(outlines *cff.Outlines) ([]byte, error) {
+func (info *Font) makeCFF(outlines *cff.Outlines) ([]byte, error) {
 	fontInfo := info.GetFontInfo()
 	myCff := &cff.Font{
 		FontInfo: fontInfo,

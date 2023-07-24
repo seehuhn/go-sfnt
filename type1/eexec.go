@@ -58,16 +58,19 @@ type eexecWriter struct {
 	R   uint16
 }
 
-func newEExecWriter(w io.Writer) *eexecWriter {
+func newEExecWriter(w io.Writer) (*eexecWriter, error) {
 	res := &eexecWriter{
 		w:   w,
 		buf: make([]byte, 512),
 		R:   eexecR0,
 	}
 	iv := []byte{'X' ^ byte(eexecR0>>8), 0, 0, 0}
-	res.Write(iv)
+	_, err := res.Write(iv)
+	if err != nil {
+		return nil, err
+	}
 
-	return res
+	return res, nil
 }
 
 func (w *eexecWriter) Write(p []byte) (n int, err error) {

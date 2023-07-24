@@ -25,7 +25,7 @@ import (
 
 func FuzzGsub1_1(f *testing.F) {
 	l := &Gsub1_1{
-		Cov:   map[glyph.ID]int{3: 0},
+		Cov:   map[glyph.ID]bool{3: true},
 		Delta: 26,
 	}
 	f.Add(l.Encode())

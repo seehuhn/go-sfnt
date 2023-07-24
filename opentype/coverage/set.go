@@ -38,7 +38,7 @@ func (set Set) Glyphs() []glyph.ID {
 // ToTable converts the Set to a Coverage table.
 func (set Set) ToTable() Table {
 	glyphs := set.Glyphs()
-	table := make(Table)
+	table := make(Table, len(glyphs))
 	for i, gid := range glyphs {
 		table[gid] = i
 	}

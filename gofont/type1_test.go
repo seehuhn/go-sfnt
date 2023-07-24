@@ -1,5 +1,5 @@
 // seehuhn.de/go/sfnt - a library for reading and writing font files
-// Copyright (C) 2022  Jochen Voss <voss@seehuhn.de>
+// Copyright (C) 2023  Jochen Voss <voss@seehuhn.de>
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,32 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package sfnt
+package gofont
 
-import (
-	"testing"
+import "testing"
 
-	"seehuhn.de/go/sfnt/os2"
-)
-
-func TestPostscriptName(t *testing.T) {
-	info := &Font{
-		FamilyName: `A(n)d[r]o{m}e/d<a> N%ebula`,
-		Weight:     os2.WeightBold,
-		IsItalic:   true,
-	}
-	psName := info.PostscriptName()
-	if psName != "AndromedaNebula-BoldItalic" {
-		t.Errorf("wrong postscript name: %q", psName)
-	}
-
-	var rr []rune
-	for i := 0; i < 255; i++ {
-		rr = append(rr, rune(i))
-	}
-	info.FamilyName = string(rr)
-	psName = info.PostscriptName()
-	if len(psName) != 127-33-10+len("-BoldItalic") {
-		t.Errorf("wrong postscript name: %q", psName)
+func TestType1(t *testing.T) {
+	for _, fontID := range All {
+		_, err := Type1(fontID)
+		if err != nil {
+			t.Errorf("error for font %v: %v", fontID, err)
+		}
 	}
 }

@@ -70,7 +70,7 @@ var gsubReaders = map[uint16]func(p *parser.Parser, pos int64) (Subtable, error)
 // The new glyph is determined by adding `delta` to the original glyph's GID.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#11-single-substitution-format-1
 type Gsub1_1 struct {
-	Cov   coverage.Table
+	Cov   coverage.Set
 	Delta glyph.ID
 }
 
@@ -81,7 +81,7 @@ func readGsub1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 	coverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	deltaGlyphID := glyph.ID(buf[2])<<8 | glyph.ID(buf[3])
-	cov, err := coverage.Read(p, subtablePos+coverageOffset)
+	cov, err := coverage.ReadSet(p, subtablePos+coverageOffset)
 	if err != nil {
 		return nil, err
 	}
@@ -109,19 +109,20 @@ func (l *Gsub1_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 
 // EncodeLen implements the Subtable interface.
 func (l *Gsub1_1) EncodeLen() int {
-	return 6 + l.Cov.EncodeLen()
+	return 6 + l.Cov.ToTable().EncodeLen()
 }
 
 // Encode implements the Subtable interface.
 func (l *Gsub1_1) Encode() []byte {
-	buf := make([]byte, 6+l.Cov.EncodeLen())
+	cov := l.Cov.ToTable()
+	buf := make([]byte, 6+cov.EncodeLen())
 	// buf[0] = 0
 	buf[1] = 1
 	// buf[2] = 0
 	buf[3] = 6
 	buf[4] = byte(l.Delta >> 8)
 	buf[5] = byte(l.Delta)
-	copy(buf[6:], l.Cov.Encode())
+	copy(buf[6:], cov.Encode())
 	return buf
 }
 

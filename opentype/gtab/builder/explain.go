@@ -31,7 +31,7 @@ import (
 
 // ExplainGsub returns a human-readable, textual description of the lookups
 // in a GSUB table.
-func ExplainGsub(fontInfo *sfnt.Info) string {
+func ExplainGsub(fontInfo *sfnt.Font) string {
 	ee := newExplainer(fontInfo)
 
 	for _, lookup := range fontInfo.Gsub.LookupList {
@@ -149,7 +149,7 @@ func ExplainGsub(fontInfo *sfnt.Info) string {
 
 // ExplainGpos returns a human-readable, textual description of the lookups
 // in a GPOS table.
-func ExplainGpos(fontInfo *sfnt.Info) []string {
+func ExplainGpos(fontInfo *sfnt.Font) []string {
 	var res []string
 	for _, lookup := range fontInfo.Gpos.LookupList {
 		ee := newExplainer(fontInfo)
@@ -331,7 +331,7 @@ type explainer struct {
 	names  []string
 }
 
-func newExplainer(fontInfo *sfnt.Info) *explainer {
+func newExplainer(fontInfo *sfnt.Font) *explainer {
 	mappings := make([]string, fontInfo.NumGlyphs())
 	a, b := fontInfo.CMap.CodeRange()
 	for r := a; r <= b; r++ {

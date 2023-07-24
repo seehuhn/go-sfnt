@@ -95,7 +95,7 @@ func TestNestedSimple(t *testing.T) {
 					},
 					Subtables: []Subtable{
 						&Gsub1_1{
-							Cov:   coverage.Table{1: 0},
+							Cov:   coverage.Set{1: true},
 							Delta: 1,
 						},
 					},

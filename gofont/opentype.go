@@ -25,7 +25,7 @@ import (
 	"seehuhn.de/go/sfnt/type1"
 )
 
-func OpenType(font FontID) (*sfnt.Info, error) {
+func OpenType(font FontID) (*sfnt.Font, error) {
 	info, err := TrueType(font)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func OpenType(font FontID) (*sfnt.Info, error) {
 
 	for i, origGlyph := range origOutlines.Glyphs {
 		gid := glyph.ID(i)
-		cffGlyph := cff.NewGlyph(info.GlyphName(gid), info.GlyphWidth(gid))
+		newGlyph := cff.NewGlyph(info.GlyphName(gid), info.GlyphWidth(gid))
 
 		var g glyf.SimpleGlyph
 		var ok bool
@@ -80,7 +80,7 @@ func OpenType(font FontID) (*sfnt.Info, error) {
 			g, ok = origGlyph.Data.(glyf.SimpleGlyph)
 		}
 		if !ok {
-			newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
+			newOutlines.Glyphs = append(newOutlines.Glyphs, newGlyph)
 			continue
 		}
 		glyphInfo, err := g.Decode()
@@ -114,7 +114,7 @@ func OpenType(font FontID) (*sfnt.Info, error) {
 				}
 			}
 
-			cffGlyph.MoveTo(float64(extended[offs].X), float64(extended[offs].Y))
+			newGlyph.MoveTo(float64(extended[offs].X), float64(extended[offs].Y))
 
 			i := 0
 			for i < n {
@@ -127,14 +127,14 @@ func OpenType(font FontID) (*sfnt.Info, error) {
 					if i == n-1 {
 						break
 					}
-					cffGlyph.LineTo(float64(extended[i1].X), float64(extended[i1].Y))
+					newGlyph.LineTo(float64(extended[i1].X), float64(extended[i1].Y))
 					i++
 				} else {
 					// See the following link for converting truetype outlines
 					// to CFF outlines:
 					// https://pomax.github.io/bezierinfo/#reordering
 					i2 := (i1 + 1) % n
-					cffGlyph.CurveTo(
+					newGlyph.CurveTo(
 						float64(extended[i0].X)/3+float64(extended[i1].X)*2/3,
 						float64(extended[i0].Y)/3+float64(extended[i1].Y)*2/3,
 						float64(extended[i1].X)*2/3+float64(extended[i2].X)/3,
@@ -145,7 +145,7 @@ func OpenType(font FontID) (*sfnt.Info, error) {
 				}
 			}
 		}
-		newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
+		newOutlines.Glyphs = append(newOutlines.Glyphs, newGlyph)
 	}
 	info.Outlines = newOutlines
 

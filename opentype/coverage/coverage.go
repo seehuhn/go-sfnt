@@ -59,6 +59,14 @@ func (table Table) Prune(size int) {
 	}
 }
 
+func (table Table) ToSet() Set {
+	set := make(Set, len(table))
+	for gid := range table {
+		set[gid] = true
+	}
+	return set
+}
+
 // Read reads a coverage table from the given parser.
 func Read(p *parser.Parser, pos int64) (Table, error) {
 	err := p.SeekPos(pos)

@@ -46,7 +46,7 @@ import (
 )
 
 // ReadFile reads a TrueType or OpenType font from a file.
-func ReadFile(fname string) (*Info, error) {
+func ReadFile(fname string) (*Font, error) {
 	fd, err := os.Open(fname)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func ReadFile(fname string) (*Info, error) {
 // Read reads a TrueType or OpenType font from an io.Reader.
 // If r does not implement the io.ReaderAt interface, the whole
 // font file will be read into memory.
-func Read(r io.Reader) (*Info, error) {
+func Read(r io.Reader) (*Font, error) {
 	rr, ok := r.(io.ReaderAt)
 	if !ok {
 		data, err := io.ReadAll(r)
@@ -282,7 +282,7 @@ func Read(r io.Reader) (*Info, error) {
 	}
 
 	// Merge the information from the various tables.
-	info := &Info{
+	info := &Font{
 		Outlines: Outlines,
 		CMap:     cmapSubtable,
 	}

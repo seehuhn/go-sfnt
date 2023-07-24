@@ -33,7 +33,7 @@ import (
 )
 
 // Parse decodes the textual description of a LookupList.
-func Parse(fontInfo *sfnt.Info, input string) (lookups gtab.LookupList, err error) {
+func Parse(fontInfo *sfnt.Font, input string) (lookups gtab.LookupList, err error) {
 	numGlyphs := fontInfo.NumGlyphs()
 	byName := make(map[string]glyph.ID)
 	for i := glyph.ID(0); i < glyph.ID(numGlyphs); i++ {
@@ -72,7 +72,7 @@ type parser struct {
 	tokens  <-chan item
 	backlog []item
 
-	fontInfo *sfnt.Info
+	fontInfo *sfnt.Font
 	byName   map[string]glyph.ID
 }
 
@@ -172,7 +172,7 @@ func (p *parser) readGsub1() *gtab.LookupTable {
 	var subtable gtab.Subtable
 	if isConstDelta {
 		subtable = &gtab.Gsub1_1{
-			Cov:   cov,
+			Cov:   cov.ToSet(),
 			Delta: delta,
 		}
 	} else {

@@ -33,7 +33,7 @@ import (
 
 func main() {
 	now := time.Now()
-	info := &sfnt.Info{
+	info := &sfnt.Font{
 		FamilyName: "Test",
 		Weight:     os2.WeightNormal,
 		Width:      os2.WidthNormal,

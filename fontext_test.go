@@ -85,7 +85,7 @@ func FuzzFont(f *testing.F) {
 	g1.LineTo(850, 850)
 	g1.LineTo(50, 850)
 	gg := []*cff.Glyph{g0, g1}
-	fontInfo = &sfnt.Info{
+	fontInfo = &sfnt.Font{
 		FamilyName:         "Test",
 		Width:              os2.WidthNormal,
 		Weight:             os2.WeightNormal,

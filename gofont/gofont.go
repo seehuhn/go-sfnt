@@ -33,6 +33,8 @@ import (
 	"golang.org/x/image/font/gofont/gosmallcapsitalic"
 )
 
+// TODO(voss): attach all required methods to FontID, to make it implement Font?
+
 type FontID int
 
 const (

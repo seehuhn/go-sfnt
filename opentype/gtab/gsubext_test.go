@@ -173,7 +173,7 @@ func FuzzGsub(f *testing.F) {
 
 var exportFonts = flag.Bool("export-fonts", false, "export fonts used in tests")
 
-func exportFont(fontInfo *sfnt.Info, idx int, in string) {
+func exportFont(fontInfo *sfnt.Font, idx int, in string) {
 	if !*exportFonts {
 		return
 	}

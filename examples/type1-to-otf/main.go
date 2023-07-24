@@ -102,7 +102,7 @@ func readAfm(afmName string) (*afm.Info, error) {
 	return afm.Read(fd)
 }
 
-func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
+func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 	fd, err := os.Open(fname)
 	if err != nil {
 		return nil, err
@@ -250,7 +250,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Info, error) {
 	gsub := makeLigatures(afm, name2gid)
 	gpos := makeKerningTable(afm, name2gid)
 
-	otfInfo := sfnt.Info{
+	otfInfo := sfnt.Font{
 		FamilyName:         t1Info.Info.FamilyName,
 		Width:              width,
 		Weight:             weight,
@@ -435,7 +435,7 @@ func makeKerningTable(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
 	return gpos
 }
 
-func writeOtf(outname string, info *sfnt.Info) error {
+func writeOtf(outname string, info *sfnt.Font) error {
 	out, err := os.Create(outname)
 	if err != nil {
 		return err

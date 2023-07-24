@@ -28,6 +28,8 @@ import (
 	"seehuhn.de/go/sfnt/funit"
 )
 
+// TODO(voss): allow to merge in information from an ".afm" file.
+
 // Read reads a Type 1 font from a reader.
 // The function supports both PFA and PFB files.
 func Read(r io.Reader) (*Font, error) {
