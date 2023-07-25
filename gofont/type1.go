@@ -40,9 +40,12 @@ func Type1(font FontID) (*type1.Font, error) {
 	origOutlines := info.Outlines.(*glyf.Outlines)
 
 	for i, origGlyph := range origOutlines.Glyphs {
-		name := info.GlyphName(glyph.ID(i))
+		gid := glyph.ID(i)
+		name := info.GlyphName(gid)
 		newGlyph := &type1.Glyph{}
-		newGlyphI := &type1.GlyphInfo{} // TODO(voss)
+		newGlyphI := &type1.GlyphInfo{ // TODO(voss)
+			WidthX: info.GlyphWidth(gid),
+		}
 
 		if origGlyph == nil {
 			goto done
@@ -167,6 +170,7 @@ func Type1(font FontID) (*type1.Font, error) {
 
 	res := &type1.Font{
 		CreationDate: info.CreationTime,
+		UnitsPerEm:   info.UnitsPerEm,
 		Info:         info.GetFontInfo(),
 		Private:      Private,
 		Outlines:     newGlyphs,
