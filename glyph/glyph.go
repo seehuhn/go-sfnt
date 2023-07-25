@@ -17,7 +17,7 @@
 // Package glyph contains types for representing glyphs.
 package glyph
 
-import "seehuhn.de/go/sfnt/funit"
+import "seehuhn.de/go/postscript/funit"
 
 // ID is used to enumerate the glyphs in a font.  The first glyph
 // has index 0 and is used to indicate a missing character (usually rendered

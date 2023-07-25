@@ -21,9 +21,10 @@ import (
 	"math"
 	"strings"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 // TODO(voss): implement support for font matrices

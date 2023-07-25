@@ -22,9 +22,10 @@ import (
 	"math"
 	"time"
 
+	"seehuhn.de/go/postscript/funit"
+
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
-	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/header"
@@ -314,10 +315,13 @@ func (info *Font) makeName(ss cmap.Table) []byte {
 }
 
 func (info *Font) makePost() []byte {
+	r := func(x funit.Float64) funit.Int16 {
+		return funit.Int16(math.Round(float64(x)))
+	}
 	postInfo := &post.Info{
 		ItalicAngle:        info.ItalicAngle,
-		UnderlinePosition:  info.UnderlinePosition,
-		UnderlineThickness: info.UnderlineThickness,
+		UnderlinePosition:  r(info.UnderlinePosition),
+		UnderlineThickness: r(info.UnderlineThickness),
 		IsFixedPitch:       info.IsFixedPitch(),
 	}
 	if outlines, ok := info.Outlines.(*glyf.Outlines); ok {

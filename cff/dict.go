@@ -24,9 +24,10 @@ import (
 	"sort"
 	"strconv"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt/parser"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 type cffDict map[dictOp][]interface{}

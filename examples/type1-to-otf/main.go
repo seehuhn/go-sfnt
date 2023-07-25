@@ -29,18 +29,20 @@ import (
 
 	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
+
+	"seehuhn.de/go/postscript/afm"
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+	"seehuhn.de/go/postscript/type1/names"
+
 	"seehuhn.de/go/sfnt"
-	"seehuhn.de/go/sfnt/afm"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
-	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
-	"seehuhn.de/go/sfnt/type1"
-	"seehuhn.de/go/sfnt/type1/names"
 )
 
 func main() {
@@ -72,7 +74,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "warning: no AFM file specified")
 	}
 
-	var afm *afm.Info
+	var afm *type1.Font
 	if afmName != "" {
 		var err error
 		afm, err = readAfm(afmName)
@@ -92,7 +94,7 @@ func main() {
 	}
 }
 
-func readAfm(afmName string) (*afm.Info, error) {
+func readAfm(afmName string) (*type1.Font, error) {
 	fd, err := os.Open(afmName)
 	if err != nil {
 		return nil, err
@@ -102,7 +104,7 @@ func readAfm(afmName string) (*afm.Info, error) {
 	return afm.Read(fd)
 }
 
-func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
+func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 	fd, err := os.Open(fname)
 	if err != nil {
 		return nil, err
@@ -114,35 +116,18 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 		return nil, err
 	}
 
-	glyphNames := maps.Keys(t1Info.Glyphs)
-	order := make(map[string]int, len(glyphNames))
-	for _, name := range glyphNames {
-		order[name] = 256
-	}
-	order[".notdef"] = -1
-	for i, name := range t1Info.Encoding {
-		if name != ".notdef" {
-			order[name] = i
-		}
-	}
-	sort.Slice(glyphNames, func(i, j int) bool {
-		oi := order[glyphNames[i]]
-		oj := order[glyphNames[j]]
-		if oi != oj {
-			return oi < oj
-		}
-		return glyphNames[i] < glyphNames[j]
-	})
+	glyphNames := t1Info.GlyphList()
 
 	glyphs := make([]*cff.Glyph, 0, len(glyphNames))
 	name2gid := make(map[string]glyph.ID, len(glyphNames))
 	for _, name := range glyphNames {
-		t1 := t1Info.Glyphs[name]
-		if t1.WidthY != 0 {
+		t1 := t1Info.Outlines[name]
+		t1i := t1Info.GlyphInfo[name]
+		if t1i.WidthY != 0 {
 			return nil, fmt.Errorf("unsupported WidthY=%d for glyph %q",
-				t1.WidthY, name)
+				t1i.WidthY, name)
 		}
-		g := cff.NewGlyph(name, t1.WidthX)
+		g := cff.NewGlyph(name, t1i.WidthX)
 		for _, cmd := range t1.Cmds {
 			switch cmd.Op {
 			case type1.OpMoveTo:
@@ -193,7 +178,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 
 	cmap := makeCmap(t1Info, glyphNames)
 
-	unitsPerEm := 1000 // TODO(voss): get from the font matrix
+	unitsPerEm := t1Info.UnitsPerEm
 
 	var ascent funit.Int16
 	var descent funit.Int16
@@ -323,28 +308,21 @@ func makeCmap(t1Info *type1.Font, glyphNames []string) cmap.Subtable {
 	return cmap
 }
 
-func makeLigatures(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
-	if afm == nil || len(afm.Ligatures) == 0 {
+func makeLigatures(afm *type1.Font, name2gid map[string]glyph.ID) *gtab.Info {
+	if afm == nil {
 		return nil
 	}
 
-	afmNames := make(map[glyph.ID]string, len(afm.GlyphName))
-	for gid, name := range afm.GlyphName {
-		afmNames[glyph.ID(gid)] = name
-	}
-	t := func(gid glyph.ID) glyph.ID {
-		return name2gid[afmNames[gid]]
-	}
-
 	ll := map[glyph.ID][]gtab.Ligature{}
-	for pair, repl := range afm.Ligatures {
-		a := t(pair.Left)
-		b := t(pair.Right)
-
-		ll[a] = append(ll[a], gtab.Ligature{
-			In:  []glyph.ID{b},
-			Out: t(repl),
-		})
+	for left, g := range afm.GlyphInfo {
+		a := name2gid[left]
+		for right, repl := range g.Ligatures {
+			b := name2gid[right]
+			ll[a] = append(ll[a], gtab.Ligature{
+				In:  []glyph.ID{b},
+				Out: name2gid[repl],
+			})
+		}
 	}
 
 	keys := maps.Keys(ll)
@@ -377,28 +355,20 @@ func makeLigatures(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
 	return gsub
 }
 
-func makeKerningTable(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
+func makeKerningTable(afm *type1.Font, name2gid map[string]glyph.ID) *gtab.Info {
 	if afm == nil || len(afm.Kern) == 0 {
 		return nil
 	}
 
-	afmNames := make(map[glyph.ID]string, len(afm.GlyphName))
-	for gid, name := range afm.GlyphName {
-		afmNames[glyph.ID(gid)] = name
-	}
-	t := func(gid glyph.ID) glyph.ID {
-		return name2gid[afmNames[gid]]
-	}
-
 	all := make(map[glyph.ID]map[glyph.ID]*gtab.PairAdjust)
-	for pair, adj := range afm.Kern {
-		left := t(pair.Left)
-		right := t(pair.Right)
+	for _, pair := range afm.Kern {
+		left := name2gid[pair.Left]
+		right := name2gid[pair.Right]
 		if _, exists := all[left]; !exists {
 			all[left] = make(map[glyph.ID]*gtab.PairAdjust)
 		}
 		pa := &gtab.PairAdjust{
-			First: &gtab.GposValueRecord{XAdvance: adj},
+			First: &gtab.GposValueRecord{XAdvance: pair.Adjust},
 		}
 		all[left][right] = pa
 	}

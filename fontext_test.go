@@ -24,13 +24,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/image/font/gofont/gobolditalic"
 	"golang.org/x/image/font/gofont/goregular"
+
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/cff"
-	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/internal/debug"
 	"seehuhn.de/go/sfnt/os2"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 func TestGetFontInfo(t *testing.T) {

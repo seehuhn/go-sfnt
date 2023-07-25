@@ -21,16 +21,17 @@ import (
 	"strings"
 	"time"
 
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
-	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 // Font contains information about a font.
@@ -70,9 +71,9 @@ type Font struct {
 	CapHeight funit.Int16
 	XHeight   funit.Int16
 
-	ItalicAngle        float64     // Italic angle (degrees counterclockwise from vertical)
-	UnderlinePosition  funit.Int16 // Underline position (negative)
-	UnderlineThickness funit.Int16 // Underline thickness
+	ItalicAngle        float64       // Italic angle (degrees counterclockwise from vertical)
+	UnderlinePosition  funit.Float64 // Underline position (negative)
+	UnderlineThickness funit.Float64 // Underline thickness
 
 	CMap     cmap.Subtable
 	Outlines interface{} // either *cff.Outlines or *glyf.Outlines
@@ -225,7 +226,6 @@ func (f *Font) Extents() []funit.Rect16 {
 		for i, g := range f.Glyphs {
 			extents[i] = g.Extent()
 		}
-		return extents
 	case *glyf.Outlines:
 		for i, g := range f.Glyphs {
 			if g == nil {

@@ -22,7 +22,8 @@ import (
 	"math"
 
 	"seehuhn.de/go/dijkstra"
-	"seehuhn.de/go/sfnt/funit"
+
+	"seehuhn.de/go/postscript/funit"
 )
 
 // TODO(voss): use seehuhn.de/go/dag instead of seehuhn.de/go/dijkstra

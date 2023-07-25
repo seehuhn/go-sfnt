@@ -24,13 +24,14 @@ import (
 
 	"golang.org/x/image/font/gofont/goregular"
 
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
-	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 // MakeSimpleFont creates a simple font for use in unit tests.

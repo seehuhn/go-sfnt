@@ -17,12 +17,13 @@
 package gofont
 
 import (
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/cff"
-	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 func OpenType(font FontID) (*sfnt.Font, error) {

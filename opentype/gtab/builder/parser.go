@@ -22,8 +22,10 @@ import (
 	"strconv"
 
 	"golang.org/x/exp/maps"
+
+	"seehuhn.de/go/postscript/funit"
+
 	"seehuhn.de/go/sfnt"
-	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/classdef"

@@ -18,10 +18,11 @@ package gofont
 
 import (
 	"seehuhn.de/go/postscript"
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 func Type1(font FontID) (*type1.Font, error) {
@@ -35,13 +36,13 @@ func Type1(font FontID) (*type1.Font, error) {
 	// origOutlines := info.Outlines.(*glyf.Outlines)
 
 	newGlyphs := make(map[string]*type1.Glyph)
+	newInfo := make(map[string]*type1.GlyphInfo)
 	origOutlines := info.Outlines.(*glyf.Outlines)
 
 	for i, origGlyph := range origOutlines.Glyphs {
 		name := info.GlyphName(glyph.ID(i))
-		newGlyph := &type1.Glyph{
-			WidthX: 0,
-		}
+		newGlyph := &type1.Glyph{}
+		newGlyphI := &type1.GlyphInfo{} // TODO(voss)
 
 		if origGlyph == nil {
 			goto done
@@ -119,6 +120,7 @@ func Type1(font FontID) (*type1.Font, error) {
 
 	done:
 		newGlyphs[name] = newGlyph
+		newInfo[name] = newGlyphI
 	}
 
 	encoding := make([]string, 256)
@@ -167,7 +169,8 @@ func Type1(font FontID) (*type1.Font, error) {
 		CreationDate: info.CreationTime,
 		Info:         info.GetFontInfo(),
 		Private:      Private,
-		Glyphs:       newGlyphs,
+		Outlines:     newGlyphs,
+		GlyphInfo:    newInfo,
 		Encoding:     encoding,
 	}
 

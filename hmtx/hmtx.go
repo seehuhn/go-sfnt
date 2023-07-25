@@ -68,7 +68,7 @@ import (
 	"fmt"
 	"math"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
 )
 
 // Info contains information from the "hhea" and "hmtx" tables.

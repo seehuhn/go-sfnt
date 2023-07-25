@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"math"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
 )
 
 type decodeInfo struct {

@@ -24,7 +24,8 @@ import (
 	"fmt"
 	"io"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
+
 	"seehuhn.de/go/sfnt/parser"
 )
 

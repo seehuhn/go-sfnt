@@ -24,7 +24,8 @@ import (
 	"math/bits"
 	"sort"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
+
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
 )

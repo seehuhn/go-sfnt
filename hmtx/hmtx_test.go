@@ -22,7 +22,7 @@ import (
 	"reflect"
 	"testing"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
 )
 
 func TestRoundtrip(t *testing.T) {

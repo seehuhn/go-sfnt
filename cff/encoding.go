@@ -20,9 +20,10 @@ import (
 	"fmt"
 	"io"
 
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 func readEncoding(p *parser.Parser, charset []int32) ([]glyph.ID, error) {

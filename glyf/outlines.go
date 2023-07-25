@@ -17,7 +17,8 @@
 package glyf
 
 import (
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
+
 	"seehuhn.de/go/sfnt/maxp"
 )
 

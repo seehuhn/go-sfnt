@@ -20,10 +20,11 @@ import (
 	"fmt"
 	"math"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 // Read reads a CFF font from r.
@@ -106,9 +107,10 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	cff.FontInfo.IsFixedPitch = isFixedPitch != 0
 	italicAngle := topDict.getFloat(opItalicAngle, 0)
 	cff.FontInfo.ItalicAngle = normaliseAngle(italicAngle)
-	cff.FontInfo.UnderlinePosition = funit.Int16(topDict.getInt(opUnderlinePosition,
+	// TODO(voss): change underline parameters to reals.
+	cff.FontInfo.UnderlinePosition = funit.Float64(topDict.getInt(opUnderlinePosition,
 		defaultUnderlinePosition))
-	cff.FontInfo.UnderlineThickness = funit.Int16(topDict.getInt(opUnderlineThickness,
+	cff.FontInfo.UnderlineThickness = funit.Float64(topDict.getInt(opUnderlineThickness,
 		defaultUnderlineThickness))
 
 	// TODO(voss): different default for CIDFonts?

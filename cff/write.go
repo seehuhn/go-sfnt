@@ -21,7 +21,7 @@ import (
 	"io"
 	"math"
 
-	"seehuhn.de/go/sfnt/funit"
+	"seehuhn.de/go/postscript/funit"
 )
 
 // Encode writes the binary form of a CFF font.

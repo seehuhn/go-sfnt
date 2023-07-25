@@ -25,9 +25,12 @@ import (
 	"strings"
 
 	"golang.org/x/text/language"
+
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
-	"seehuhn.de/go/sfnt/funit"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
@@ -42,7 +45,6 @@ import (
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/post"
-	"seehuhn.de/go/sfnt/type1"
 )
 
 // ReadFile reads a TrueType or OpenType font from a file.
@@ -377,8 +379,8 @@ func Read(r io.Reader) (*Font, error) {
 	info.ItalicAngle = math.Round(info.ItalicAngle*65536) / 65536
 
 	if postInfo != nil {
-		info.UnderlinePosition = postInfo.UnderlinePosition
-		info.UnderlineThickness = postInfo.UnderlineThickness
+		info.UnderlinePosition = funit.Float64(postInfo.UnderlinePosition)
+		info.UnderlineThickness = funit.Float64(postInfo.UnderlineThickness)
 	} else if fontInfo != nil {
 		info.UnderlinePosition = fontInfo.UnderlinePosition
 		info.UnderlineThickness = fontInfo.UnderlineThickness
