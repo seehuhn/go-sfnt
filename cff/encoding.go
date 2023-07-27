@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 
+	"seehuhn.de/go/postscript/psenc"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -221,7 +222,7 @@ func encodeEncoding(encoding []glyph.ID, glyphNames []int32) ([]byte, error) {
 func StandardEncoding(glyphs []*Glyph) []glyph.ID {
 	encoding := make([]glyph.ID, 256)
 	for gid, g := range glyphs {
-		code, ok := type1.StandardEncoding[g.Name]
+		code, ok := psenc.StandardEncodingRev[g.Name]
 		if ok {
 			encoding[code] = glyph.ID(gid)
 		}

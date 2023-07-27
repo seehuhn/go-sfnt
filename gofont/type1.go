@@ -17,8 +17,8 @@
 package gofont
 
 import (
-	"seehuhn.de/go/postscript"
 	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/psenc"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyf"
@@ -128,7 +128,7 @@ func Type1(font FontID) (*type1.Font, error) {
 
 	encoding := make([]string, 256)
 	for i := 0; i < 256; i++ {
-		name := string(postscript.StandardEncoding[i].(postscript.Name))
+		name := psenc.StandardEncoding[i]
 		if _, ok := newGlyphs[name]; ok {
 			encoding[i] = name
 		} else {
