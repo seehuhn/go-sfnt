@@ -166,10 +166,9 @@ func (f *Font) BBox() (bbox funit.Rect16) {
 
 		if first {
 			bbox = ext
-			continue
+		} else {
+			bbox.Extend(ext)
 		}
-
-		bbox.Extend(ext)
 	}
 	return
 }
