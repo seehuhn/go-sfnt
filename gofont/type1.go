@@ -168,14 +168,20 @@ func Type1(font FontID) (*type1.Font, error) {
 		},
 	}
 
+	// TODO(voss): add kerning information
+
 	res := &type1.Font{
 		CreationDate: info.CreationTime,
 		UnitsPerEm:   info.UnitsPerEm,
+		Encoding:     encoding,
+		Ascent:       info.Ascent,
+		Descent:      info.Descent,
+		CapHeight:    info.CapHeight,
+		XHeight:      info.XHeight,
 		Info:         info.GetFontInfo(),
 		Private:      Private,
 		Outlines:     newGlyphs,
 		GlyphInfo:    newInfo,
-		Encoding:     encoding,
 	}
 
 	return res, nil
