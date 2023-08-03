@@ -32,13 +32,11 @@ func Type1(font FontID) (*type1.Font, error) {
 	}
 	info.EnsureGlyphNames()
 
-	// convert glypf outlines to cff outlines
-	// origOutlines := info.Outlines.(*glyf.Outlines)
-
-	newGlyphs := make(map[string]*type1.Glyph)
+	newOutlines := make(map[string]*type1.Glyph)
 	newInfo := make(map[string]*type1.GlyphInfo)
-	origOutlines := info.Outlines.(*glyf.Outlines)
 
+	// convert glypf outlines to type1 outlines
+	origOutlines := info.Outlines.(*glyf.Outlines)
 	for i, origGlyph := range origOutlines.Glyphs {
 		gid := glyph.ID(i)
 		name := info.GlyphName(gid)
@@ -50,6 +48,8 @@ func Type1(font FontID) (*type1.Font, error) {
 		if origGlyph == nil {
 			goto done
 		}
+
+		newGlyphI.Extent = origGlyph.Rect16
 
 		switch g := origGlyph.Data.(type) {
 		case glyf.SimpleGlyph:
@@ -122,14 +122,14 @@ func Type1(font FontID) (*type1.Font, error) {
 		}
 
 	done:
-		newGlyphs[name] = newGlyph
+		newOutlines[name] = newGlyph
 		newInfo[name] = newGlyphI
 	}
 
 	encoding := make([]string, 256)
 	for i := 0; i < 256; i++ {
 		name := psenc.StandardEncoding[i]
-		if _, ok := newGlyphs[name]; ok {
+		if _, ok := newOutlines[name]; ok {
 			encoding[i] = name
 		} else {
 			encoding[i] = ".notdef"
@@ -168,7 +168,7 @@ func Type1(font FontID) (*type1.Font, error) {
 		},
 	}
 
-	// TODO(voss): add kerning information
+	// TODO(voss): add kerning and ligature information
 
 	res := &type1.Font{
 		CreationDate: info.CreationTime,
@@ -180,7 +180,7 @@ func Type1(font FontID) (*type1.Font, error) {
 		XHeight:      info.XHeight,
 		Info:         info.GetFontInfo(),
 		Private:      Private,
-		Outlines:     newGlyphs,
+		Outlines:     newOutlines,
 		GlyphInfo:    newInfo,
 	}
 
