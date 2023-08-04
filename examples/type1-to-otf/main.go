@@ -157,11 +157,11 @@ func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 	}
 
 	width := os2.WidthNormal // TODO(voss)
-	weight := os2.WeightFromString(t1Info.Info.Weight)
+	weight := os2.WeightFromString(t1Info.FontInfo.Weight)
 	if weight == 0 {
 		weight = os2.WeightNormal
 	}
-	version, _ := head.VersionFromString(t1Info.Info.Version)
+	version, _ := head.VersionFromString(t1Info.FontInfo.Version)
 	modificationTime := time.Now()
 	creationTime := modificationTime
 	if !t1Info.CreationDate.IsZero() {
@@ -169,10 +169,10 @@ func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 	}
 
 	// TODO(voss): can this be improved?
-	isItalic := t1Info.Info.ItalicAngle != 0
+	isItalic := t1Info.FontInfo.ItalicAngle != 0
 	isBold := weight >= os2.WeightBold
-	isRegular := strings.Contains(t1Info.Info.FullName, "Regular")
-	isOblique := t1Info.Info.ItalicAngle != 0 && !strings.Contains(t1Info.Info.FullName, "Italic")
+	isRegular := strings.Contains(t1Info.FontInfo.FullName, "Regular")
+	isOblique := t1Info.FontInfo.ItalicAngle != 0 && !strings.Contains(t1Info.FontInfo.FullName, "Italic")
 	isSerif := false  // TODO(voss)
 	isScript := false // TODO(voss)
 
@@ -236,7 +236,7 @@ func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 	gpos := makeKerningTable(afm, name2gid)
 
 	otfInfo := sfnt.Font{
-		FamilyName:         t1Info.Info.FamilyName,
+		FamilyName:         t1Info.FontInfo.FamilyName,
 		Width:              width,
 		Weight:             weight,
 		IsItalic:           isItalic,
@@ -248,16 +248,16 @@ func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 		Version:            version,
 		CreationTime:       creationTime,
 		ModificationTime:   modificationTime,
-		Copyright:          t1Info.Info.Copyright,
-		Trademark:          t1Info.Info.Notice,
+		Copyright:          t1Info.FontInfo.Copyright,
+		Trademark:          t1Info.FontInfo.Notice,
 		UnitsPerEm:         uint16(unitsPerEm),
 		Ascent:             ascent,
 		Descent:            descent,
 		CapHeight:          capHeight,
 		XHeight:            xHeight,
-		ItalicAngle:        t1Info.Info.ItalicAngle,
-		UnderlinePosition:  t1Info.Info.UnderlinePosition,
-		UnderlineThickness: t1Info.Info.UnderlineThickness,
+		ItalicAngle:        t1Info.FontInfo.ItalicAngle,
+		UnderlinePosition:  t1Info.FontInfo.UnderlinePosition,
+		UnderlineThickness: t1Info.FontInfo.UnderlineThickness,
 		CMap:               cmap,
 		Outlines:           outlines,
 		Gsub:               gsub,

@@ -89,10 +89,10 @@ type Font struct {
 func (f *Font) GetFontInfo() *type1.FontInfo {
 	q := 1 / float64(f.UnitsPerEm)
 	fontInfo := &type1.FontInfo{
+		FontName:   f.PostscriptName(),
 		FullName:   f.FullName(),
 		FamilyName: f.FamilyName,
 		Weight:     f.Weight.String(),
-		FontName:   f.PostscriptName(),
 		Version:    f.Version.String(),
 
 		Copyright: strings.ReplaceAll(f.Copyright, "©", "(c)"),
@@ -148,7 +148,7 @@ func (f *Font) Subfamily() string {
 	return strings.Join(words, " ")
 }
 
-// PostscriptName returns the Postscript name of the font.
+// PostscriptName returns the PostScript name of the font.
 func (f *Font) PostscriptName() string {
 	name := f.FamilyName + "-" + f.Subfamily()
 	re := regexp.MustCompile(`[^!-$&-'*-.0-;=?-Z\\^-z|~]+`)

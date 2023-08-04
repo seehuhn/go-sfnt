@@ -37,6 +37,22 @@ type Font struct {
 	*Outlines
 }
 
+func (f *Font) BBox() (bbox funit.Rect16) {
+	first := true
+	for _, glyph := range f.Glyphs {
+		glyphBox := glyph.Extent()
+		if glyphBox.IsZero() {
+			continue
+		}
+		if first {
+			bbox = glyphBox
+		} else {
+			bbox.Extend(glyphBox)
+		}
+	}
+	return bbox
+}
+
 // Widths returns the widths of all glyphs.
 func (cff *Font) Widths() []uint16 {
 	res := make([]uint16, len(cff.Glyphs))
