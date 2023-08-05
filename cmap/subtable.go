@@ -51,14 +51,14 @@ type Subtable interface {
 
 var decoders = map[uint16]func([]byte, func(int) rune) (Subtable, error){
 	0:  decodeFormat0,
-	2:  notImplemented,
+	2:  notImplemented, // TODO(voss): implement
 	4:  decodeFormat4,
 	6:  decodeFormat6,
-	8:  notImplemented,
-	10: notImplemented,
+	8:  notImplemented, // TODO(voss): implement
+	10: notImplemented, // TODO(voss): implement
 	12: decodeFormat12,
-	13: notImplemented,
-	14: notImplemented,
+	13: notImplemented, // TODO(voss): implement
+	14: notImplemented, // TODO(voss): implement
 }
 
 func notImplemented([]byte, func(int) rune) (Subtable, error) {
