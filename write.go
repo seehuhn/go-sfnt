@@ -119,12 +119,6 @@ func (info *Font) Write(w io.Writer) (int64, error) {
 func (info *Font) WriteTrueTypePDF(w io.Writer, cmapData []byte) (int64, error) {
 	tableData := make(map[string][]byte)
 
-	// if info.CMap != nil {
-	// 	ss := cmap.Table{
-	// 		{PlatformID: 1, EncodingID: 0}: info.CMap.Encode(0),
-	// 	}
-	// 	tableData["cmap"] = ss.Encode()
-	// }
 	if cmapData != nil {
 		tableData["cmap"] = cmapData
 	}
