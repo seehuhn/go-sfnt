@@ -48,7 +48,7 @@ func Type3(font FontID) (*type1.Font, error) {
 			goto done
 		}
 
-		newGlyphI.Extent = origGlyph.Rect16
+		newGlyphI.BBox = origGlyph.Rect16
 
 		switch g := origGlyph.Data.(type) {
 		case glyf.SimpleGlyph:
