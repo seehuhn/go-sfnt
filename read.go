@@ -106,13 +106,16 @@ func Read(r io.Reader) (*Font, error) {
 	}
 	// decoded below when reading "hmtx"
 
+	var maxpInfo *maxp.Info
 	maxpFd, err := dir.TableReader(rr, "maxp")
-	if err != nil {
-		return nil, err
-	}
-	maxpInfo, err := maxp.Read(maxpFd)
 	if err != nil && !header.IsMissing(err) {
 		return nil, err
+	}
+	if maxpFd != nil {
+		maxpInfo, err = maxp.Read(maxpFd)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var os2Info *os2.Info
@@ -190,7 +193,7 @@ func Read(r io.Reader) (*Font, error) {
 		if numGlyphs == 0 {
 			numGlyphs = len(hmtxInfo.Widths)
 		} else if len(hmtxInfo.Widths) > numGlyphs {
-			// Fix up a problem founs in some fonts
+			// Fix up a problem found in some fonts
 			hmtxInfo.Widths = hmtxInfo.Widths[:numGlyphs]
 		} else if len(hmtxInfo.Widths) != numGlyphs {
 			return nil, errors.New("sfnt: hmtx and maxp glyph count mismatch")
@@ -335,7 +338,8 @@ func Read(r io.Reader) (*Font, error) {
 
 	if headInfo != nil {
 		info.UnitsPerEm = headInfo.UnitsPerEm
-		// TODO(voss): check Info.FontMatrix (and private dicts?)
+	} else if len(fontInfo.FontMatrix) == 6 && fontInfo.FontMatrix[0] != 0 {
+		info.UnitsPerEm = uint16(math.Round(1 / fontInfo.FontMatrix[0]))
 	} else {
 		info.UnitsPerEm = 1000
 	}

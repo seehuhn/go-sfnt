@@ -143,7 +143,7 @@ func (info *Font) WriteTrueTypePDF(w io.Writer, cmapData []byte) (int64, error) 
 	return header.Write(w, header.ScalerTypeTrueType, tableData)
 }
 
-func (info *Font) WriteCFFOpenTypePDF(w io.Writer) (int64, error) {
+func (info *Font) WriteCFFOpenTypePDF(w io.Writer) error {
 	tableData := make(map[string][]byte)
 
 	var ss cmap.Table
@@ -165,11 +165,12 @@ func (info *Font) WriteCFFOpenTypePDF(w io.Writer) (int64, error) {
 	outlines := info.Outlines.(*cff.Outlines)
 	cffData, err := info.makeCFF(outlines)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	tableData["CFF "] = cffData
 
-	return header.Write(w, header.ScalerTypeCFF, tableData)
+	_, err = header.Write(w, header.ScalerTypeCFF, tableData)
+	return err
 }
 
 func (info *Font) makeHead(locaFormat int16) []byte {
