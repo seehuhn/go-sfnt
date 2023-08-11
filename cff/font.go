@@ -54,10 +54,10 @@ func (f *Font) BBox() (bbox funit.Rect16) {
 }
 
 // Widths returns the widths of all glyphs.
-func (cff *Font) Widths() []uint16 {
-	res := make([]uint16, len(cff.Glyphs))
+func (cff *Font) Widths() []funit.Int16 {
+	res := make([]funit.Int16, len(cff.Glyphs))
 	for i, glyph := range cff.Glyphs {
-		res[i] = uint16(glyph.Width)
+		res[i] = glyph.Width
 	}
 	return res
 }

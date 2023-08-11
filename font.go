@@ -121,6 +121,15 @@ func (f *Font) IsCFF() bool {
 	return ok
 }
 
+// AsCFF returns the CFF font data for the given font.
+// Panics if the font does not contain CFF outlines.
+func (f *Font) AsCFF() *cff.Font {
+	return &cff.Font{
+		FontInfo: f.GetFontInfo(),
+		Outlines: f.Outlines.(*cff.Outlines),
+	}
+}
+
 // FullName returns the full name of the font.
 func (f *Font) FullName() string {
 	return f.FamilyName + " " + f.Subfamily()
