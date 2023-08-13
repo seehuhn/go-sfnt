@@ -35,6 +35,8 @@ import (
 )
 
 // MakeSimpleFont creates a simple font for use in unit tests.
+//
+// TODO(voss): remove
 func MakeSimpleFont() *sfnt.Font {
 	info, err := sfnt.Read(bytes.NewReader(goregular.TTF))
 	if err != nil {
@@ -233,6 +235,8 @@ func MakeSimpleFont() *sfnt.Font {
 }
 
 // MakeCompleteFont creates a font for use in unit tests.
+//
+// TODO(voss): remove
 func MakeCompleteFont() *sfnt.Font {
 	info, err := sfnt.Read(bytes.NewReader(goregular.TTF))
 	if err != nil {
