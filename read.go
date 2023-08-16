@@ -362,13 +362,13 @@ func Read(r io.Reader) (*Font, error) {
 	}
 	if info.CapHeight == 0 && cmapSubtable != nil {
 		gid := cmapSubtable.Lookup('H')
-		if gid != 0 {
+		if gid != 0 && int(gid) < info.NumGlyphs() {
 			info.CapHeight = info.glyphHeight(gid)
 		}
 	}
 	if info.XHeight == 0 && cmapSubtable != nil {
 		gid := cmapSubtable.Lookup('x')
-		if gid != 0 {
+		if gid != 0 && int(gid) < info.NumGlyphs() {
 			info.XHeight = info.glyphHeight(gid)
 		}
 	}
