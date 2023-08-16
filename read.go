@@ -142,13 +142,14 @@ func Read(r io.Reader) (*Font, error) {
 		}
 	}
 
+	var cmapTable cmap.Table
 	var cmapSubtable cmap.Subtable
 	cmapData, err := dir.ReadTableBytes(rr, "cmap")
 	if err != nil && !header.IsMissing(err) {
 		return nil, err
 	}
 	if cmapData != nil {
-		cmapTable, err := cmap.Decode(cmapData)
+		cmapTable, err = cmap.Decode(cmapData)
 		if err != nil {
 			return nil, err
 		}
@@ -288,8 +289,9 @@ func Read(r io.Reader) (*Font, error) {
 
 	// Merge the information from the various tables.
 	info := &Font{
-		Outlines: Outlines,
-		CMap:     cmapSubtable,
+		Outlines:  Outlines,
+		CMapTable: cmapTable,
+		CMap:      cmapSubtable,
 	}
 
 	if nameTable != nil {
@@ -405,6 +407,10 @@ func Read(r io.Reader) (*Font, error) {
 	}
 
 	if os2Info != nil {
+		info.IsOblique = os2Info.IsOblique
+	}
+
+	if os2Info != nil {
 		info.IsBold = os2Info.IsBold
 	} else if headInfo != nil {
 		info.IsBold = headInfo.IsBold
@@ -424,10 +430,6 @@ func Read(r io.Reader) (*Font, error) {
 		// if nameTable != nil && nameTable.Subfamily == "Regular" {
 		// 	info.IsRegular = true
 		// }
-	}
-
-	if os2Info != nil {
-		info.IsOblique = os2Info.IsOblique
 	}
 
 	if os2Info != nil {
@@ -454,6 +456,8 @@ func Read(r io.Reader) (*Font, error) {
 		}
 	}
 
+	// TODO(voss): should we try to read the "morx" table, if there is no
+	// "GSUB" table?
 	if dir.Has("GSUB") {
 		gsubFd, err := dir.TableReader(rr, "GSUB")
 		if err != nil {

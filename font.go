@@ -34,7 +34,9 @@ import (
 	"seehuhn.de/go/sfnt/os2"
 )
 
-// Font contains information about a font.
+// TODO(voss): read https://github.com/googlefonts/gf-docs/tree/main/VerticalMetrics
+
+// Font contains information about a TrueType or OpenType font.
 //
 // TODO(voss): clarify the relation between IsOblique, IsItalic, and
 // ItalicAngle != 0.
@@ -75,15 +77,20 @@ type Font struct {
 	UnderlinePosition  funit.Float64 // Underline position (negative)
 	UnderlineThickness funit.Float64 // Underline thickness
 
-	CMap     cmap.Subtable // maps unicode to GID
-	Outlines interface{}   // either *cff.Outlines or *glyf.Outlines
+	CMapTable cmap.Table
+	CMap      cmap.Subtable // maps unicode to GID
+	Outlines  interface{}   // either *cff.Outlines or *glyf.Outlines
 
 	Gdef *gdef.Table
 	Gsub *gtab.Info
 	Gpos *gtab.Info
 }
 
-// TODO(voss): read https://github.com/googlefonts/gf-docs/tree/main/VerticalMetrics
+// Clone makes a shallow copy of the font object.
+func (f *Font) Clone() *Font {
+	f2 := *f
+	return &f2
+}
 
 // GetFontInfo returns an Adobe FontInfo structure for the given font.
 func (f *Font) GetFontInfo() *type1.FontInfo {

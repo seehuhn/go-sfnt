@@ -113,14 +113,13 @@ func (info *Font) Write(w io.Writer) (int64, error) {
 
 // WriteTrueTypePDF writes the binary form of a TrueType font to the given
 // writer.  Only the tables needed for PDF embedding are included.
-// The generated cmap assumes that the font is "non-symbolic".
 //
 // if the font does not use TrueType outlines, the function panics.
-func (info *Font) WriteTrueTypePDF(w io.Writer, cmapData []byte) (int64, error) {
+func (info *Font) WriteTrueTypePDF(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
 
-	if cmapData != nil {
-		tableData["cmap"] = cmapData
+	if info.CMapTable != nil {
+		tableData["cmap"] = info.CMapTable.Encode()
 	}
 	tableData["hhea"], tableData["hmtx"] = info.makeHmtx()
 
