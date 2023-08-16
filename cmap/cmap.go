@@ -25,6 +25,7 @@ import (
 	"math"
 	"sort"
 
+	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"seehuhn.de/go/sfnt/mac"
 )
@@ -224,6 +225,27 @@ func (ss Table) Get(key Key) (Subtable, error) {
 	format := uint16(data[0])<<8 | uint16(data[1])
 	decode := decoders[format]
 	return decode(data, code2rune)
+}
+
+func (ss Table) GetNoLang(platformID, encodingID uint16) (Subtable, error) {
+	// sort the keys to make the output deterministic
+	keys := maps.Keys(ss)
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].PlatformID != keys[j].PlatformID {
+			return keys[i].PlatformID < keys[j].PlatformID
+		}
+		if keys[i].EncodingID != keys[j].EncodingID {
+			return keys[i].EncodingID < keys[j].EncodingID
+		}
+		return keys[i].Language < keys[j].Language
+	})
+
+	for _, key := range keys {
+		if key.PlatformID == platformID && key.EncodingID == encodingID {
+			return ss.Get(key)
+		}
+	}
+	return nil, errors.New("subtable not found")
 }
 
 // GetBest selects the "best" subtable from a cmap table.
