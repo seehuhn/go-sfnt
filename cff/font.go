@@ -37,22 +37,6 @@ type Font struct {
 	*Outlines
 }
 
-func (f *Font) BBox() (bbox funit.Rect16) {
-	first := true
-	for _, glyph := range f.Glyphs {
-		glyphBox := glyph.Extent()
-		if glyphBox.IsZero() {
-			continue
-		}
-		if first {
-			bbox = glyphBox
-		} else {
-			bbox.Extend(glyphBox)
-		}
-	}
-	return bbox
-}
-
 // Widths returns the widths of all glyphs.
 func (cff *Font) Widths() []funit.Int16 {
 	res := make([]funit.Int16, len(cff.Glyphs))
@@ -139,6 +123,22 @@ type Outlines struct {
 // IsCIDKeyed returns true if the font is a CID-keyed font.
 func (o *Outlines) IsCIDKeyed() bool {
 	return o.ROS != nil
+}
+
+func (o *Outlines) BBox() (bbox funit.Rect16) {
+	first := true
+	for _, glyph := range o.Glyphs {
+		glyphBox := glyph.Extent()
+		if glyphBox.IsZero() {
+			continue
+		}
+		if first {
+			bbox = glyphBox
+		} else {
+			bbox.Extend(glyphBox)
+		}
+	}
+	return bbox
 }
 
 // Glyph represents a glyph in a CFF font.

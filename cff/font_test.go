@@ -34,7 +34,7 @@ func FuzzFont(f *testing.F) {
 		}
 
 		buf := &bytes.Buffer{}
-		err = cff1.Encode(buf)
+		err = cff1.Write(buf)
 		if err != nil {
 			fmt.Println(cff1)
 			t.Fatal(err)

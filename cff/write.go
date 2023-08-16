@@ -24,8 +24,8 @@ import (
 	"seehuhn.de/go/postscript/funit"
 )
 
-// Encode writes the binary form of a CFF font.
-func (cff *Font) Encode(w io.Writer) error {
+// Write writes the binary form of a CFF font.
+func (cff *Font) Write(w io.Writer) error {
 	numGlyphs := uint16(len(cff.Glyphs))
 
 	// TODO(voss): this should be done per private dict.

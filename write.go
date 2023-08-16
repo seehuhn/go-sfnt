@@ -334,7 +334,7 @@ func (info *Font) makeCFF(outlines *cff.Outlines) ([]byte, error) {
 	}
 
 	buf := &bytes.Buffer{}
-	err := myCff.Encode(buf)
+	err := myCff.Write(buf)
 	if err != nil {
 		return nil, err
 	}

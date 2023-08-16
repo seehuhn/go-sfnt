@@ -94,7 +94,7 @@ func TestRoundTrip(t *testing.T) {
 	// ----------------------------------------------------------------------
 
 	buf := &bytes.Buffer{}
-	err := in.Encode(buf)
+	err := in.Write(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestFindEdges(t *testing.T) {
 	in.Encoding = StandardEncoding(in.Glyphs)
 
 	buf := &bytes.Buffer{}
-	err := in.Encode(buf)
+	err := in.Write(buf)
 	if err != nil {
 		t.Fatal(err)
 	}

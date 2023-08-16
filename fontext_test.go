@@ -47,7 +47,7 @@ func TestGetFontInfo(t *testing.T) {
 		Outlines: font.Outlines.(*cff.Outlines),
 	}
 	buf := &bytes.Buffer{}
-	err := cffFont1.Encode(buf)
+	err := cffFont1.Write(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
