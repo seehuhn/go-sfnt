@@ -38,22 +38,22 @@ import (
 )
 
 // Write writes the binary form of the font to the given writer.
-func (info *Font) Write(w io.Writer) (int64, error) {
+func (f *Font) Write(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
 
-	hheaData, hmtxData := info.makeHmtx()
+	hheaData, hmtxData := f.makeHmtx()
 	tableData["hhea"] = hheaData
 	tableData["hmtx"] = hmtxData
 
 	var ss cmap.Table
-	if info.CMap != nil {
+	if f.CMap != nil {
 		uniEncoding := uint16(3)
 		winEncoding := uint16(1)
-		if _, high := info.CMap.CodeRange(); high > 0xFFFF {
+		if _, high := f.CMap.CodeRange(); high > 0xFFFF {
 			uniEncoding = 4
 			winEncoding = 10
 		}
-		cmapSubtable := info.CMap.Encode(0)
+		cmapSubtable := f.CMap.Encode(0)
 		ss = cmap.Table{
 			{PlatformID: 0, EncodingID: uniEncoding}: cmapSubtable,
 			{PlatformID: 3, EncodingID: winEncoding}: cmapSubtable,
@@ -61,16 +61,16 @@ func (info *Font) Write(w io.Writer) (int64, error) {
 		tableData["cmap"] = ss.Encode()
 	}
 
-	tableData["OS/2"] = info.makeOS2()
-	tableData["name"] = info.makeName(ss)
-	tableData["post"] = info.makePost()
+	tableData["OS/2"] = f.makeOS2()
+	tableData["name"] = f.makeName(ss)
+	tableData["post"] = f.makePost()
 
 	var locaFormat int16
 	var scalerType uint32
 	var maxpTtf *maxp.TTFInfo
-	switch outlines := info.Outlines.(type) {
+	switch outlines := f.Outlines.(type) {
 	case *cff.Outlines:
-		cffData, err := info.makeCFF(outlines)
+		cffData, err := f.makeCFF(outlines)
 		if err != nil {
 			return 0, err
 		}
@@ -91,21 +91,21 @@ func (info *Font) Write(w io.Writer) (int64, error) {
 	}
 
 	maxpInfo := &maxp.Info{
-		NumGlyphs: info.NumGlyphs(),
+		NumGlyphs: f.NumGlyphs(),
 		TTF:       maxpTtf,
 	}
 	tableData["maxp"] = maxpInfo.Encode()
 
-	tableData["head"] = info.makeHead(locaFormat)
+	tableData["head"] = f.makeHead(locaFormat)
 
-	if info.Gdef != nil {
-		tableData["GDEF"] = info.Gdef.Encode()
+	if f.Gdef != nil {
+		tableData["GDEF"] = f.Gdef.Encode()
 	}
-	if info.Gsub != nil {
-		tableData["GSUB"] = info.Gsub.Encode(gtab.GsubExtensionLookupType)
+	if f.Gsub != nil {
+		tableData["GSUB"] = f.Gsub.Encode(gtab.GsubExtensionLookupType)
 	}
-	if info.Gpos != nil {
-		tableData["GPOS"] = info.Gpos.Encode(gtab.GposExtensionLookupType)
+	if f.Gpos != nil {
+		tableData["GPOS"] = f.Gpos.Encode(gtab.GposExtensionLookupType)
 	}
 
 	return header.Write(w, scalerType, tableData)
@@ -115,15 +115,15 @@ func (info *Font) Write(w io.Writer) (int64, error) {
 // writer.  Only the tables needed for PDF embedding are included.
 //
 // if the font does not use TrueType outlines, the function panics.
-func (info *Font) WriteTrueTypePDF(w io.Writer) (int64, error) {
+func (f *Font) WriteTrueTypePDF(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
 
-	if info.CMapTable != nil {
-		tableData["cmap"] = info.CMapTable.Encode()
+	if f.CMapTable != nil {
+		tableData["cmap"] = f.CMapTable.Encode()
 	}
-	tableData["hhea"], tableData["hmtx"] = info.makeHmtx()
+	tableData["hhea"], tableData["hmtx"] = f.makeHmtx()
 
-	outlines := info.Outlines.(*glyf.Outlines)
+	outlines := f.Outlines.(*glyf.Outlines)
 	enc := outlines.Glyphs.Encode()
 	tableData["glyf"] = enc.GlyfData
 	tableData["loca"] = enc.LocaData
@@ -132,28 +132,31 @@ func (info *Font) WriteTrueTypePDF(w io.Writer) (int64, error) {
 	}
 
 	maxpInfo := &maxp.Info{
-		NumGlyphs: info.NumGlyphs(),
+		NumGlyphs: f.NumGlyphs(),
 		TTF:       outlines.Maxp,
 	}
 	tableData["maxp"] = maxpInfo.Encode()
 
-	tableData["head"] = info.makeHead(enc.LocaFormat)
+	tableData["head"] = f.makeHead(enc.LocaFormat)
 
 	return header.Write(w, header.ScalerTypeTrueType, tableData)
 }
 
-func (info *Font) WriteCFFOpenTypePDF(w io.Writer) error {
+// WriteOpenTypeCFFPDF writes a minimal OpenType file, which includes only the
+// tables required for PDF embedding.
+func (f *Font) WriteOpenTypeCFFPDF(w io.Writer) error {
 	tableData := make(map[string][]byte)
 
+	// TODO(voss)
 	var ss cmap.Table
-	if info.CMap != nil {
+	if f.CMap != nil {
 		uniEncoding := uint16(3)
 		winEncoding := uint16(1)
-		if _, high := info.CMap.CodeRange(); high > 0xFFFF {
+		if _, high := f.CMap.CodeRange(); high > 0xFFFF {
 			uniEncoding = 4
 			winEncoding = 10
 		}
-		cmapSubtable := info.CMap.Encode(0)
+		cmapSubtable := f.CMap.Encode(0)
 		ss = cmap.Table{
 			{PlatformID: 0, EncodingID: uniEncoding}: cmapSubtable,
 			{PlatformID: 3, EncodingID: winEncoding}: cmapSubtable,
@@ -161,8 +164,8 @@ func (info *Font) WriteCFFOpenTypePDF(w io.Writer) error {
 		tableData["cmap"] = ss.Encode()
 	}
 
-	outlines := info.Outlines.(*cff.Outlines)
-	cffData, err := info.makeCFF(outlines)
+	outlines := f.Outlines.(*cff.Outlines)
+	cffData, err := f.makeCFF(outlines)
 	if err != nil {
 		return err
 	}
@@ -172,40 +175,40 @@ func (info *Font) WriteCFFOpenTypePDF(w io.Writer) error {
 	return err
 }
 
-func (info *Font) makeHead(locaFormat int16) []byte {
+func (f *Font) makeHead(locaFormat int16) []byte {
 	headInfo := head.Info{
-		FontRevision:  info.Version,
+		FontRevision:  f.Version,
 		HasYBaseAt0:   true,
 		HasXBaseAt0:   true,
-		UnitsPerEm:    info.UnitsPerEm,
-		Created:       info.CreationTime,
-		Modified:      info.ModificationTime,
-		FontBBox:      info.BBox(),
-		IsBold:        info.IsBold,
-		IsItalic:      info.ItalicAngle != 0,
+		UnitsPerEm:    f.UnitsPerEm,
+		Created:       f.CreationTime,
+		Modified:      f.ModificationTime,
+		FontBBox:      f.BBox(),
+		IsBold:        f.IsBold,
+		IsItalic:      f.ItalicAngle != 0,
 		LowestRecPPEM: 7, // TODO(voss)
 		LocaFormat:    locaFormat,
 	}
 	return headInfo.Encode()
 }
 
-func (info *Font) makeHmtx() ([]byte, []byte) {
+func (f *Font) makeHmtx() ([]byte, []byte) {
 	hmtxInfo := &hmtx.Info{
-		Widths:       info.Widths(),
-		GlyphExtents: info.Extents(),
-		Ascent:       info.Ascent,
-		Descent:      info.Descent,
-		LineGap:      info.LineGap,
-		CaretAngle:   info.ItalicAngle / 180 * math.Pi,
+		Widths:       f.Widths(),
+		GlyphExtents: f.GlyphBBoxes(),
+		Ascent:       f.Ascent,
+		Descent:      f.Descent,
+		LineGap:      f.LineGap,
+		CaretAngle:   f.ItalicAngle / 180 * math.Pi,
 	}
 
 	return hmtxInfo.Encode()
 }
 
-func (info *Font) makeOS2() []byte {
+func (f *Font) makeOS2() []byte {
 	avgGlyphWidth := 0
 	count := 0
-	ww := info.Widths()
+	ww := f.Widths()
 	for _, w := range ww {
 		if w > 0 {
 			avgGlyphWidth += int(w)
@@ -217,15 +220,15 @@ func (info *Font) makeOS2() []byte {
 	}
 
 	var familyClass int16
-	if info.IsSerif {
+	if f.IsSerif {
 		familyClass = 3 << 8
-	} else if info.IsScript {
+	} else if f.IsScript {
 		familyClass = 10 << 8
 	}
 
 	var firstCharIndex, lastCharIndex uint16
-	if info.CMap != nil {
-		low, high := info.CMap.CodeRange()
+	if f.CMap != nil {
+		low, high := f.CMap.CodeRange()
 		firstCharIndex = uint16(low)
 		if low > 0xFFFF {
 			firstCharIndex = 0xFFFF
@@ -236,67 +239,67 @@ func (info *Font) makeOS2() []byte {
 		}
 	}
 
-	bbox := info.BBox()
+	bbox := f.BBox()
 	winAscent := bbox.URy
 	winDescent := -bbox.LLy
 	// TODO(voss): larger values may be needed, if GPOS rules move some
 	// glyphs outside this range.
 
 	os2Info := &os2.Info{
-		WeightClass: info.Weight,
-		WidthClass:  info.Width,
+		WeightClass: f.Weight,
+		WidthClass:  f.Width,
 
-		IsBold:    info.IsBold,
-		IsItalic:  info.ItalicAngle != 0,
-		IsRegular: info.IsRegular,
-		IsOblique: info.IsOblique,
+		IsBold:    f.IsBold,
+		IsItalic:  f.ItalicAngle != 0,
+		IsRegular: f.IsRegular,
+		IsOblique: f.IsOblique,
 
 		FirstCharIndex: firstCharIndex,
 		LastCharIndex:  lastCharIndex,
 
-		Ascent:     info.Ascent,
-		Descent:    info.Descent,
-		LineGap:    info.LineGap,
+		Ascent:     f.Ascent,
+		Descent:    f.Descent,
+		LineGap:    f.LineGap,
 		WinAscent:  winAscent,
 		WinDescent: winDescent,
-		CapHeight:  info.CapHeight,
-		XHeight:    info.XHeight,
+		CapHeight:  f.CapHeight,
+		XHeight:    f.XHeight,
 
 		AvgGlyphWidth: funit.Int16(avgGlyphWidth),
 
 		FamilyClass: familyClass,
 
-		CodePageRange: info.CodePageRange,
+		CodePageRange: f.CodePageRange,
 
-		PermUse: info.PermUse,
+		PermUse: f.PermUse,
 	}
 	return os2Info.Encode()
 }
 
-func (info *Font) makeName(ss cmap.Table) []byte {
-	day := info.ModificationTime
+func (f *Font) makeName(ss cmap.Table) []byte {
+	day := f.ModificationTime
 	if day.IsZero() {
-		day = info.CreationTime
+		day = f.CreationTime
 	}
 	if day.IsZero() {
 		day = time.Now()
 	}
 	dayString := day.Format("2006-01-02")
 
-	fullName := info.FullName()
+	fullName := f.FullName()
 	nameTable := &name.Table{
-		Family:         info.FamilyName,
-		Subfamily:      info.Subfamily(),
-		Description:    info.Description,
-		Copyright:      info.Copyright,
-		Trademark:      info.Trademark,
-		License:        info.License,
-		LicenseURL:     info.LicenseURL,
-		Identifier:     fullName + "; " + info.Version.String() + "; " + dayString,
+		Family:         f.FamilyName,
+		Subfamily:      f.Subfamily(),
+		Description:    f.Description,
+		Copyright:      f.Copyright,
+		Trademark:      f.Trademark,
+		License:        f.License,
+		LicenseURL:     f.LicenseURL,
+		Identifier:     fullName + "; " + f.Version.String() + "; " + dayString,
 		FullName:       fullName,
-		Version:        "Version " + info.Version.String(),
-		PostScriptName: info.PostscriptName(),
-		SampleText:     info.SampleText,
+		Version:        "Version " + f.Version.String(),
+		PostScriptName: f.PostscriptName(),
+		SampleText:     f.SampleText,
 	}
 	nameInfo := &name.Info{
 		Mac: name.Tables{
@@ -310,24 +313,24 @@ func (info *Font) makeName(ss cmap.Table) []byte {
 	return nameInfo.Encode(1)
 }
 
-func (info *Font) makePost() []byte {
+func (f *Font) makePost() []byte {
 	r := func(x funit.Float64) funit.Int16 {
 		return funit.Int16(math.Round(float64(x)))
 	}
 	postInfo := &post.Info{
-		ItalicAngle:        info.ItalicAngle,
-		UnderlinePosition:  r(info.UnderlinePosition),
-		UnderlineThickness: r(info.UnderlineThickness),
-		IsFixedPitch:       info.IsFixedPitch(),
+		ItalicAngle:        f.ItalicAngle,
+		UnderlinePosition:  r(f.UnderlinePosition),
+		UnderlineThickness: r(f.UnderlineThickness),
+		IsFixedPitch:       f.IsFixedPitch(),
 	}
-	if outlines, ok := info.Outlines.(*glyf.Outlines); ok {
+	if outlines, ok := f.Outlines.(*glyf.Outlines); ok {
 		postInfo.Names = outlines.Names
 	}
 	return postInfo.Encode()
 }
 
-func (info *Font) makeCFF(outlines *cff.Outlines) ([]byte, error) {
-	fontInfo := info.GetFontInfo()
+func (f *Font) makeCFF(outlines *cff.Outlines) ([]byte, error) {
+	fontInfo := f.GetFontInfo()
 	myCff := &cff.Font{
 		FontInfo: fontInfo,
 		Outlines: outlines,

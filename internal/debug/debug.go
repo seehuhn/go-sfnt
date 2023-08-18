@@ -62,7 +62,7 @@ func MakeSimpleFont() *sfnt.Font {
 		encoding[c] = glyph.ID(len(includeGid))
 		includeGid = append(includeGid, gid)
 
-		ext := info.GlyphExtent(gid)
+		ext := info.GlyphBBox(gid)
 		top := ext.URy
 		if c == 'A' || top < topMin {
 			topMin = top
@@ -176,7 +176,7 @@ func MakeSimpleFont() *sfnt.Font {
 		newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 	}
 
-	ext := info.GlyphExtent(info.CMap.Lookup('M'))
+	ext := info.GlyphBBox(info.CMap.Lookup('M'))
 	xMid := math.Round(float64(ext.URx+ext.LLx) / 2)
 	yMid := math.Round(float64(ext.URy+ext.LLy) / 2)
 	a := math.Round(math.Min(xMid, yMid) * 0.8)
@@ -248,7 +248,7 @@ func MakeCompleteFont() *sfnt.Font {
 	for c := 'A'; c <= 'Z'; c++ {
 		gid := info.CMap.Lookup(c)
 
-		ext := info.GlyphExtent(gid)
+		ext := info.GlyphBBox(gid)
 		top := ext.URy
 		if c == 'A' || top < topMin {
 			topMin = top
@@ -361,7 +361,7 @@ func MakeCompleteFont() *sfnt.Font {
 		newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 	}
 
-	ext := info.GlyphExtent(info.CMap.Lookup('M'))
+	ext := info.GlyphBBox(info.CMap.Lookup('M'))
 	xMid := math.Round(float64(ext.URx+ext.LLx) / 2)
 	yMid := math.Round(float64(ext.URy+ext.LLy) / 2)
 	a := math.Round(math.Min(xMid, yMid) * 0.8)

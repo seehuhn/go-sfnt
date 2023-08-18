@@ -311,12 +311,14 @@ func (info *Info) Encode() []byte {
 // https://learn.microsoft.com/en-us/typography/opentype/spec/os2#ur
 type UnicodeRange [4]uint32
 
+// Set sets the given bit in the unicode range.
 func (ur *UnicodeRange) Set(bit UnicodeRangeBit) {
 	w := bit / 32
 	bit = bit % 32
 	ur[w] |= 1 << bit
 }
 
+// Bool sets or clears the given bit in the unicode range.
 func (ur *UnicodeRange) Bool(bit UnicodeRangeBit, set bool) {
 	w := bit / 32
 	bit = bit % 32
@@ -367,49 +369,54 @@ const (
 	// TODO(voss): finish this
 )
 
+// CodePageRange is a bitmask of code pages supported by a font.
 type CodePageRange uint64
 
-func (cpr *CodePageRange) Set(bit CodePageRangeBit) {
+// Set sets the given bit in the code page range.
+func (cpr *CodePageRange) Set(bit CodePage) {
 	*cpr |= 1 << bit
 }
 
-type CodePageRangeBit int
+// CodePage represents the positions of individual bits which may be set in a
+// [CodeSpaceRange].
+type CodePage int
 
+// List of code pages supported by the "OS/2" table.
 const (
-	CP1252      CodePageRangeBit = 0  // CP1252, Latin 1
-	CP1250      CodePageRangeBit = 1  // CP1250, Latin 2: Eastern Europe
-	CP1251      CodePageRangeBit = 2  // CP1251, Cyrillic
-	CP1253      CodePageRangeBit = 3  // CP1253, Greek
-	CP1254      CodePageRangeBit = 4  // CP1254, Turkish
-	CP1255      CodePageRangeBit = 5  // CP1255, Hebrew
-	CP1256      CodePageRangeBit = 6  // CP1256, Arabic
-	CP1257      CodePageRangeBit = 7  // CP1257, Windows Baltic
-	CP1258      CodePageRangeBit = 8  // CP1258, Vietnamese
-	CP874       CodePageRangeBit = 16 // CP874, Thai
-	CP932       CodePageRangeBit = 17 // CP932, JIS/Japan
-	CP936       CodePageRangeBit = 18 // CP936, Chinese: Simplified chars—PRC and Singapore
-	CP949       CodePageRangeBit = 19 // CP949, Korean Wansung
-	CP950       CodePageRangeBit = 20 // CP950, Chinese: Traditional chars—Taiwan and Hong Kong
-	CP1361      CodePageRangeBit = 21 // CP1361, Korean Johab
-	CPMacintosh CodePageRangeBit = 29 // Macintosh Character Set (US Roman)
-	CPOEM       CodePageRangeBit = 30 // OEM Character Set
-	CPSymbol    CodePageRangeBit = 31 // Symbol Character Set
-	CP869       CodePageRangeBit = 48 // CP869, IBM Greek
-	CP866       CodePageRangeBit = 49 // CP866, MS-DOS Russian
-	CP865       CodePageRangeBit = 50 // CP865, MS-DOS Nordic
-	CP864       CodePageRangeBit = 51 // CP864, Arabic
-	CP863       CodePageRangeBit = 52 // CP863, MS-DOS Canadian French
-	CP862       CodePageRangeBit = 53 // CP862, Hebrew
-	CP861       CodePageRangeBit = 54 // CP861, MS-DOS Icelandic
-	CP860       CodePageRangeBit = 55 // CP860, MS-DOS Portuguese
-	CP857       CodePageRangeBit = 56 // CP857, IBM Turkish
-	CP855       CodePageRangeBit = 57 // CP855, IBM Cyrillic; primarily Russian
-	CP852       CodePageRangeBit = 58 // CP852, Latin 2
-	CP775       CodePageRangeBit = 59 // CP775, MS-DOS Baltic
-	CP737       CodePageRangeBit = 60 // CP737, Greek; former 437 G
-	CP708       CodePageRangeBit = 61 // CP708, Arabic; ASMO 708
-	CP850       CodePageRangeBit = 62 // CP850, WE/Latin 1
-	CP437       CodePageRangeBit = 63 // CP437, US
+	CP1252      CodePage = 0  // CP1252, Latin 1
+	CP1250      CodePage = 1  // CP1250, Latin 2: Eastern Europe
+	CP1251      CodePage = 2  // CP1251, Cyrillic
+	CP1253      CodePage = 3  // CP1253, Greek
+	CP1254      CodePage = 4  // CP1254, Turkish
+	CP1255      CodePage = 5  // CP1255, Hebrew
+	CP1256      CodePage = 6  // CP1256, Arabic
+	CP1257      CodePage = 7  // CP1257, Windows Baltic
+	CP1258      CodePage = 8  // CP1258, Vietnamese
+	CP874       CodePage = 16 // CP874, Thai
+	CP932       CodePage = 17 // CP932, JIS/Japan
+	CP936       CodePage = 18 // CP936, Chinese: Simplified chars—PRC and Singapore
+	CP949       CodePage = 19 // CP949, Korean Wansung
+	CP950       CodePage = 20 // CP950, Chinese: Traditional chars—Taiwan and Hong Kong
+	CP1361      CodePage = 21 // CP1361, Korean Johab
+	CPMacintosh CodePage = 29 // Macintosh Character Set (US Roman)
+	CPOEM       CodePage = 30 // OEM Character Set
+	CPSymbol    CodePage = 31 // Symbol Character Set
+	CP869       CodePage = 48 // CP869, IBM Greek
+	CP866       CodePage = 49 // CP866, MS-DOS Russian
+	CP865       CodePage = 50 // CP865, MS-DOS Nordic
+	CP864       CodePage = 51 // CP864, Arabic
+	CP863       CodePage = 52 // CP863, MS-DOS Canadian French
+	CP862       CodePage = 53 // CP862, Hebrew
+	CP861       CodePage = 54 // CP861, MS-DOS Icelandic
+	CP860       CodePage = 55 // CP860, MS-DOS Portuguese
+	CP857       CodePage = 56 // CP857, IBM Turkish
+	CP855       CodePage = 57 // CP855, IBM Cyrillic; primarily Russian
+	CP852       CodePage = 58 // CP852, Latin 2
+	CP775       CodePage = 59 // CP775, MS-DOS Baltic
+	CP737       CodePage = 60 // CP737, Greek; former 437 G
+	CP708       CodePage = 61 // CP708, Arabic; ASMO 708
+	CP850       CodePage = 62 // CP850, WE/Latin 1
+	CP437       CodePage = 63 // CP437, US
 )
 
 // Permissions describes rights to embed and use a font.

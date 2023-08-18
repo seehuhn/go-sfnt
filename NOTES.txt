@@ -24,7 +24,6 @@ TrueType Fonts (TTF)
 https://developer.apple.com/fonts/TrueType-Reference-Manual/
 https://en.wikipedia.org/wiki/TrueType
 https://github.com/golang/freetype/
-https://tex.stackexchange.com/questions/52819/how-do-i-use-truetype-fonts-with-pdftex-using-otftotfm
 
 TrueType is a font standard developed in the late 1980s, by Apple and
 Microsoft. TrueType is the most common font format for both the Mac OS

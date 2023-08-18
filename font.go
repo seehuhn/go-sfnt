@@ -44,9 +44,9 @@ type Font struct {
 	FamilyName string
 	Width      os2.Width
 	Weight     os2.Weight
+	IsRegular  bool // glyphs are in the standard weight/style for the font
 	IsBold     bool // glyphs are emboldened
 	IsItalic   bool // font contains italic or oblique glyphs
-	IsRegular  bool // glyphs are in the standard weight/style for the font
 	IsOblique  bool // font contains oblique glyphs
 	IsSerif    bool
 	IsScript   bool // Glyphs resemble cursive handwriting.
@@ -69,7 +69,7 @@ type Font struct {
 
 	Ascent    funit.Int16
 	Descent   funit.Int16 // negative
-	LineGap   funit.Int16 // LineGap = BaseLineSkip - Ascent + Descent
+	LineGap   funit.Int16 // LineGap = Leading - Ascent + Descent
 	CapHeight funit.Int16
 	XHeight   funit.Int16
 
@@ -175,7 +175,7 @@ func (f *Font) PostscriptName() string {
 func (f *Font) BBox() (bbox funit.Rect16) {
 	first := true
 	for i := 0; i < f.NumGlyphs(); i++ {
-		ext := f.GlyphExtent(glyph.ID(i))
+		ext := f.GlyphBBox(glyph.ID(i))
 		if ext.IsZero() {
 			continue
 		}
@@ -233,8 +233,8 @@ func (f *Font) Widths() []funit.Int16 {
 	}
 }
 
-// Extents returns the glyph bounding boxes for the font.
-func (f *Font) Extents() []funit.Rect16 {
+// GlyphBBoxes returns the glyph bounding boxes for the font.
+func (f *Font) GlyphBBoxes() []funit.Rect16 {
 	extents := make([]funit.Rect16, f.NumGlyphs())
 	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
@@ -254,9 +254,9 @@ func (f *Font) Extents() []funit.Rect16 {
 	return extents
 }
 
-// GlyphExtent returns the glyph bounding box for one glyph in font design
+// GlyphBBox returns the glyph bounding box for one glyph in font design
 // units.
-func (f *Font) GlyphExtent(gid glyph.ID) funit.Rect16 {
+func (f *Font) GlyphBBox(gid glyph.ID) funit.Rect16 {
 	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
 		return f.Glyphs[gid].Extent()
@@ -324,8 +324,10 @@ func (f *Font) IsFixedPitch() bool {
 	return true
 }
 
-func (f *Font) Layout(rr []rune, gsubLookups, gposLookups []gtab.LookupIndex) glyph.Seq {
-	// TODO(voss): should this take a string as an argument, instead of rr?
+// Layout returns the glyph sequence for the given text.
+func (f *Font) Layout(s string, gsubLookups, gposLookups []gtab.LookupIndex) glyph.Seq {
+	rr := []rune(s)
+
 	seq := make(glyph.Seq, len(rr))
 	for i, r := range rr {
 		gid := f.CMap.Lookup(r)
