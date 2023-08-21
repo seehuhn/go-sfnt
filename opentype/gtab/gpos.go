@@ -254,6 +254,8 @@ func (l *Gpos1_2) Encode() []byte {
 
 // Gpos2_1 is a Pair Adjustment Positioning Subtable (format 1)
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#pair-adjustment-positioning-format-1-adjustments-for-glyph-pairs
+//
+// TODO(voss): turn into a map of pairs?
 type Gpos2_1 struct {
 	Cov    coverage.Table
 	Adjust []map[glyph.ID]*PairAdjust // indexed by coverage index
