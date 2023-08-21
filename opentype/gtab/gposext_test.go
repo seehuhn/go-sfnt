@@ -35,14 +35,18 @@ import (
 
 func TestGpos(t *testing.T) {
 	fontInfo := debug.MakeSimpleFont()
+	cmap, err := fontInfo.CMapTable.GetBest()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	gdefTable := &gdef.Table{
 		GlyphClass: classdef.Table{
-			fontInfo.CMap.Lookup('B'): gdef.GlyphClassBase,
-			fontInfo.CMap.Lookup('K'): gdef.GlyphClassLigature,
-			fontInfo.CMap.Lookup('L'): gdef.GlyphClassLigature,
-			fontInfo.CMap.Lookup('M'): gdef.GlyphClassMark,
-			fontInfo.CMap.Lookup('N'): gdef.GlyphClassMark,
+			cmap.Lookup('B'): gdef.GlyphClassBase,
+			cmap.Lookup('K'): gdef.GlyphClassLigature,
+			cmap.Lookup('L'): gdef.GlyphClassLigature,
+			cmap.Lookup('M'): gdef.GlyphClassMark,
+			cmap.Lookup('N'): gdef.GlyphClassMark,
 		},
 	}
 
@@ -54,7 +58,7 @@ func TestGpos(t *testing.T) {
 				bx := 0
 				pos := 0
 				for _, r := range test.in {
-					gid := fontInfo.CMap.Lookup(r)
+					gid := cmap.Lookup(r)
 					if r == '>' {
 						ax = pos
 					} else if r == '<' {
@@ -92,7 +96,7 @@ func TestGpos(t *testing.T) {
 
 			seq := make([]glyph.Info, len(test.in))
 			for i, r := range test.in {
-				gid := fontInfo.CMap.Lookup(r)
+				gid := cmap.Lookup(r)
 				seq[i].Gid = gid
 				seq[i].Text = []rune{r}
 				if gdefTable.GlyphClass[gid] != gdef.GlyphClassMark {
@@ -142,13 +146,18 @@ func FuzzGpos(f *testing.F) {
 	}
 
 	fontInfo := debug.MakeSimpleFont()
+
+	cmap, err := fontInfo.CMapTable.GetBest()
+	if err != nil {
+		f.Fatal(err)
+	}
 	gdefTable := &gdef.Table{
 		GlyphClass: classdef.Table{
-			fontInfo.CMap.Lookup('B'): gdef.GlyphClassBase,
-			fontInfo.CMap.Lookup('K'): gdef.GlyphClassLigature,
-			fontInfo.CMap.Lookup('L'): gdef.GlyphClassLigature,
-			fontInfo.CMap.Lookup('M'): gdef.GlyphClassMark,
-			fontInfo.CMap.Lookup('N'): gdef.GlyphClassMark,
+			cmap.Lookup('B'): gdef.GlyphClassBase,
+			cmap.Lookup('K'): gdef.GlyphClassLigature,
+			cmap.Lookup('L'): gdef.GlyphClassLigature,
+			cmap.Lookup('M'): gdef.GlyphClassMark,
+			cmap.Lookup('N'): gdef.GlyphClassMark,
 		},
 	}
 
@@ -158,7 +167,7 @@ func FuzzGpos(f *testing.F) {
 			bx := 0
 			pos := 0
 			for _, r := range in {
-				gid := fontInfo.CMap.Lookup(r)
+				gid := cmap.Lookup(r)
 				if r == '>' {
 					ax = pos
 				} else if r == '<' {
@@ -186,7 +195,7 @@ func FuzzGpos(f *testing.F) {
 
 		seq := make([]glyph.Info, len(in))
 		for i, r := range in {
-			gid := fontInfo.CMap.Lookup(r)
+			gid := cmap.Lookup(r)
 			seq[i].Gid = gid
 			seq[i].Text = []rune{r}
 			if gdefTable.GlyphClass[gid] != gdef.GlyphClassMark {

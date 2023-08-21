@@ -78,8 +78,7 @@ type Font struct {
 	UnderlineThickness funit.Float64 // Underline thickness
 
 	CMapTable cmap.Table
-	CMap      cmap.Subtable // maps unicode to GID
-	Outlines  interface{}   // either *cff.Outlines or *glyf.Outlines
+	Outlines  interface{} // either *cff.Outlines or *glyf.Outlines
 
 	Gdef *gdef.Table
 	Gsub *gtab.Info
@@ -325,12 +324,12 @@ func (f *Font) IsFixedPitch() bool {
 }
 
 // Layout returns the glyph sequence for the given text.
-func (f *Font) Layout(s string, gsubLookups, gposLookups []gtab.LookupIndex) glyph.Seq {
+func (f *Font) Layout(cmap cmap.Subtable, gsubLookups, gposLookups []gtab.LookupIndex, s string) glyph.Seq {
 	rr := []rune(s)
 
 	seq := make(glyph.Seq, len(rr))
 	for i, r := range rr {
-		gid := f.CMap.Lookup(r)
+		gid := cmap.Lookup(r)
 		seq[i].Gid = gid
 		seq[i].Text = []rune{r}
 	}

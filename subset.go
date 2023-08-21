@@ -49,7 +49,6 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 		s.newGid[oldGid] = glyph.ID(newgid)
 	}
 
-	res.CMap = s.SubsetCMap(f.CMap)
 	if f.CMapTable != nil {
 		res.CMapTable = make(cmap.Table, len(f.CMapTable))
 		for key := range f.CMapTable {

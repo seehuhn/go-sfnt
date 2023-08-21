@@ -143,7 +143,7 @@ func Read(r io.Reader) (*Font, error) {
 	}
 
 	var cmapTable cmap.Table
-	var cmapSubtable cmap.Subtable
+	var cmapBest cmap.Subtable
 	cmapData, err := dir.ReadTableBytes(rr, "cmap")
 	if err != nil && !header.IsMissing(err) {
 		return nil, err
@@ -153,7 +153,7 @@ func Read(r io.Reader) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		cmapSubtable, _ = cmapTable.GetBest()
+		cmapBest, _ = cmapTable.GetBest()
 	}
 
 	var nameTable *name.Table
@@ -291,7 +291,6 @@ func Read(r io.Reader) (*Font, error) {
 	info := &Font{
 		Outlines:  Outlines,
 		CMapTable: cmapTable,
-		CMap:      cmapSubtable,
 	}
 
 	if nameTable != nil {
@@ -360,14 +359,14 @@ func Read(r io.Reader) (*Font, error) {
 		info.CapHeight = os2Info.CapHeight
 		info.XHeight = os2Info.XHeight
 	}
-	if info.CapHeight == 0 && cmapSubtable != nil {
-		gid := cmapSubtable.Lookup('H')
+	if info.CapHeight == 0 && cmapBest != nil {
+		gid := cmapBest.Lookup('H')
 		if gid != 0 && int(gid) < info.NumGlyphs() {
 			info.CapHeight = info.glyphHeight(gid)
 		}
 	}
-	if info.XHeight == 0 && cmapSubtable != nil {
-		gid := cmapSubtable.Lookup('x')
+	if info.XHeight == 0 && cmapBest != nil {
+		gid := cmapBest.Lookup('x')
 		if gid != 0 && int(gid) < info.NumGlyphs() {
 			info.XHeight = info.glyphHeight(gid)
 		}

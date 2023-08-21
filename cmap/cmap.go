@@ -250,6 +250,10 @@ func (ss Table) GetNoLang(platformID, encodingID uint16) (Subtable, error) {
 
 // GetBest selects the "best" subtable from a cmap table.
 func (ss Table) GetBest() (Subtable, error) {
+	if ss == nil {
+		return nil, errors.New("cmap: no cmap table found")
+	}
+
 	candidates := []struct {
 		PlatformID uint16
 		EncodingID uint16

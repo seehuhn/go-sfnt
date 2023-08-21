@@ -46,6 +46,7 @@ func (cff *Font) Widths() []funit.Int16 {
 	return res
 }
 
+// TODO(voss): avoid duplication with [sfnt.Font.Subset]
 func (cff *Font) Subset(keep func(glyph.ID) bool) *Font {
 	origOutline := cff.Outlines
 	subsetOutlines := &Outlines{}

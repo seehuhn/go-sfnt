@@ -258,11 +258,11 @@ func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 		ItalicAngle:        t1Info.FontInfo.ItalicAngle,
 		UnderlinePosition:  t1Info.FontInfo.UnderlinePosition,
 		UnderlineThickness: t1Info.FontInfo.UnderlineThickness,
-		CMap:               cmap,
 		Outlines:           outlines,
 		Gsub:               gsub,
 		Gpos:               gpos,
 	}
+	otfInfo.InstallCMap(cmap)
 
 	// TODO(voss): how to choose this?
 	otfInfo.CodePageRange.Set(os2.CP1252) // Latin 1

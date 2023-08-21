@@ -35,8 +35,13 @@ import (
 func Test9737(t *testing.T) {
 	fontInfo := debug.MakeSimpleFont()
 
-	gidA := fontInfo.CMap.Lookup('A')
-	gidB := fontInfo.CMap.Lookup('B')
+	cmap, err := fontInfo.CMapTable.GetBest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gidA := cmap.Lookup('A')
+	gidB := cmap.Lookup('B')
 
 	fontInfo.Gsub = &gtab.Info{
 		ScriptList: map[language.Tag]*gtab.Features{
@@ -123,9 +128,14 @@ func Test9737(t *testing.T) {
 func Test9738(t *testing.T) {
 	fontInfo := debug.MakeSimpleFont()
 
-	gidA := fontInfo.CMap.Lookup('A')
-	gidB := fontInfo.CMap.Lookup('B')
-	gidX := fontInfo.CMap.Lookup('X')
+	cmap, err := fontInfo.CMapTable.GetBest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gidA := cmap.Lookup('A')
+	gidB := cmap.Lookup('B')
+	gidX := cmap.Lookup('X')
 
 	fontInfo.Gdef = &gdef.Table{
 		GlyphClass: classdef.Table{

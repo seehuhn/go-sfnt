@@ -73,18 +73,20 @@ func (f *Font) EnsureGlyphNames() {
 		}
 	}
 
-	a, b := f.CMap.CodeRange()
-	for r := a; r <= b; r++ {
-		gid := f.CMap.Lookup(r)
-		if glyphNames[gid] != "" {
-			// This includes the case of unmapped runes (gid == 0).
-			continue
+	if cmap, _ := f.CMapTable.GetBest(); cmap != nil {
+		a, b := cmap.CodeRange()
+		for r := a; r <= b; r++ {
+			gid := cmap.Lookup(r)
+			if glyphNames[gid] != "" {
+				// This includes the case of unmapped runes (gid == 0).
+				continue
+			}
+			name := names.FromUnicode(r)
+			if name == "" || used[name] {
+				panic("unreachable") // TODO(voss): remove
+			}
+			glyphNames[gid] = name
 		}
-		name := names.FromUnicode(r)
-		if name == "" || used[name] {
-			panic("unreachable") // TODO(voss): remove
-		}
-		glyphNames[gid] = name
 	}
 
 	if f.Gsub != nil {

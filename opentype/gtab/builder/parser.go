@@ -26,6 +26,7 @@ import (
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt"
+	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/classdef"
@@ -45,11 +46,17 @@ func Parse(fontInfo *sfnt.Font, input string) (lookups gtab.LookupList, err erro
 		}
 	}
 
+	cmap, err := fontInfo.CMapTable.GetBest()
+	if err != nil {
+		return nil, err
+	}
+
 	_, tokens := lex(input)
 	p := &parser{
 		tokens: tokens,
 
 		fontInfo: fontInfo,
+		cmap:     cmap,
 		byName:   byName,
 	}
 
@@ -75,6 +82,7 @@ type parser struct {
 	backlog []item
 
 	fontInfo *sfnt.Font
+	cmap     cmap.Subtable
 	byName   map[string]glyph.ID
 }
 
@@ -1131,7 +1139,7 @@ func (p *parser) readGlyphList() []glyph.ID {
 
 		case itemString:
 			for r := range decodeString(item.val) {
-				gid := p.fontInfo.CMap.Lookup(r)
+				gid := p.cmap.Lookup(r)
 				if gid == 0 {
 					p.fatal("rune %q not in mapped in font", r)
 				}

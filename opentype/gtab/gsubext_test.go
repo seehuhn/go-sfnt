@@ -36,20 +36,25 @@ import (
 func TestGsub(t *testing.T) {
 	fontInfo := debug.MakeSimpleFont()
 
+	cmap, err := fontInfo.CMapTable.GetBest()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	gdef := &gdef.Table{
 		GlyphClass: classdef.Table{
-			fontInfo.CMap.Lookup('B'): gdef.GlyphClassBase,
-			fontInfo.CMap.Lookup('K'): gdef.GlyphClassLigature,
-			fontInfo.CMap.Lookup('L'): gdef.GlyphClassLigature,
-			fontInfo.CMap.Lookup('M'): gdef.GlyphClassMark,
-			fontInfo.CMap.Lookup('N'): gdef.GlyphClassMark,
+			cmap.Lookup('B'): gdef.GlyphClassBase,
+			cmap.Lookup('K'): gdef.GlyphClassLigature,
+			cmap.Lookup('L'): gdef.GlyphClassLigature,
+			cmap.Lookup('M'): gdef.GlyphClassMark,
+			cmap.Lookup('N'): gdef.GlyphClassMark,
 		},
 	}
 
-	a, b := fontInfo.CMap.CodeRange()
+	a, b := cmap.CodeRange()
 	rev := make(map[glyph.ID]rune)
 	for r := a; r <= b; r++ {
-		gid := fontInfo.CMap.Lookup(r)
+		gid := cmap.Lookup(r)
 		if gid != 0 {
 			rev[gid] = r
 		}
@@ -82,7 +87,7 @@ func TestGsub(t *testing.T) {
 
 			seq := make([]glyph.Info, len(test.in))
 			for i, r := range test.in {
-				seq[i].Gid = fontInfo.CMap.Lookup(r)
+				seq[i].Gid = cmap.Lookup(r)
 				seq[i].Text = []rune{r}
 			}
 			lookups := gsub.FindLookups(language.AmericanEnglish, nil)
@@ -119,13 +124,18 @@ func FuzzGsub(f *testing.F) {
 	}
 
 	fontInfo := debug.MakeSimpleFont()
+
+	cmap, err := fontInfo.CMapTable.GetBest()
+	if err != nil {
+		f.Fatal(err)
+	}
 	gdefTable := &gdef.Table{
 		GlyphClass: classdef.Table{
-			fontInfo.CMap.Lookup('B'): gdef.GlyphClassBase,
-			fontInfo.CMap.Lookup('K'): gdef.GlyphClassLigature,
-			fontInfo.CMap.Lookup('L'): gdef.GlyphClassLigature,
-			fontInfo.CMap.Lookup('M'): gdef.GlyphClassMark,
-			fontInfo.CMap.Lookup('N'): gdef.GlyphClassMark,
+			cmap.Lookup('B'): gdef.GlyphClassBase,
+			cmap.Lookup('K'): gdef.GlyphClassLigature,
+			cmap.Lookup('L'): gdef.GlyphClassLigature,
+			cmap.Lookup('M'): gdef.GlyphClassMark,
+			cmap.Lookup('N'): gdef.GlyphClassMark,
 		},
 	}
 
@@ -147,7 +157,7 @@ func FuzzGsub(f *testing.F) {
 
 		seq := make([]glyph.Info, len(in))
 		for i, r := range in {
-			seq[i].Gid = fontInfo.CMap.Lookup(r)
+			seq[i].Gid = cmap.Lookup(r)
 			seq[i].Text = []rune{r}
 		}
 		lookups := gsub.FindLookups(language.AmericanEnglish, nil)

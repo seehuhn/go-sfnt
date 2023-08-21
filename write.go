@@ -45,24 +45,12 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 	tableData["hhea"] = hheaData
 	tableData["hmtx"] = hmtxData
 
-	var ss cmap.Table
-	if f.CMap != nil {
-		uniEncoding := uint16(3)
-		winEncoding := uint16(1)
-		if _, high := f.CMap.CodeRange(); high > 0xFFFF {
-			uniEncoding = 4
-			winEncoding = 10
-		}
-		cmapSubtable := f.CMap.Encode(0)
-		ss = cmap.Table{
-			{PlatformID: 0, EncodingID: uniEncoding}: cmapSubtable,
-			{PlatformID: 3, EncodingID: winEncoding}: cmapSubtable,
-		}
-		tableData["cmap"] = ss.Encode()
+	if f.CMapTable != nil {
+		tableData["cmap"] = f.CMapTable.Encode()
 	}
 
 	tableData["OS/2"] = f.makeOS2()
-	tableData["name"] = f.makeName(ss)
+	tableData["name"] = f.makeName()
 	tableData["post"] = f.makePost()
 
 	var locaFormat int16
@@ -147,21 +135,8 @@ func (f *Font) WriteTrueTypePDF(w io.Writer) (int64, error) {
 func (f *Font) WriteOpenTypeCFFPDF(w io.Writer) error {
 	tableData := make(map[string][]byte)
 
-	// TODO(voss)
-	var ss cmap.Table
-	if f.CMap != nil {
-		uniEncoding := uint16(3)
-		winEncoding := uint16(1)
-		if _, high := f.CMap.CodeRange(); high > 0xFFFF {
-			uniEncoding = 4
-			winEncoding = 10
-		}
-		cmapSubtable := f.CMap.Encode(0)
-		ss = cmap.Table{
-			{PlatformID: 0, EncodingID: uniEncoding}: cmapSubtable,
-			{PlatformID: 3, EncodingID: winEncoding}: cmapSubtable,
-		}
-		tableData["cmap"] = ss.Encode()
+	if f.CMapTable != nil {
+		tableData["cmap"] = f.CMapTable.Encode()
 	}
 
 	outlines := f.Outlines.(*cff.Outlines)
@@ -227,8 +202,8 @@ func (f *Font) makeOS2() []byte {
 	}
 
 	var firstCharIndex, lastCharIndex uint16
-	if f.CMap != nil {
-		low, high := f.CMap.CodeRange()
+	if cmap, _ := f.CMapTable.GetBest(); cmap != nil {
+		low, high := cmap.CodeRange()
 		firstCharIndex = uint16(low)
 		if low > 0xFFFF {
 			firstCharIndex = 0xFFFF
@@ -276,7 +251,7 @@ func (f *Font) makeOS2() []byte {
 	return os2Info.Encode()
 }
 
-func (f *Font) makeName(ss cmap.Table) []byte {
+func (f *Font) makeName() []byte {
 	day := f.ModificationTime
 	if day.IsZero() {
 		day = f.CreationTime
@@ -342,4 +317,19 @@ func (f *Font) makeCFF(outlines *cff.Outlines) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// InstallCMap replaces the cmap table in the font with the given subtable.
+func (f *Font) InstallCMap(s cmap.Subtable) {
+	uniEncoding := uint16(3)
+	winEncoding := uint16(1)
+	if _, high := s.CodeRange(); high > 0xFFFF {
+		uniEncoding = 4
+		winEncoding = 10
+	}
+	cmapSubtable := s.Encode(0)
+	f.CMapTable = cmap.Table{
+		{PlatformID: 0, EncodingID: uniEncoding}: cmapSubtable,
+		{PlatformID: 3, EncodingID: winEncoding}: cmapSubtable,
+	}
 }

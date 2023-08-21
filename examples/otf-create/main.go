@@ -99,7 +99,7 @@ func main() {
 	cmap['A'] = 2
 	cmap['B'] = 3
 	cmap['C'] = 4
-	info.CMap = cmap
+	info.InstallCMap(cmap)
 
 	info.CodePageRange.Set(os2.CP1252) // Latin 1
 

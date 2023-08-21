@@ -333,11 +333,13 @@ type explainer struct {
 
 func newExplainer(fontInfo *sfnt.Font) *explainer {
 	mappings := make([]string, fontInfo.NumGlyphs())
-	a, b := fontInfo.CMap.CodeRange()
-	for r := a; r <= b; r++ {
-		gid := fontInfo.CMap.Lookup(r)
-		if gid != 0 {
-			mappings[gid] = fmt.Sprintf("%q", string([]rune{r}))
+	if cmap, _ := fontInfo.CMapTable.GetBest(); cmap != nil {
+		a, b := cmap.CodeRange()
+		for r := a; r <= b; r++ {
+			gid := cmap.Lookup(r)
+			if gid != 0 {
+				mappings[gid] = fmt.Sprintf("%q", string([]rune{r}))
+			}
 		}
 	}
 

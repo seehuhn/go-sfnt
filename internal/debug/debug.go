@@ -54,10 +54,15 @@ func MakeSimpleFont() *sfnt.Font {
 	encoding[0x000D] = glyph.ID(2)
 	encoding[0x0020] = glyph.ID(3)
 
+	fontCMap, err := info.CMapTable.GetBest()
+	if err != nil {
+		panic(err)
+	}
+
 	var topMin, topMax funit.Int16
 	var bottomMin, bottomMax funit.Int16
 	for c := 'A'; c <= 'Z'; c++ {
-		gid := info.CMap.Lookup(c)
+		gid := fontCMap.Lookup(c)
 		cmap[uint16(c)] = glyph.ID(len(includeGid))
 		encoding[c] = glyph.ID(len(includeGid))
 		includeGid = append(includeGid, gid)
@@ -176,7 +181,7 @@ func MakeSimpleFont() *sfnt.Font {
 		newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 	}
 
-	ext := info.GlyphBBox(info.CMap.Lookup('M'))
+	ext := info.GlyphBBox(fontCMap.Lookup('M'))
 	xMid := math.Round(float64(ext.URx+ext.LLx) / 2)
 	yMid := math.Round(float64(ext.URy+ext.LLy) / 2)
 	a := math.Round(math.Min(xMid, yMid) * 0.8)
@@ -227,9 +232,9 @@ func MakeSimpleFont() *sfnt.Font {
 		UnderlineThickness: info.UnderlineThickness,
 		IsRegular:          true,
 
-		CMap:     cmap,
 		Outlines: newOutlines,
 	}
+	res.InstallCMap(cmap)
 
 	return res
 }
@@ -243,10 +248,15 @@ func MakeCompleteFont() *sfnt.Font {
 		panic(err)
 	}
 
+	fontCMap, err := info.CMapTable.GetBest()
+	if err != nil {
+		panic(err)
+	}
+
 	var topMin, topMax funit.Int16
 	var bottomMin, bottomMax funit.Int16
 	for c := 'A'; c <= 'Z'; c++ {
-		gid := info.CMap.Lookup(c)
+		gid := fontCMap.Lookup(c)
 
 		ext := info.GlyphBBox(gid)
 		top := ext.URy
@@ -361,7 +371,7 @@ func MakeCompleteFont() *sfnt.Font {
 		newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 	}
 
-	ext := info.GlyphBBox(info.CMap.Lookup('M'))
+	ext := info.GlyphBBox(fontCMap.Lookup('M'))
 	xMid := math.Round(float64(ext.URx+ext.LLx) / 2)
 	yMid := math.Round(float64(ext.URy+ext.LLy) / 2)
 	a := math.Round(math.Min(xMid, yMid) * 0.8)
@@ -405,10 +415,9 @@ func MakeCompleteFont() *sfnt.Font {
 		UnderlinePosition:  info.UnderlinePosition,
 		UnderlineThickness: info.UnderlineThickness,
 		IsRegular:          true,
-
-		CMap:     info.CMap,
-		Outlines: newOutlines,
+		Outlines:           newOutlines,
 	}
+	res.InstallCMap(fontCMap)
 
 	return res
 }
