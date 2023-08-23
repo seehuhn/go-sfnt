@@ -32,14 +32,12 @@ import (
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyf"
-	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
 	"seehuhn.de/go/sfnt/kern"
 	"seehuhn.de/go/sfnt/maxp"
 	"seehuhn.de/go/sfnt/name"
-	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
@@ -487,25 +485,11 @@ func Read(r io.Reader) (*Font, error) {
 			return nil, err
 		}
 
-		leftSet := coverage.Set{}
-		for pair := range kern {
-			leftSet[pair.Left] = true
-		}
-		cov := leftSet.ToTable()
-		adjust := make([]map[glyph.ID]*gtab.PairAdjust, len(cov))
-		for i := range adjust {
-			adjust[i] = make(map[glyph.ID]*gtab.PairAdjust)
-		}
+		subtable := gtab.Gpos2_1{}
 		for pair, val := range kern {
-			adjust[cov[pair.Left]][pair.Right] = &gtab.PairAdjust{
-				First: &gtab.GposValueRecord{
-					XAdvance: val,
-				},
+			subtable[pair] = &gtab.PairAdjust{
+				First: &gtab.GposValueRecord{XAdvance: val},
 			}
-		}
-		subtable := &gtab.Gpos2_1{
-			Cov:    cov,
-			Adjust: adjust,
 		}
 		info.Gpos = &gtab.Info{
 			ScriptList: map[language.Tag]*gtab.Features{

@@ -46,54 +46,6 @@ func (cff *Font) Widths() []funit.Int16 {
 	return res
 }
 
-// TODO(voss): avoid duplication with [sfnt.Font.Subset]
-func (cff *Font) Subset(keep func(glyph.ID) bool) *Font {
-	origOutline := cff.Outlines
-	subsetOutlines := &Outlines{}
-
-	subsetOutlines.Private = origOutline.Private
-	if origOutline.IsCIDKeyed() {
-		var origGid []glyph.ID
-		origGid = append(origGid, 0) // .notdef
-		for gid := 1; gid < len(origOutline.Glyphs); gid++ {
-			if keep(glyph.ID(gid)) {
-				origGid = append(origGid, glyph.ID(gid))
-			}
-		}
-
-		subsetOutlines.FDSelect = func(gid glyph.ID) int {
-			return origOutline.FDSelect(origGid[gid])
-		}
-		subsetOutlines.ROS = origOutline.ROS
-		subsetOutlines.Gid2Cid = make([]type1.CID, len(origGid))
-		for gid, origGid := range origGid {
-			subsetOutlines.Glyphs = append(subsetOutlines.Glyphs, origOutline.Glyphs[origGid])
-			subsetOutlines.Gid2Cid[gid] = origOutline.Gid2Cid[origGid]
-		}
-	} else {
-		subsetGid := make([]glyph.ID, len(origOutline.Glyphs))
-		for gid := 0; gid < len(origOutline.Glyphs); gid++ {
-			if gid == 0 || keep(glyph.ID(gid)) {
-				subsetGid[gid] = glyph.ID(len(subsetOutlines.Glyphs))
-				subsetOutlines.Glyphs = append(subsetOutlines.Glyphs, origOutline.Glyphs[gid])
-			}
-		}
-		subsetOutlines.FDSelect = func(glyph.ID) int {
-			return 0
-		}
-		subsetOutlines.Encoding = make([]glyph.ID, 256)
-		for i, gid := range origOutline.Encoding {
-			subsetOutlines.Encoding[i] = subsetGid[gid]
-		}
-	}
-
-	subset := &Font{
-		FontInfo: cff.FontInfo,
-		Outlines: subsetOutlines,
-	}
-	return subset
-}
-
 // Outlines stores the glyph data of a CFF font.
 type Outlines struct {
 	Glyphs []*Glyph
@@ -126,6 +78,7 @@ func (o *Outlines) IsCIDKeyed() bool {
 	return o.ROS != nil
 }
 
+// BBox returns the font bounding box.
 func (o *Outlines) BBox() (bbox funit.Rect16) {
 	first := true
 	for _, glyph := range o.Glyphs {

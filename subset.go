@@ -19,7 +19,6 @@ package sfnt
 import (
 	"errors"
 	"fmt"
-	"sort"
 
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
@@ -202,40 +201,16 @@ func (s *subsetter) SubsetGpos(old *gtab.Info) *gtab.Info {
 			switch sOld := sOld.(type) {
 			case *gtab.Gpos1_1:
 			case *gtab.Gpos1_2:
-			case *gtab.Gpos2_1:
-				type pair struct {
-					a, b   glyph.ID
-					adjust *gtab.PairAdjust
-				}
-				var data []pair
-				for aOld, i := range sOld.Cov {
-					aNew, ok := s.newGid[aOld]
-					if !ok {
+			case gtab.Gpos2_1:
+				sNew := gtab.Gpos2_1{}
+				for pair, adj := range sOld {
+					if _, ok := s.newGid[pair.Left]; !ok {
 						continue
 					}
-					for bOld, adjust := range sOld.Adjust[i] {
-						bNew, ok := s.newGid[bOld]
-						if !ok {
-							continue
-						}
-						data = append(data, pair{aNew, bNew, adjust})
+					if _, ok := s.newGid[pair.Right]; !ok {
+						continue
 					}
-				}
-				sort.Slice(data, func(i, j int) bool {
-					if data[i].a != data[j].a {
-						return data[i].a < data[j].a
-					}
-					return data[i].b < data[j].b
-				})
-				sNew := &gtab.Gpos2_1{
-					Cov: make(map[glyph.ID]int),
-				}
-				for _, p := range data {
-					if _, ok := sNew.Cov[p.a]; !ok {
-						sNew.Cov[p.a] = len(sNew.Adjust)
-						sNew.Adjust = append(sNew.Adjust, make(map[glyph.ID]*gtab.PairAdjust))
-					}
-					sNew.Adjust[sNew.Cov[p.a]][p.b] = p.adjust
+					sNew[pair] = adj
 				}
 				tNew.Subtables[j] = sNew
 			case *gtab.Gpos2_2:

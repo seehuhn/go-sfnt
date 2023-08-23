@@ -360,32 +360,16 @@ func makeKerningTable(afm *type1.Font, name2gid map[string]glyph.ID) *gtab.Info 
 		return nil
 	}
 
-	all := make(map[glyph.ID]map[glyph.ID]*gtab.PairAdjust)
+	kern := gtab.Gpos2_1{}
 	for _, pair := range afm.Kern {
 		left := name2gid[pair.Left]
 		right := name2gid[pair.Right]
-		if _, exists := all[left]; !exists {
-			all[left] = make(map[glyph.ID]*gtab.PairAdjust)
-		}
-		pa := &gtab.PairAdjust{
+		kern[glyph.Pair{
+			Left:  left,
+			Right: right,
+		}] = &gtab.PairAdjust{
 			First: &gtab.GposValueRecord{XAdvance: pair.Adjust},
 		}
-		all[left][right] = pa
-	}
-	keys := maps.Keys(all)
-	sort.Slice(keys, func(i, j int) bool {
-		return keys[i] < keys[j]
-	})
-
-	cov := coverage.Table{}
-	adjust := make([]map[glyph.ID]*gtab.PairAdjust, len(keys))
-	for idx, key := range keys {
-		cov[key] = idx
-		adjust[idx] = all[key]
-	}
-	kern := &gtab.Gpos2_1{
-		Cov:    cov,
-		Adjust: adjust,
 	}
 
 	gpos := &gtab.Info{

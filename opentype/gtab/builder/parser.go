@@ -424,7 +424,7 @@ func (p *parser) readGpos2() *gtab.LookupTable {
 	for {
 		switch p.peek().typ {
 		default: // format 1
-			pairData := make(map[glyph.ID]map[glyph.ID]*gtab.PairAdjust)
+			subtable := gtab.Gpos2_1{}
 			for {
 				from := p.readGlyphList()
 				if len(from) == 0 {
@@ -435,28 +435,12 @@ func (p *parser) readGpos2() *gtab.LookupTable {
 				p.required(itemArrow, "\"->\"")
 				pair := p.readPairAdjust()
 
-				row, ok := pairData[from[0]]
-				if !ok {
-					row = make(map[glyph.ID]*gtab.PairAdjust)
-					pairData[from[0]] = row
-				}
-				row[from[1]] = pair
+				subtable[glyph.Pair{Left: from[0], Right: from[1]}] = pair
 
 				if !p.optional(itemComma) {
 					break
 				}
 				p.optional(itemEOL)
-			}
-
-			cov := makeCoverageTable(maps.Keys(pairData))
-			adjust := make([]map[glyph.ID]*gtab.PairAdjust, len(cov))
-			for gid, i := range cov {
-				adjust[i] = pairData[gid]
-			}
-
-			subtable := &gtab.Gpos2_1{
-				Cov:    cov,
-				Adjust: adjust,
 			}
 			lookup.Subtables = append(lookup.Subtables, subtable)
 		case itemSlash: // format 2

@@ -165,50 +165,35 @@ func FuzzGpos1_2(f *testing.F) {
 }
 
 func FuzzGpos2_1(f *testing.F) {
-	l := &Gpos2_1{}
+	l := Gpos2_1{}
 	f.Add(l.Encode())
-	l = &Gpos2_1{
-		Cov: map[glyph.ID]int{1: 0, 3: 1},
-		Adjust: []map[glyph.ID]*PairAdjust{
-			{
-				2: &PairAdjust{
-					First: &GposValueRecord{
-						XAdvance: -10,
-					},
-				},
-			},
+	l = Gpos2_1{
+		glyph.Pair{Left: 1, Right: 2}: &PairAdjust{
+			First: &GposValueRecord{XAdvance: -10},
 		},
 	}
 	f.Add(l.Encode())
-	l.Adjust = []map[glyph.ID]*PairAdjust{
-		{
-			2: &PairAdjust{
-				First: &GposValueRecord{
-					XAdvance: -10,
-				},
+	l = Gpos2_1{
+		glyph.Pair{Left: 1, Right: 2}: &PairAdjust{
+			First: &GposValueRecord{XAdvance: -10},
+		},
+		glyph.Pair{Left: 1, Right: 4}: &PairAdjust{
+			First:  &GposValueRecord{XAdvance: -10},
+			Second: &GposValueRecord{XPlacement: 5},
+		},
+		glyph.Pair{Left: 1, Right: 6}: &PairAdjust{
+			First: &GposValueRecord{
+				XAdvance: -10,
 			},
-			4: &PairAdjust{
-				First: &GposValueRecord{
-					XAdvance: -10,
-				},
-				Second: &GposValueRecord{
-					XPlacement: 5,
-				},
-			},
-			6: &PairAdjust{
-				First: &GposValueRecord{
-					XAdvance: -10,
-				},
-				Second: &GposValueRecord{
-					XPlacement:        1,
-					YPlacement:        2,
-					XAdvance:          3,
-					YAdvance:          4,
-					XPlacementDevOffs: 5,
-					YPlacementDevOffs: 6,
-					XAdvanceDevOffs:   7,
-					YAdvanceDevOffs:   8,
-				},
+			Second: &GposValueRecord{
+				XPlacement:        1,
+				YPlacement:        2,
+				XAdvance:          3,
+				YAdvance:          4,
+				XPlacementDevOffs: 5,
+				YPlacementDevOffs: 6,
+				XAdvanceDevOffs:   7,
+				YAdvanceDevOffs:   8,
 			},
 		},
 	}

@@ -18,6 +18,7 @@ package gtab
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"golang.org/x/exp/maps"
@@ -254,12 +255,7 @@ func (l *Gpos1_2) Encode() []byte {
 
 // Gpos2_1 is a Pair Adjustment Positioning Subtable (format 1)
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#pair-adjustment-positioning-format-1-adjustments-for-glyph-pairs
-//
-// TODO(voss): turn into a map of pairs?
-type Gpos2_1 struct {
-	Cov    coverage.Table
-	Adjust []map[glyph.ID]*PairAdjust // indexed by coverage index
-}
+type Gpos2_1 map[glyph.Pair]*PairAdjust
 
 // PairAdjust represents information from a PairValueRecord table.
 type PairAdjust struct {
@@ -267,23 +263,18 @@ type PairAdjust struct {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos2_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	if a+1 >= b {
+func (l Gpos2_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
+	p := a + 1
+	for p < b && !keep(seq[p].Gid) {
+		p++
+	}
+	if p >= b {
 		return nil
 	}
 
 	g1 := seq[a]
-	idx, ok := l.Cov[g1.Gid]
-	if !ok {
-		return nil
-	}
-	ruleSet := l.Adjust[idx]
-	if ruleSet == nil {
-		return nil
-	}
-
-	g2 := seq[a+1]
-	adj, ok := ruleSet[g2.Gid]
+	g2 := seq[p]
+	adj, ok := l[glyph.Pair{Left: g1.Gid, Right: g2.Gid}]
 	if !ok {
 		return nil
 	}
@@ -293,14 +284,14 @@ func (l *Gpos2_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 		return &Match{
 			InputPos: []int{a},
 			Replace:  []glyph.Info{g1},
-			Next:     a + 1,
+			Next:     p,
 		}
 	}
 	adj.Second.Apply(&g2)
 	return &Match{
-		InputPos: []int{a, a + 1},
+		InputPos: []int{a, p},
 		Replace:  []glyph.Info{g1, g2},
-		Next:     a + 2,
+		Next:     p + 1,
 	}
 }
 
@@ -365,25 +356,51 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		adjust[i] = adj
 	}
 
-	res := &Gpos2_1{
-		Cov:    cov,
-		Adjust: adjust,
+	res := Gpos2_1{}
+	for first, i := range cov {
+		for second, a := range adjust[i] {
+			res[glyph.Pair{Left: first, Right: second}] = a
+		}
 	}
 	return res, nil
 }
 
+func (l Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
+	seen := make(map[glyph.ID]bool)
+	for pair := range l {
+		seen[pair.Left] = true
+	}
+
+	firstGids := maps.Keys(seen)
+	slices.Sort(firstGids)
+	cov := coverage.Table{}
+	adjust := make([]map[glyph.ID]*PairAdjust, len(firstGids))
+	for i, gid := range firstGids {
+		cov[gid] = i
+		adjust[i] = map[glyph.ID]*PairAdjust{}
+	}
+
+	for pair := range l {
+		adjust[cov[pair.Left]][pair.Right] = l[pair]
+	}
+
+	return cov, adjust
+}
+
 // EncodeLen implements the Subtable interface.
-func (l *Gpos2_1) EncodeLen() int {
-	total := 10 + 2*len(l.Adjust)
-	total += l.Cov.EncodeLen()
+func (l Gpos2_1) EncodeLen() int {
+	cov, adjust := l.CovAndAdjust()
+
+	total := 10 + 2*len(adjust)
+	total += cov.EncodeLen()
 	var valueFormat1, valueFormat2 uint16
-	for _, adj := range l.Adjust {
+	for _, adj := range adjust {
 		for _, v := range adj {
 			valueFormat1 |= v.First.getFormat()
 			valueFormat2 |= v.Second.getFormat()
 		}
 	}
-	for _, adj := range l.Adjust {
+	for _, adj := range adjust {
 		total += 2 + 2*len(adj)
 		for _, v := range adj {
 			total += v.First.encodeLen(valueFormat1)
@@ -394,20 +411,22 @@ func (l *Gpos2_1) EncodeLen() int {
 }
 
 // Encode implements the Subtable interface.
-func (l *Gpos2_1) Encode() []byte {
-	pairSetCount := len(l.Adjust)
+func (l Gpos2_1) Encode() []byte {
+	cov, adjust := l.CovAndAdjust()
+
+	pairSetCount := len(adjust)
 	total := 10 + 2*pairSetCount
 	coverageOffset := total
-	total += l.Cov.EncodeLen()
+	total += cov.EncodeLen()
 	var valueFormat1, valueFormat2 uint16
-	for _, adj := range l.Adjust {
+	for _, adj := range adjust {
 		for _, v := range adj {
 			valueFormat1 |= v.First.getFormat()
 			valueFormat2 |= v.Second.getFormat()
 		}
 	}
 	pairSetOffsets := make([]uint16, pairSetCount)
-	for i, adj := range l.Adjust {
+	for i, adj := range adjust {
 		pairSetOffsets[i] = uint16(total)
 		total += 2 + 2*len(adj)
 		for _, v := range adj {
@@ -428,9 +447,9 @@ func (l *Gpos2_1) Encode() []byte {
 		buf = append(buf, byte(offset>>8), byte(offset))
 	}
 
-	buf = append(buf, l.Cov.Encode()...)
+	buf = append(buf, cov.Encode()...)
 
-	for _, adj := range l.Adjust {
+	for _, adj := range adjust {
 		pairValueCount := len(adj)
 		buf = append(buf, byte(pairValueCount>>8), byte(pairValueCount))
 
@@ -481,6 +500,8 @@ func (l *Gpos2_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 		return nil
 	}
 	adj := row[class2]
+
+	// TODO(voss): use p instead of a+1?
 
 	adj.First.Apply(&g1)
 	if adj.Second == nil {

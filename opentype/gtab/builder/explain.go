@@ -189,13 +189,14 @@ func ExplainGpos(fontInfo *sfnt.Font) []string {
 					ee.writeValueRecord(l.Adjust[l.Cov[gid]])
 				}
 
-			case *gtab.Gpos2_1:
+			case gtab.Gpos2_1:
 				checkType(2)
-				firstGids := l.Cov.Glyphs()
+				cov, adjust := l.CovAndAdjust()
+				firstGids := cov.Glyphs()
 				first := true
 				for _, firstGid := range firstGids {
-					idx := l.Cov[firstGid]
-					row := l.Adjust[idx]
+					idx := cov[firstGid]
+					row := adjust[idx]
 					secondGids := maps.Keys(row)
 					sort.Slice(secondGids, func(i, j int) bool { return secondGids[i] < secondGids[j] })
 					for _, secondGid := range secondGids {
