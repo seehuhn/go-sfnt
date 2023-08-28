@@ -32,10 +32,27 @@ import (
 // Otherwise, the function tries to infer the missing glyph names from
 // the cmap table and gsub tables.
 func (f *Font) EnsureGlyphNames() {
-	var glyphNames []string
+	glyphNames := f.MakeGlyphNames()
+
 	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
-		glyphNames = make([]string, len(f.Glyphs))
+		for gid, g := range f.Glyphs {
+			if g == nil {
+				continue
+			}
+			g.Name = glyphNames[gid]
+		}
+	case *glyf.Outlines:
+		f.Names = glyphNames
+	default:
+		panic("unexpected font type")
+	}
+}
+
+func (f *Font) MakeGlyphNames() []string {
+	glyphNames := make([]string, f.NumGlyphs())
+	switch f := f.Outlines.(type) {
+	case *cff.Outlines:
 		for gid, g := range f.Glyphs {
 			if g == nil {
 				continue
@@ -44,12 +61,20 @@ func (f *Font) EnsureGlyphNames() {
 		}
 	case *glyf.Outlines:
 		if len(f.Names) == len(f.Glyphs) {
-			glyphNames = f.Names
-		} else {
-			glyphNames = make([]string, len(f.Glyphs))
+			copy(glyphNames, f.Names)
 		}
 	default:
 		panic("unexpected font type")
+	}
+	glyphNames[0] = ".notdef"
+
+	used := make(map[string]bool)
+	for i, name := range glyphNames {
+		if used[name] {
+			glyphNames[i] = ""
+		} else {
+			used[name] = true
+		}
 	}
 
 	complete := true
@@ -60,17 +85,7 @@ func (f *Font) EnsureGlyphNames() {
 		}
 	}
 	if complete {
-		return
-	}
-
-	glyphNames[0] = ".notdef"
-	used := make(map[string]bool)
-	for i, name := range glyphNames {
-		if used[name] {
-			glyphNames[i] = ""
-		} else {
-			used[name] = true
-		}
+		return glyphNames
 	}
 
 	if cmap, _ := f.CMapTable.GetBest(); cmap != nil {
@@ -82,10 +97,10 @@ func (f *Font) EnsureGlyphNames() {
 				continue
 			}
 			name := names.FromUnicode(r)
-			if name == "" || used[name] {
-				panic("unreachable") // TODO(voss): remove
+			if !used[name] {
+				glyphNames[gid] = name
+				used[name] = true
 			}
-			glyphNames[gid] = name
 		}
 	}
 
@@ -162,20 +177,7 @@ func (f *Font) EnsureGlyphNames() {
 			}
 		}
 	}
-
-	switch f := f.Outlines.(type) {
-	case *cff.Outlines:
-		for gid, g := range f.Glyphs {
-			if g == nil {
-				continue
-			}
-			g.Name = glyphNames[gid]
-		}
-	case *glyf.Outlines:
-		f.Names = glyphNames
-	default:
-		panic("unexpected font type")
-	}
+	return glyphNames
 }
 
 func makeVariant(used map[string]bool, basename string) string {
