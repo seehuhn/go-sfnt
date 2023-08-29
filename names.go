@@ -30,7 +30,7 @@ import (
 // EnsureGlyphNames makes sure that all glyphs in the font have a name.
 // If all names are present, the function does nothing.
 // Otherwise, the function tries to infer the missing glyph names from
-// the cmap table and gsub tables.
+// the "cmap" and "gsub" tables.
 func (f *Font) EnsureGlyphNames() {
 	glyphNames := f.MakeGlyphNames()
 
@@ -49,6 +49,10 @@ func (f *Font) EnsureGlyphNames() {
 	}
 }
 
+// MakeGlyphNames returns a list of glyph names which can be used for the font.
+// If all names are present, the function returns the existing names.
+// Otherwise, the function tries to infer the missing glyph names from
+// the "cmap" and "gsub" tables.
 func (f *Font) MakeGlyphNames() []string {
 	glyphNames := make([]string, f.NumGlyphs())
 	switch f := f.Outlines.(type) {

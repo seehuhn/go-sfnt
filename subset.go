@@ -32,13 +32,13 @@ import (
 
 // Subset returns a subset of the font containing containing the given
 // glyphs at the first positions.  More glyphs may be included in the
-// subset, if they can occur as ligatures between the given glyphs.
+// subset, if they occur as ligatures between the given glyphs.
 func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 	if glyphs[0] != 0 {
 		return nil, errors.New("sfnt: subset must start with .notdef glyph")
 	}
 
-	res := *f
+	res := f.Clone()
 
 	s := subsetter{
 		glyphs: glyphs,
@@ -71,7 +71,7 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 		res.Outlines = s.SubsetGlyf(outlines)
 	}
 
-	return &res, nil
+	return res, nil
 }
 
 type subsetter struct {
