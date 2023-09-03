@@ -77,8 +77,9 @@ type Font struct {
 	UnderlinePosition  funit.Float64 // Underline position (negative)
 	UnderlineThickness funit.Float64 // Underline thickness
 
+	Outlines interface{} // either *cff.Outlines or *glyf.Outlines
+
 	CMapTable cmap.Table
-	Outlines  interface{} // either *cff.Outlines or *glyf.Outlines
 
 	Gdef *gdef.Table
 	Gsub *gtab.Info

@@ -49,9 +49,9 @@ func TestFDSelect(t *testing.T) {
 		Ordering:   "Sonderbar",
 		Supplement: 0,
 	}
-	o1.Gid2Cid = make([]type1.CID, 10)
+	o1.GIDToCID = make([]type1.CID, 10)
 	for i := 0; i < 10; i++ {
-		o1.Gid2Cid[i] = type1.CID(i)
+		o1.GIDToCID[i] = type1.CID(i)
 	}
 	i1 := &Font{
 		FamilyName: "Test",
@@ -69,12 +69,12 @@ func TestFDSelect(t *testing.T) {
 	if len(o2.Private) != len(ss) {
 		t.Fatalf("expected %d FDs, got %d", len(ss), len(o2.Private))
 	}
-	if len(o2.Gid2Cid) != len(ss) {
-		t.Fatalf("expected %d Gid2Cid entries, got %d", len(ss), len(o2.Gid2Cid))
+	if len(o2.GIDToCID) != len(ss) {
+		t.Fatalf("expected %d Gid2Cid entries, got %d", len(ss), len(o2.GIDToCID))
 	}
 	for i, info := range []*Font{i1, i2} {
 		o := info.Outlines.(*cff.Outlines)
-		for gidInt, cid := range o.Gid2Cid {
+		for gidInt, cid := range o.GIDToCID {
 			gid := glyph.ID(gidInt)
 			w := info.GlyphWidth(gid)
 			if w != funit.Int16(100*int(cid)) {

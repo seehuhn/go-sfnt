@@ -288,10 +288,10 @@ func (s *subsetter) SubsetCFF(oldOutlines *cff.Outlines) *cff.Outlines {
 
 	newOutlines.ROS = oldOutlines.ROS
 
-	if oldOutlines.Gid2Cid != nil {
-		newOutlines.Gid2Cid = make([]type1.CID, len(s.glyphs))
+	if oldOutlines.GIDToCID != nil {
+		newOutlines.GIDToCID = make([]type1.CID, len(s.glyphs))
 		for newGid, oldGid := range s.glyphs {
-			newOutlines.Gid2Cid[newGid] = oldOutlines.Gid2Cid[oldGid]
+			newOutlines.GIDToCID[newGid] = oldOutlines.GIDToCID[oldGid]
 		}
 	}
 

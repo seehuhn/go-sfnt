@@ -111,8 +111,8 @@ func (cff *Font) Write(w io.Writer) error {
 			return fmt.Errorf("Glyph names: %w", err)
 		}
 	} else {
-		tmp := make([]int32, len(cff.Gid2Cid))
-		for i, cid := range cff.Gid2Cid {
+		tmp := make([]int32, len(cff.GIDToCID))
+		for i, cid := range cff.GIDToCID {
 			tmp[i] = int32(cid)
 		}
 		charsets, err = encodeCharset(tmp)

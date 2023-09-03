@@ -37,6 +37,22 @@ type Font struct {
 	*Outlines
 }
 
+// Clone creates a new font, consisting of shallow copies of the
+// FontInfo and Outlines fields.
+func (cff *Font) Clone() *Font {
+	fontInfo := *cff.FontInfo
+	outlines := *cff.Outlines
+	return &Font{
+		FontInfo: &fontInfo,
+		Outlines: &outlines,
+	}
+}
+
+// NumGlyphs returns the number of glyphs in the font.
+func (cff *Font) NumGlyphs() int {
+	return len(cff.Glyphs)
+}
+
 // Widths returns the widths of all glyphs.
 func (cff *Font) Widths() []funit.Int16 {
 	res := make([]funit.Int16, len(cff.Glyphs))
@@ -66,11 +82,11 @@ type Outlines struct {
 	// if and only if the font is a CIDFont.
 	ROS *type1.CIDSystemInfo
 
-	// Gid2Cid lists the character identifiers corresponding to the glyphs.
+	// GIDToCID lists the character identifiers corresponding to the glyphs.
 	// This is only present for CIDFonts, and encodes the information from the
 	// charset table in the CFF font.  When present, the first entry
 	// (corresponding to the .notdef glyph) must be 0.
-	Gid2Cid []type1.CID
+	GIDToCID []type1.CID
 }
 
 // IsCIDKeyed returns true if the font is a CID-keyed font.

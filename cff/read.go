@@ -214,7 +214,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		cff.Gid2Cid = make([]type1.CID, nGlyphs) // filled in below
+		cff.GIDToCID = make([]type1.CID, nGlyphs) // filled in below
 	} else {
 		switch charsetOffs {
 		case 0: // ISOAdobe charset
@@ -280,7 +280,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		}
 		if isCIDFont {
 			if charset != nil {
-				cff.Gid2Cid[gid] = type1.CID(charset[gid])
+				cff.GIDToCID[gid] = type1.CID(charset[gid])
 			}
 		} else {
 			name, err := strings.get(charset[gid])
