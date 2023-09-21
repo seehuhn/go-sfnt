@@ -162,10 +162,11 @@ func Read(r io.ReaderAt) (*Info, error) {
 	return h, nil
 }
 
-// Has returns true if all of the given tables are present in the font.
+// Has returns true if all of the given tables are present in the font,
+// and none of them are empty.
 func (h *Info) Has(tableNames ...string) bool {
 	for _, name := range tableNames {
-		if _, ok := h.Toc[name]; !ok {
+		if rec, ok := h.Toc[name]; !ok || rec.Length == 0 {
 			return false
 		}
 	}

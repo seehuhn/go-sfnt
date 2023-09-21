@@ -19,6 +19,7 @@ package sfnt
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -70,7 +71,7 @@ func Read(r io.Reader) (*Font, error) {
 
 	dir, err := header.Read(rr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sfnt header: %w", err)
 	}
 
 	if !(dir.Has("glyf", "loca") || dir.Has("CFF ")) {
@@ -94,7 +95,7 @@ func Read(r io.Reader) (*Font, error) {
 	if headFd != nil {
 		headInfo, err = head.Read(headFd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("head table: %w", err)
 		}
 	}
 
@@ -112,7 +113,7 @@ func Read(r io.Reader) (*Font, error) {
 	if maxpFd != nil {
 		maxpInfo, err = maxp.Read(maxpFd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("maxp table: %w", err)
 		}
 	}
 
@@ -124,7 +125,7 @@ func Read(r io.Reader) (*Font, error) {
 	if os2Fd != nil {
 		os2Info, err = os2.Read(os2Fd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("OS/2 table: %w", err)
 		}
 	}
 
@@ -136,7 +137,7 @@ func Read(r io.Reader) (*Font, error) {
 	if hheaData != nil {
 		hmtxInfo, err = hmtx.Decode(hheaData, hmtxData)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("hmtx table: %w", err)
 		}
 	}
 
@@ -149,7 +150,7 @@ func Read(r io.Reader) (*Font, error) {
 	if cmapData != nil {
 		cmapTable, err = cmap.Decode(cmapData)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("cmap table: %w", err)
 		}
 		cmapBest, _ = cmapTable.GetBest()
 	}
@@ -162,7 +163,7 @@ func Read(r io.Reader) (*Font, error) {
 	if nameData != nil {
 		nameInfo, err := name.Decode(nameData)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("name table: %w", err)
 		}
 		winTab, winConf := nameInfo.Windows.Choose(language.AmericanEnglish)
 		macTab, macConf := nameInfo.Mac.Choose(language.AmericanEnglish)
@@ -180,7 +181,7 @@ func Read(r io.Reader) (*Font, error) {
 	if postFd != nil {
 		postInfo, err = post.Read(postFd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("post table: %w", err)
 		}
 	}
 
@@ -211,7 +212,7 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		cffInfo, err = cff.Read(cffFd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("CFF table: %w", err)
 		}
 		fontInfo = cffInfo.FontInfo
 		Outlines = cffInfo.Outlines
@@ -246,7 +247,7 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		ttGlyphs, err := glyf.Decode(enc)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("glyf table: %w", err)
 		}
 
 		tables := make(map[string][]byte)
@@ -449,7 +450,7 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		info.Gdef, err = gdef.Read(gdefFd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("GDEF table: %w", err)
 		}
 	}
 
@@ -462,7 +463,7 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		info.Gsub, err = gtab.ReadGSUB(gsubFd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("GSUB table: %w", err)
 		}
 	}
 
@@ -473,7 +474,7 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		info.Gpos, err = gtab.ReadGPOS(gposFd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("GPOS table: %w", err)
 		}
 	} else if dir.Has("kern") {
 		kernFd, err := dir.TableReader(rr, "kern")
@@ -482,7 +483,7 @@ func Read(r io.Reader) (*Font, error) {
 		}
 		kern, err := kern.Read(kernFd)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("kern table: %w", err)
 		}
 
 		subtable := gtab.Gpos2_1{}
