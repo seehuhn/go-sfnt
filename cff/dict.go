@@ -238,7 +238,7 @@ func decodeFloat(buf []byte) ([]byte, float64, error) {
 }
 
 func encodeFloat(x float64) []byte {
-	if x == 0 {
+	if x == 0 || math.IsNaN(x) || math.IsInf(x, 0) {
 		return []byte{0x0f}
 	}
 
