@@ -16,6 +16,7 @@ Pre-existing Font Packages for Go
 
 github.com/go-fonts
 golang.org/x/image/font
+golang.org/x/image/font/sfnt
 
 
 TrueType Fonts (TTF)
