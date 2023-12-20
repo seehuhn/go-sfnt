@@ -4,9 +4,9 @@ go 1.19
 
 require (
 	github.com/google/go-cmp v0.6.0
-	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
+	golang.org/x/exp v0.0.0-20231127185646-65229373498e
 	golang.org/x/image v0.13.0
-	golang.org/x/text v0.13.0
+	golang.org/x/text v0.14.0
 	seehuhn.de/go/dijkstra v0.9.3
 )
 
