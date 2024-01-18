@@ -35,7 +35,7 @@ type Gpos6_1 struct {
 
 // Apply implements the Subtable interface.
 func (l *Gpos6_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	mark1Idx, ok := l.Mark1Cov[seq[a].Gid]
+	mark1Idx, ok := l.Mark1Cov[seq[a].GID]
 	if !ok {
 		return nil
 	}
@@ -47,7 +47,7 @@ func (l *Gpos6_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	p := a - 1
 	var mark2Idx int
 	for p >= 0 {
-		mark2Idx, ok = l.Mark2Cov[seq[p].Gid]
+		mark2Idx, ok = l.Mark2Cov[seq[p].GID]
 		if ok {
 			break
 		}

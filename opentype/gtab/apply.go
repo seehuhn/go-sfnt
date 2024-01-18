@@ -64,7 +64,7 @@ func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gd
 	}
 	lookup := ll[lookupIndex]
 	keep := makeFilter(lookup.Meta, gdef)
-	if !keep(seq[pos].Gid) {
+	if !keep(seq[pos].GID) {
 		return seq, pos + 1
 	}
 	match := lookup.Subtables.Apply(keep, seq, pos, b)
@@ -115,7 +115,7 @@ func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gd
 
 		keep := makeFilter(lookup.Meta, gdef)
 		var match *Match
-		if keep(seq[pos].Gid) {
+		if keep(seq[pos].GID) {
 			// We have to pass keep into Apply, so that lookups operating on
 			// sequences of glyphs can check the glyps different from seq[pos].
 			match = lookup.Subtables.Apply(keep, seq, pos, end)

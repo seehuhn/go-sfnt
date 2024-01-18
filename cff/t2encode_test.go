@@ -42,7 +42,7 @@ func TestRoundTrip(t *testing.T) {
 		IsFixedPitch:       true,
 		UnderlinePosition:  -80,
 		UnderlineThickness: 40,
-		FontMatrix:         []float64{1.0 / 1024, 0, 0, 1.0 / 1024, 0, 0},
+		FontMatrix:         [6]float64{1.0 / 1024, 0, 0, 1.0 / 1024, 0, 0},
 	}
 	private := []*type1.PrivateDict{
 		{

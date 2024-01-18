@@ -103,8 +103,8 @@ func Test9737(t *testing.T) {
 	}
 
 	gg := []glyph.Info{
-		{Gid: gidA},
-		{Gid: gidB},
+		{GID: gidA},
+		{GID: gidB},
 	}
 	gsub := fontInfo.Gsub
 	for _, lookupIndex := range gsub.FindLookups(language.AmericanEnglish, nil) {
@@ -220,12 +220,12 @@ func Test9738(t *testing.T) {
 	}
 
 	gg := []glyph.Info{
-		{Gid: gidA},
-		{Gid: gidB},
-		{Gid: gidA},
-		{Gid: gidA},
-		{Gid: gidA},
-		{Gid: gidB},
+		{GID: gidA},
+		{GID: gidB},
+		{GID: gidA},
+		{GID: gidA},
+		{GID: gidA},
+		{GID: gidB},
 	}
 	gsub := fontInfo.Gsub
 	for _, lookupIndex := range gsub.FindLookups(language.AmericanEnglish, nil) {
@@ -245,7 +245,7 @@ func Test9738(t *testing.T) {
 func unpack(seq []glyph.Info) []glyph.ID {
 	res := make([]glyph.ID, len(seq))
 	for i, g := range seq {
-		res[i] = g.Gid
+		res[i] = g.GID
 	}
 	return res
 }

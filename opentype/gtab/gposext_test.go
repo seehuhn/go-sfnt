@@ -97,7 +97,7 @@ func TestGpos(t *testing.T) {
 			seq := make([]glyph.Info, len(test.in))
 			for i, r := range test.in {
 				gid := cmap.Lookup(r)
-				seq[i].Gid = gid
+				seq[i].GID = gid
 				seq[i].Text = []rune{r}
 				if gdefTable.GlyphClass[gid] != gdef.GlyphClassMark {
 					seq[i].Advance = fontInfo.GlyphWidth(gid)
@@ -126,7 +126,7 @@ func TestGpos(t *testing.T) {
 							fontName, check.idx, check.val, seq[check.idx].Advance)
 					}
 				case checkDXRel:
-					w := fontInfo.GlyphWidth(seq[check.idx].Gid)
+					w := fontInfo.GlyphWidth(seq[check.idx].GID)
 					expected := check.val + w
 					if seq[check.idx].Advance != expected {
 						t.Errorf("%s[%d]: expected XAdvance == %d, got %d",
@@ -196,7 +196,7 @@ func FuzzGpos(f *testing.F) {
 		seq := make([]glyph.Info, len(in))
 		for i, r := range in {
 			gid := cmap.Lookup(r)
-			seq[i].Gid = gid
+			seq[i].GID = gid
 			seq[i].Text = []rune{r}
 			if gdefTable.GlyphClass[gid] != gdef.GlyphClassMark {
 				seq[i].Advance = fontInfo.GlyphWidth(gid)

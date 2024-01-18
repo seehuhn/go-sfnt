@@ -66,6 +66,7 @@ type Font struct {
 	PermUse    os2.Permissions
 
 	UnitsPerEm uint16
+	FontMatrix [6]float64
 
 	Ascent    funit.Int16
 	Descent   funit.Int16 // negative
@@ -105,7 +106,7 @@ func (f *Font) GetFontInfo() *type1.FontInfo {
 		Copyright: strings.ReplaceAll(f.Copyright, "©", "(c)"),
 		Notice:    f.Trademark,
 
-		FontMatrix: []float64{q, 0, 0, q, 0, 0},
+		FontMatrix: [6]float64{q, 0, 0, q, 0, 0},
 
 		ItalicAngle:  f.ItalicAngle,
 		IsFixedPitch: f.IsFixedPitch(),
@@ -331,7 +332,7 @@ func (f *Font) Layout(cmap cmap.Subtable, gsubLookups, gposLookups []gtab.Lookup
 	seq := make(glyph.Seq, len(rr))
 	for i, r := range rr {
 		gid := cmap.Lookup(r)
-		seq[i].Gid = gid
+		seq[i].GID = gid
 		seq[i].Text = []rune{r}
 	}
 
@@ -342,7 +343,7 @@ func (f *Font) Layout(cmap cmap.Subtable, gsubLookups, gposLookups []gtab.Lookup
 	}
 
 	for i := range seq {
-		gid := seq[i].Gid
+		gid := seq[i].GID
 		if !f.Gdef.IsMark(gid) {
 			seq[i].Advance = f.GlyphWidth(gid)
 		}

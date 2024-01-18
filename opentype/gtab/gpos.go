@@ -121,7 +121,7 @@ func readGpos1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 // Apply implements the Subtable interface.
 func (l *Gpos1_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	g := seq[a]
-	_, ok := l.Cov[g.Gid]
+	_, ok := l.Cov[g.GID]
 	if !ok {
 		return nil
 	}
@@ -199,7 +199,7 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 // Apply implements the Subtable interface.
 func (l *Gpos1_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	g := seq[a]
-	idx, ok := l.Cov[g.Gid]
+	idx, ok := l.Cov[g.GID]
 	if !ok {
 		return nil
 	}
@@ -265,7 +265,7 @@ type PairAdjust struct {
 // Apply implements the Subtable interface.
 func (l Gpos2_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	p := a + 1
-	for p < b && !keep(seq[p].Gid) {
+	for p < b && !keep(seq[p].GID) {
 		p++
 	}
 	if p >= b {
@@ -274,7 +274,7 @@ func (l Gpos2_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 
 	g1 := seq[a]
 	g2 := seq[p]
-	adj, ok := l[glyph.Pair{Left: g1.Gid, Right: g2.Gid}]
+	adj, ok := l[glyph.Pair{Left: g1.GID, Right: g2.GID}]
 	if !ok {
 		return nil
 	}
@@ -476,13 +476,13 @@ type Gpos2_2 struct {
 // Apply implements the Subtable interface.
 func (l *Gpos2_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	g1 := seq[a]
-	_, ok := l.Cov[g1.Gid]
+	_, ok := l.Cov[g1.GID]
 	if !ok {
 		return nil
 	}
 
 	p := a + 1
-	for p < b && !keep(seq[p].Gid) {
+	for p < b && !keep(seq[p].GID) {
 		p++
 	}
 	if p >= b {
@@ -490,12 +490,12 @@ func (l *Gpos2_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	}
 	g2 := seq[p]
 
-	class1 := l.Class1[g1.Gid]
+	class1 := l.Class1[g1.GID]
 	if int(class1) >= len(l.Adjust) {
 		return nil
 	}
 	row := l.Adjust[class1]
-	class2 := l.Class2[g2.Gid]
+	class2 := l.Class2[g2.GID]
 	if int(class2) >= len(row) {
 		return nil
 	}
@@ -679,14 +679,14 @@ func (l *Gpos3_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	// TODO(voss): this is only correct if the RIGHT_TO_LEFT flag is not set.
 
 	g := seq[a]
-	idx, ok := l.Cov[g.Gid]
+	idx, ok := l.Cov[g.GID]
 	if !ok {
 		return nil
 	}
 	rec := l.Records[idx]
 	if a > 0 {
 		prevGlyph := seq[a-1]
-		prev, ok := l.Cov[prevGlyph.Gid]
+		prev, ok := l.Cov[prevGlyph.GID]
 		if ok {
 			prevRec := l.Records[prev]
 			g.YOffset = prevGlyph.YOffset + prevRec.Exit.Y - rec.Entry.Y
@@ -694,7 +694,7 @@ func (l *Gpos3_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	}
 	if a < b-1 {
 		nextGlyph := seq[a+1]
-		next, ok := l.Cov[nextGlyph.Gid]
+		next, ok := l.Cov[nextGlyph.GID]
 		if ok {
 			nextRec := l.Records[next]
 			g.Advance = g.XOffset + rec.Exit.X - nextGlyph.XOffset - nextRec.Entry.X

@@ -36,7 +36,7 @@ type Gpos4_1 struct {
 // Apply implements the Subtable interface.
 func (l *Gpos4_1) Apply(_ keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	// TODO(voss): does this apply to the base or the mark?
-	markIdx, ok := l.MarkCov[seq[a].Gid]
+	markIdx, ok := l.MarkCov[seq[a].GID]
 	if !ok {
 		return nil
 	}
@@ -48,7 +48,7 @@ func (l *Gpos4_1) Apply(_ keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	p := a - 1
 	var baseIdx int
 	for p >= 0 {
-		baseIdx, ok = l.BaseCov[seq[p].Gid]
+		baseIdx, ok = l.BaseCov[seq[p].GID]
 		if ok {
 			break
 		}

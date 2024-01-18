@@ -394,13 +394,12 @@ func (d cffDict) getPair(op dictOp) (int32, int32, bool) {
 	return x, y, true
 }
 
-func (d cffDict) getFontMatrix(op dictOp) []float64 {
+func (d cffDict) getFontMatrix(op dictOp) (res [6]float64) {
 	xx, ok := d[op]
 	if !ok || len(xx) != 6 {
 		return defaultFontMatrix
 	}
 
-	res := make([]float64, 6)
 	for i, x := range xx {
 		xi, ok := x.(float64)
 		if !ok {
@@ -426,7 +425,7 @@ func (d cffDict) setDeltaF16(op dictOp, val []funit.Int16) {
 	d[op] = res
 }
 
-func (d cffDict) setFontMatrix(op dictOp, fm []float64) {
+func (d cffDict) setFontMatrix(op dictOp, fm [6]float64) {
 	if len(fm) == 0 {
 		return
 	} else if len(fm) != 6 {
@@ -620,7 +619,7 @@ func clamp(x, min, max float64) float64 {
 	return x
 }
 
-var defaultFontMatrix = []float64{0.001, 0, 0, 0.001, 0, 0}
+var defaultFontMatrix = [6]float64{0.001, 0, 0, 0.001, 0, 0}
 
 type dictOp uint16
 

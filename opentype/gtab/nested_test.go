@@ -35,7 +35,7 @@ func (l *debugNestedLookup) Apply(_ keepGlyphFn, seq []glyph.Info, a, b int) *Ma
 		return &Match{
 			InputPos: []int{a},
 			Replace: []glyph.Info{
-				{Gid: 3},
+				{GID: 3},
 			},
 			Next: a + 1,
 		}
@@ -103,12 +103,12 @@ func TestNestedSimple(t *testing.T) {
 			},
 		}
 		seq := []glyph.Info{
-			{Gid: 1}, {Gid: 1}, {Gid: 1}, {Gid: 1}, {Gid: 1}, {Gid: 1}, {Gid: 1},
+			{GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1},
 		}
 		seq = info.LookupList.ApplyLookup(seq, 0, nil)
 		var out []glyph.ID
 		for _, g := range seq {
-			out = append(out, g.Gid)
+			out = append(out, g.GID)
 		}
 		if diff := cmp.Diff(test.out, out); diff != "" {
 			t.Error(diff)
@@ -117,7 +117,7 @@ func TestNestedSimple(t *testing.T) {
 }
 
 func TestSeqContext1(t *testing.T) {
-	in := []glyph.Info{{Gid: 1}, {Gid: 2}, {Gid: 3}, {Gid: 4}, {Gid: 99}, {Gid: 5}}
+	in := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5}}
 	l := &SeqContext1{
 		Cov: map[glyph.ID]int{2: 0, 3: 1, 4: 2},
 		Rules: [][]*SeqRule{
@@ -164,7 +164,7 @@ func TestSeqContext1(t *testing.T) {
 }
 
 func TestSeqContext2(t *testing.T) {
-	in := []glyph.Info{{Gid: 1}, {Gid: 2}, {Gid: 3}, {Gid: 4}, {Gid: 99}, {Gid: 5}}
+	in := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5}}
 	l := &SeqContext2{
 		Cov:   map[glyph.ID]int{2: 0, 3: 1, 4: 2, 99: 3},
 		Input: classdef.Table{1: 1, 3: 1, 5: 1},
@@ -194,7 +194,7 @@ func TestSeqContext2(t *testing.T) {
 	for _, test := range cases {
 		m := l.Apply(keep, in, test.before, len(in))
 		next := -1
-		if keep(in[test.before].Gid) && m != nil {
+		if keep(in[test.before].GID) && m != nil {
 			next = m.Next
 		}
 		if next != test.after {
@@ -204,7 +204,7 @@ func TestSeqContext2(t *testing.T) {
 }
 
 func TestSeqContext3(t *testing.T) {
-	in := []glyph.Info{{Gid: 1}, {Gid: 2}, {Gid: 3}, {Gid: 4}, {Gid: 99}, {Gid: 5}}
+	in := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5}}
 	l := &SeqContext3{
 		Input: []coverage.Table{
 			{1: 0, 3: 1, 4: 2},
@@ -238,7 +238,7 @@ func TestSeqContext3(t *testing.T) {
 
 func TestChainedSeqContext1(t *testing.T) {
 	in := []glyph.Info{
-		{Gid: 1}, {Gid: 99}, {Gid: 2}, {Gid: 99}, {Gid: 3}, {Gid: 4}, {Gid: 99}, {Gid: 5},
+		{GID: 1}, {GID: 99}, {GID: 2}, {GID: 99}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5},
 	}
 	l := &ChainedSeqContext1{
 		Cov: map[glyph.ID]int{2: 0, 3: 1, 4: 2},

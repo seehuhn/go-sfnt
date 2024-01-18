@@ -94,14 +94,14 @@ func readGsub1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *Gsub1_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	if _, ok := l.Cov[gid]; !ok {
 		return nil
 	}
 	return &Match{
 		InputPos: []int{a},
 		Replace: []glyph.Info{
-			{Gid: gid + l.Delta, Text: seq[a].Text},
+			{GID: gid + l.Delta, Text: seq[a].Text},
 		},
 		Next: a + 1,
 	}
@@ -167,7 +167,7 @@ func readGsub1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *Gsub1_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
 	if !ok {
 		return nil
@@ -175,7 +175,7 @@ func (l *Gsub1_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	m := &Match{
 		InputPos: []int{a},
 		Replace: []glyph.Info{
-			{Gid: l.SubstituteGlyphIDs[idx], Text: seq[a].Text},
+			{GID: l.SubstituteGlyphIDs[idx], Text: seq[a].Text},
 		},
 		Next: a + 1,
 	}
@@ -262,7 +262,7 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *Gsub2_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
 	if !ok {
 		return nil
@@ -273,7 +273,7 @@ func (l *Gsub2_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 
 	insert := make([]glyph.Info, k)
 	for i, replGid := range repl {
-		insert[i] = glyph.Info{Gid: replGid}
+		insert[i] = glyph.Info{GID: replGid}
 	}
 	if k > 0 {
 		insert[0].Text = seq[a].Text
@@ -392,7 +392,7 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *Gsub3_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
 	if !ok {
 		return nil
@@ -406,7 +406,7 @@ func (l *Gsub3_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	return &Match{
 		InputPos: []int{a},
 		Replace: []glyph.Info{
-			{Gid: alt[0], Text: seq[a].Text},
+			{GID: alt[0], Text: seq[a].Text},
 		},
 		Next: a + 1,
 	}
@@ -566,7 +566,7 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *Gsub4_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	ligSetIdx, ok := l.Cov[gid]
 	if !ok {
 		return nil
@@ -587,13 +587,13 @@ ligLoop:
 		text = append(text, seq[p].Text...)
 		for _, ligGid := range lig.In {
 			p++
-			for p < b && !keep(seq[p].Gid) {
+			for p < b && !keep(seq[p].GID) {
 				p++
 			}
 			if p >= b {
 				continue ligLoop
 			}
-			if seq[p].Gid != ligGid {
+			if seq[p].GID != ligGid {
 				continue ligLoop
 			}
 
@@ -604,7 +604,7 @@ ligLoop:
 		return &Match{
 			InputPos: matchPos,
 			Replace: []glyph.Info{
-				{Gid: lig.Out, Text: text},
+				{GID: lig.Out, Text: text},
 			},
 			Next: p + 1,
 		}
@@ -743,7 +743,7 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *Gsub8_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	idx, ok := l.Input[gid]
 	if !ok {
 		return nil
@@ -754,10 +754,10 @@ func (l *Gsub8_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	for _, cov := range l.Backtrack {
 		p--
 		glyphsNeeded--
-		for p-glyphsNeeded >= 0 && !keep(seq[p].Gid) {
+		for p-glyphsNeeded >= 0 && !keep(seq[p].GID) {
 			p--
 		}
-		if p-glyphsNeeded < 0 || !cov.Contains(seq[p].Gid) {
+		if p-glyphsNeeded < 0 || !cov.Contains(seq[p].GID) {
 			return nil
 		}
 	}
@@ -767,10 +767,10 @@ func (l *Gsub8_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	for _, cov := range l.Lookahead {
 		p++
 		glyphsNeeded--
-		for p+glyphsNeeded < len(seq) && !keep(seq[p].Gid) {
+		for p+glyphsNeeded < len(seq) && !keep(seq[p].GID) {
 			p++
 		}
-		if p+glyphsNeeded >= len(seq) || !cov.Contains(seq[p].Gid) {
+		if p+glyphsNeeded >= len(seq) || !cov.Contains(seq[p].GID) {
 			return nil
 		}
 	}
@@ -778,7 +778,7 @@ func (l *Gsub8_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	return &Match{
 		InputPos: []int{a},
 		Replace: []glyph.Info{
-			{Gid: l.SubstituteGlyphIDs[idx], Text: seq[a].Text},
+			{GID: l.SubstituteGlyphIDs[idx], Text: seq[a].Text},
 		},
 		Next: a + 1,
 	}

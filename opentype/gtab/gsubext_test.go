@@ -87,7 +87,7 @@ func TestGsub(t *testing.T) {
 
 			seq := make([]glyph.Info, len(test.in))
 			for i, r := range test.in {
-				seq[i].Gid = cmap.Lookup(r)
+				seq[i].GID = cmap.Lookup(r)
 				seq[i].Text = []rune{r}
 			}
 			lookups := gsub.FindLookups(language.AmericanEnglish, nil)
@@ -99,7 +99,7 @@ func TestGsub(t *testing.T) {
 			var outRunes []rune
 			for _, g := range seq {
 				textRunes = append(textRunes, g.Text...)
-				outRunes = append(outRunes, rev[g.Gid])
+				outRunes = append(outRunes, rev[g.GID])
 			}
 			text := string(textRunes)
 			out := string(outRunes)
@@ -157,7 +157,7 @@ func FuzzGsub(f *testing.F) {
 
 		seq := make([]glyph.Info, len(in))
 		for i, r := range in {
-			seq[i].Gid = cmap.Lookup(r)
+			seq[i].GID = cmap.Lookup(r)
 			seq[i].Text = []rune{r}
 		}
 		lookups := gsub.FindLookups(language.AmericanEnglish, nil)
@@ -174,7 +174,7 @@ func FuzzGsub(f *testing.F) {
 			fmt.Printf("desc = %q\n", desc)
 			fmt.Printf("in = %q\n", in)
 			for i, g := range seq {
-				fmt.Printf("out[%d] = %d %q\n", i, g.Gid, string(g.Text))
+				fmt.Printf("out[%d] = %d %q\n", i, g.GID, string(g.Text))
 			}
 			t.Errorf("expected %d runes, got %d", runeCountIn, runeCountOut)
 		}

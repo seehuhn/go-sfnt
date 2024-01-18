@@ -142,7 +142,7 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *SeqContext1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	rulesIdx, ok := l.Cov[gid]
 	if !ok {
 		return nil
@@ -158,17 +158,17 @@ ruleLoop:
 		for _, gid := range rule.Input {
 			glyphsNeeded--
 			p++
-			for p+glyphsNeeded < b && !keep(seq[p].Gid) {
+			for p+glyphsNeeded < b && !keep(seq[p].GID) {
 				p++
 			}
-			if p+glyphsNeeded >= b || seq[p].Gid != gid {
+			if p+glyphsNeeded >= b || seq[p].GID != gid {
 				continue ruleLoop
 			}
 			matchPos = append(matchPos, p)
 		}
 
 		p++
-		for p < b && !keep(seq[p].Gid) {
+		for p < b && !keep(seq[p].GID) {
 			p++
 		}
 
@@ -378,7 +378,7 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *SeqContext2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	_, ok := l.Cov[gid]
 	if !ok {
 		return nil
@@ -395,17 +395,17 @@ ruleLoop:
 		for _, cls := range rule.Input {
 			glyphsNeeded--
 			p++
-			for p+glyphsNeeded < b && !keep(seq[p].Gid) {
+			for p+glyphsNeeded < b && !keep(seq[p].GID) {
 				p++
 			}
-			if p+glyphsNeeded >= b || l.Input[seq[p].Gid] != cls {
+			if p+glyphsNeeded >= b || l.Input[seq[p].GID] != cls {
 				continue ruleLoop
 			}
 			matchPos = append(matchPos, p)
 		}
 
 		p++
-		for p < b && !keep(seq[p].Gid) {
+		for p < b && !keep(seq[p].GID) {
 			p++
 		}
 
@@ -558,7 +558,7 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // Apply implements the Subtable interface.
 func (l *SeqContext3) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	if !l.Input[0].Contains(gid) {
 		return nil
 	}
@@ -569,17 +569,17 @@ func (l *SeqContext3) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match
 	for _, cov := range l.Input[1:] {
 		glyphsNeeded--
 		p++
-		for p+glyphsNeeded < b && !keep(seq[p].Gid) {
+		for p+glyphsNeeded < b && !keep(seq[p].GID) {
 			p++
 		}
-		if p+glyphsNeeded >= b || !cov.Contains(seq[p].Gid) {
+		if p+glyphsNeeded >= b || !cov.Contains(seq[p].GID) {
 			return nil
 		}
 		matchPos = append(matchPos, p)
 	}
 
 	p++
-	for p < b && !keep(seq[p].Gid) {
+	for p < b && !keep(seq[p].GID) {
 		p++
 	}
 
@@ -762,7 +762,7 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 
 // Apply implements the Subtable interface.
 func (l *ChainedSeqContext1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	rulesIdx, ok := l.Cov[gid]
 	if !ok {
 		return nil
@@ -777,10 +777,10 @@ ruleLoop:
 		for _, gid := range rule.Backtrack {
 			glyphsNeeded--
 			p--
-			for p-glyphsNeeded >= 0 && !keep(seq[p].Gid) {
+			for p-glyphsNeeded >= 0 && !keep(seq[p].GID) {
 				p--
 			}
-			if p-glyphsNeeded < 0 || seq[p].Gid != gid {
+			if p-glyphsNeeded < 0 || seq[p].GID != gid {
 				continue ruleLoop
 			}
 		}
@@ -791,10 +791,10 @@ ruleLoop:
 		for _, gid := range rule.Input {
 			glyphsNeeded--
 			p++
-			for p+glyphsNeeded < b && !keep(seq[p].Gid) {
+			for p+glyphsNeeded < b && !keep(seq[p].GID) {
 				p++
 			}
-			if p+glyphsNeeded >= b || seq[p].Gid != gid {
+			if p+glyphsNeeded >= b || seq[p].GID != gid {
 				continue ruleLoop
 			}
 			matchPos = append(matchPos, p)
@@ -805,16 +805,16 @@ ruleLoop:
 		for _, gid := range rule.Lookahead {
 			glyphsNeeded--
 			p++
-			for p+glyphsNeeded < len(seq) && !keep(seq[p].Gid) {
+			for p+glyphsNeeded < len(seq) && !keep(seq[p].GID) {
 				p++
 			}
-			if p+glyphsNeeded >= len(seq) || seq[p].Gid != gid {
+			if p+glyphsNeeded >= len(seq) || seq[p].GID != gid {
 				continue ruleLoop
 			}
 		}
 
 		next++
-		for next < b && !keep(seq[next].Gid) {
+		for next < b && !keep(seq[next].GID) {
 			next++
 		}
 
@@ -1100,7 +1100,7 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 
 // Apply implements the Subtable interface.
 func (l *ChainedSeqContext2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
-	gid := seq[a].Gid
+	gid := seq[a].GID
 	_, ok := l.Cov[gid]
 	if !ok {
 		return nil
@@ -1119,10 +1119,10 @@ ruleLoop:
 		for _, cls := range rule.Backtrack {
 			glyphsNeeded--
 			p--
-			for p-glyphsNeeded >= 0 && !keep(seq[p].Gid) {
+			for p-glyphsNeeded >= 0 && !keep(seq[p].GID) {
 				p--
 			}
-			if p-glyphsNeeded < 0 || l.Backtrack[seq[p].Gid] != cls {
+			if p-glyphsNeeded < 0 || l.Backtrack[seq[p].GID] != cls {
 				continue ruleLoop
 			}
 		}
@@ -1133,10 +1133,10 @@ ruleLoop:
 		for _, cls := range rule.Input {
 			glyphsNeeded--
 			p++
-			for p+glyphsNeeded < b && !keep(seq[p].Gid) {
+			for p+glyphsNeeded < b && !keep(seq[p].GID) {
 				p++
 			}
-			if p+glyphsNeeded >= b || l.Input[seq[p].Gid] != cls {
+			if p+glyphsNeeded >= b || l.Input[seq[p].GID] != cls {
 				continue ruleLoop
 			}
 			matchPos = append(matchPos, p)
@@ -1147,16 +1147,16 @@ ruleLoop:
 		for _, cls := range rule.Lookahead {
 			glyphsNeeded--
 			p++
-			for p+glyphsNeeded < len(seq) && !keep(seq[p].Gid) {
+			for p+glyphsNeeded < len(seq) && !keep(seq[p].GID) {
 				p++
 			}
-			if p+glyphsNeeded >= len(seq) || l.Lookahead[seq[p].Gid] != cls {
+			if p+glyphsNeeded >= len(seq) || l.Lookahead[seq[p].GID] != cls {
 				continue ruleLoop
 			}
 		}
 
 		next++
-		for next < b && !keep(seq[next].Gid) {
+		for next < b && !keep(seq[next].GID) {
 			next++
 		}
 
@@ -1377,10 +1377,10 @@ func (l *ChainedSeqContext3) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int)
 	for _, cov := range l.Backtrack {
 		glyphsNeeded--
 		p--
-		for p-glyphsNeeded >= 0 && !keep(seq[p].Gid) {
+		for p-glyphsNeeded >= 0 && !keep(seq[p].GID) {
 			p--
 		}
-		if p-glyphsNeeded < 0 || !cov[seq[p].Gid] {
+		if p-glyphsNeeded < 0 || !cov[seq[p].GID] {
 			return nil
 		}
 	}
@@ -1389,13 +1389,13 @@ func (l *ChainedSeqContext3) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int)
 	matchPos := []int{p}
 	glyphsNeeded = len(l.Input)
 	for _, cov := range l.Input {
-		if p+glyphsNeeded-1 >= b || !cov[seq[p].Gid] {
+		if p+glyphsNeeded-1 >= b || !cov[seq[p].GID] {
 			return nil
 		}
 		matchPos = append(matchPos, p)
 		glyphsNeeded--
 		p++
-		for p+glyphsNeeded < b && !keep(seq[p].Gid) {
+		for p+glyphsNeeded < b && !keep(seq[p].GID) {
 			p++
 		}
 	}
@@ -1403,12 +1403,12 @@ func (l *ChainedSeqContext3) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int)
 
 	glyphsNeeded = len(l.Lookahead)
 	for _, cov := range l.Lookahead {
-		if p+glyphsNeeded-1 >= len(seq) || !cov[seq[p].Gid] {
+		if p+glyphsNeeded-1 >= len(seq) || !cov[seq[p].GID] {
 			return nil
 		}
 		glyphsNeeded--
 		p++
-		for p+glyphsNeeded < len(seq) && !keep(seq[p].Gid) {
+		for p+glyphsNeeded < len(seq) && !keep(seq[p].GID) {
 			p++
 		}
 	}

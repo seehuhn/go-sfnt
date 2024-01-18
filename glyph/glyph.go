@@ -34,7 +34,7 @@ type Pair struct {
 
 // Info contains layout information for a single glyph.
 type Info struct {
-	Gid     ID
+	GID     ID
 	Text    []rune
 	XOffset funit.Int16
 	YOffset funit.Int16

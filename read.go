@@ -338,10 +338,16 @@ func Read(r io.Reader) (*Font, error) {
 
 	if headInfo != nil {
 		info.UnitsPerEm = headInfo.UnitsPerEm
-	} else if len(fontInfo.FontMatrix) == 6 && fontInfo.FontMatrix[0] != 0 {
+	} else if fontInfo != nil && fontInfo.FontMatrix[0] != 0 {
 		info.UnitsPerEm = uint16(math.Round(1 / fontInfo.FontMatrix[0]))
 	} else {
 		info.UnitsPerEm = 1000
+	}
+	if fontInfo != nil {
+		info.FontMatrix = fontInfo.FontMatrix
+	} else {
+		q := 1 / float64(info.UnitsPerEm)
+		info.FontMatrix = [6]float64{q, 0, 0, q, 0, 0}
 	}
 
 	if os2Info != nil {
