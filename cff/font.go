@@ -94,6 +94,24 @@ func (o *Outlines) IsCIDKeyed() bool {
 	return o.ROS != nil
 }
 
+// BuiltinEncoding returns the built-in encoding of the font.
+// For simple CFF fonts, the result is a slice of length 256.
+// For CIDFonts, the result is nil.
+func (o *Outlines) BuiltinEncoding() []string {
+	if len(o.Encoding) != 256 {
+		return nil
+	}
+	res := make([]string, 256)
+	for i, gid := range o.Encoding {
+		if gid <= 0 || int(gid) >= len(o.Glyphs) {
+			res[i] = ".notdef"
+		} else {
+			res[i] = o.Glyphs[gid].Name
+		}
+	}
+	return res
+}
+
 // BBox returns the font bounding box.
 func (o *Outlines) BBox() (bbox funit.Rect16) {
 	first := true
