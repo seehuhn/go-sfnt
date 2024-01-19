@@ -30,6 +30,8 @@ type CompositeGlyph struct {
 }
 
 // GlyphComponent is a single component of a composite glyph.
+//
+// https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#composite-glyph-description
 type GlyphComponent struct {
 	Flags      uint16
 	GlyphIndex glyph.ID
