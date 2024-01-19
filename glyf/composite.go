@@ -23,12 +23,6 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// Glyph represents a single glyph in a TrueType font.
-type Glyph struct {
-	funit.Rect16
-	Data interface{} // either SimpleGlyph or CompositeGlyph
-}
-
 // CompositeGlyph is a composite glyph.
 type CompositeGlyph struct {
 	Components   []GlyphComponent

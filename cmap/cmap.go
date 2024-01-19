@@ -242,10 +242,13 @@ func (ss Table) GetNoLang(platformID, encodingID uint16) (Subtable, error) {
 
 	for _, key := range keys {
 		if key.PlatformID == platformID && key.EncodingID == encodingID {
-			return ss.Get(key)
+			data := ss[key]
+			format := uint16(data[0])<<8 | uint16(data[1])
+			decode := decoders[format]
+			return decode(data, nil)
 		}
 	}
-	return nil, errors.New("subtable not found")
+	return nil, errors.New("cmap: subtable not found")
 }
 
 // GetBest selects the "best" subtable from a cmap table.

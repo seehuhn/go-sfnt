@@ -19,10 +19,40 @@
 // https://docs.microsoft.com/en-us/typography/opentype/spec/loca
 package glyf
 
+import (
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/maxp"
+)
+
+// Outlines stores the glyph data of a TrueType font.
+type Outlines struct {
+	// Glyphs is a slice of glyph outlines in the font.
+	Glyphs Glyphs
+
+	// Widths contains the glyph widths, indexed by glyph ID.
+	Widths []funit.Int16
+
+	// Names, if non-nil, contains the glyph names.
+	Names []string
+
+	// Tables contains the raw contents of the "cvt ", "fpgm", "prep", "gasp"
+	// tables.
+	Tables map[string][]byte
+
+	// Maxp contains information from the "maxp" table.
+	Maxp *maxp.TTFInfo
+}
+
 // Glyphs contains a slice of TrueType glyph outlines.
 // This represents the information stored in the "glyf" and "loca" tables
 // of a TrueType font.
 type Glyphs []*Glyph
+
+// Glyph represents a single glyph in a TrueType font.
+type Glyph struct {
+	funit.Rect16
+	Data interface{} // either SimpleGlyph or CompositeGlyph
+}
 
 // Encoded represents the data of a "glyf" and "loca" table.
 type Encoded struct {

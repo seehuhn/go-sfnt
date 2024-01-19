@@ -19,7 +19,43 @@ package cmap
 import (
 	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
+
+func TestFormat4(t *testing.T) {
+	s1 := Format4{
+		0x20: 1,
+		0x21: 2,
+		0x48: 3,
+		0x57: 4,
+		0x64: 5,
+		0x65: 6,
+		0x6c: 7,
+		0x6f: 8,
+		0x72: 9,
+		0xaa: 10,
+		0xba: 11,
+	}
+	t1 := Table{
+		{PlatformID: 1, EncodingID: 0}: s1.Encode(0),
+	}
+	data := t1.Encode()
+	t2, err := Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(t2) != 1 {
+		t.Fatal("wrong number of subtables")
+	}
+	s2, err := t2.GetNoLang(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(s1, s2); d != "" {
+		t.Error(d)
+	}
+}
 
 func FuzzFormat4(f *testing.F) {
 	f.Add([]byte{
