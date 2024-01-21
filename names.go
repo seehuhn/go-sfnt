@@ -73,9 +73,9 @@ func (f *Font) MakeGlyphNames() []string {
 	glyphNames[0] = ".notdef"
 
 	used := make(map[string]bool)
-	for i, name := range glyphNames {
+	for gid, name := range glyphNames {
 		if used[name] {
-			glyphNames[i] = ""
+			glyphNames[gid] = ""
 		} else {
 			used[name] = true
 		}
