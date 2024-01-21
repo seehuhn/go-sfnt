@@ -17,6 +17,9 @@
 package glyf
 
 import (
+	"fmt"
+	"strings"
+
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -33,9 +36,73 @@ type CompositeGlyph struct {
 //
 // https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#composite-glyph-description
 type GlyphComponent struct {
-	Flags      uint16
+	Flags      ComponentFlag
 	GlyphIndex glyph.ID
-	Args       []byte
+	Data       []byte
+}
+
+type ComponentFlag uint16
+
+// The recognised values for the ComponentFlag field.
+//
+// https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#compositeGlyphFlags
+const (
+	FlagArg1And2AreWords        ComponentFlag = 0x0001
+	FlagArgsAreXYValues         ComponentFlag = 0x0002
+	FlagRoundXYToGrid           ComponentFlag = 0x0004
+	FlagWeHaveAScale            ComponentFlag = 0x0008
+	FlagMoreComponents          ComponentFlag = 0x0020
+	FlagWeHaveAnXAndYScale      ComponentFlag = 0x0040
+	FlagWeHaveATwoByTwo         ComponentFlag = 0x0080
+	FlagWeHaveInstructions      ComponentFlag = 0x0100
+	FlagUseMyMetrics            ComponentFlag = 0x0200
+	FlagOverlapCompound         ComponentFlag = 0x0400
+	FlagScaledComponentOffset   ComponentFlag = 0x0800
+	FlagUnscaledComponentOffset ComponentFlag = 0x1000
+)
+
+func (f ComponentFlag) String() string {
+	var res []string
+	if f&FlagArg1And2AreWords != 0 {
+		res = append(res, "ARG_1_AND_2_ARE_WORDS")
+	}
+	if f&FlagArgsAreXYValues != 0 {
+		res = append(res, "ARGS_ARE_XY_VALUES")
+	}
+	if f&FlagRoundXYToGrid != 0 {
+		res = append(res, "ROUND_XY_TO_GRID")
+	}
+	if f&FlagWeHaveAScale != 0 {
+		res = append(res, "WE_HAVE_A_SCALE")
+	}
+	if f&FlagMoreComponents != 0 {
+		res = append(res, "MORE_COMPONENTS")
+	}
+	if f&FlagWeHaveAnXAndYScale != 0 {
+		res = append(res, "WE_HAVE_AN_X_AND_Y_SCALE")
+	}
+	if f&FlagWeHaveATwoByTwo != 0 {
+		res = append(res, "WE_HAVE_A_TWO_BY_TWO")
+	}
+	if f&FlagWeHaveInstructions != 0 {
+		res = append(res, "WE_HAVE_INSTRUCTIONS")
+	}
+	if f&FlagUseMyMetrics != 0 {
+		res = append(res, "USE_MY_METRICS")
+	}
+	if f&FlagOverlapCompound != 0 {
+		res = append(res, "OVERLAP_COMPOUND")
+	}
+	if f&FlagScaledComponentOffset != 0 {
+		res = append(res, "SCALED_COMPONENT_OFFSET")
+	}
+	if f&FlagUnscaledComponentOffset != 0 {
+		res = append(res, "UNSCALED_COMPONENT_OFFSET")
+	}
+	if f&0xE010 != 0 {
+		res = append(res, fmt.Sprintf("0x%04x", f&0xE010))
+	}
+	return strings.Join(res, "|")
 }
 
 // Note that decodeGlyph retains sub-slices of data.
@@ -90,25 +157,25 @@ func decodeGlyphComposite(data []byte) (*CompositeGlyph, error) {
 			return nil, errIncompleteGlyph
 		}
 
-		flags := uint16(data[0])<<8 | uint16(data[1])
+		flags := ComponentFlag(data[0])<<8 | ComponentFlag(data[1])
 		glyphIndex := uint16(data[2])<<8 | uint16(data[3])
 		data = data[4:]
 
-		if flags&0x0100 != 0 { // WE_HAVE_INSTRUCTIONS
+		if flags&FlagWeHaveInstructions != 0 {
 			weHaveInstructions = true
 		}
 
 		skip := 0
-		if flags&0x0001 != 0 { // ARG_1_AND_2_ARE_WORDS
+		if flags&FlagArg1And2AreWords != 0 {
 			skip += 4
 		} else {
 			skip += 2
 		}
-		if flags&0x0008 != 0 { // WE_HAVE_A_SCALE
+		if flags&FlagWeHaveAScale != 0 {
 			skip += 2
-		} else if flags&0x0040 != 0 { // WE_HAVE_AN_X_AND_Y_SCALE
+		} else if flags&FlagWeHaveAnXAndYScale != 0 {
 			skip += 4
-		} else if flags&0x0080 != 0 { // WE_HAVE_A_TWO_BY_TWO
+		} else if flags&FlagWeHaveATwoByTwo != 0 {
 			skip += 8
 		}
 		if len(data) < skip {
@@ -120,10 +187,10 @@ func decodeGlyphComposite(data []byte) (*CompositeGlyph, error) {
 		components = append(components, GlyphComponent{
 			Flags:      flags,
 			GlyphIndex: glyph.ID(glyphIndex),
-			Args:       args,
+			Data:       args,
 		})
 
-		done = flags&0x0020 == 0 // MORE_COMPONENTS
+		done = flags&FlagMoreComponents == 0
 	}
 
 	if weHaveInstructions && len(data) >= 2 {
@@ -154,7 +221,7 @@ func (g *Glyph) encodeLen() int {
 		total += len(d.Encoded)
 	case CompositeGlyph:
 		for _, comp := range d.Components {
-			total += 4 + len(comp.Args)
+			total += 4 + len(comp.Data)
 		}
 		if d.Instructions != nil {
 			total += 2 + len(d.Instructions)
@@ -203,7 +270,7 @@ func (g *Glyph) append(buf []byte) []byte {
 			buf = append(buf,
 				byte(comp.Flags>>8), byte(comp.Flags),
 				byte(comp.GlyphIndex>>8), byte(comp.GlyphIndex))
-			buf = append(buf, comp.Args...)
+			buf = append(buf, comp.Data...)
 		}
 		if d.Instructions != nil {
 			L := len(d.Instructions)
@@ -258,7 +325,7 @@ func (g *Glyph) FixComponents(newGid map[glyph.ID]glyph.ID) *Glyph {
 			d2.Components[i] = GlyphComponent{
 				Flags:      c.Flags,
 				GlyphIndex: newGid[c.GlyphIndex],
-				Args:       c.Args,
+				Data:       c.Data,
 			}
 		}
 		g2 := &Glyph{
