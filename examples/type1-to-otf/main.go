@@ -178,7 +178,7 @@ func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 
 	cmap := makeCmap(t1Info, glyphNames)
 
-	unitsPerEm := t1Info.UnitsPerEm
+	unitsPerEm := math.Round(1 / t1Info.FontMatrix[0])
 
 	var ascent funit.Int16
 	var descent funit.Int16

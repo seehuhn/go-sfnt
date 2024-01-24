@@ -21,7 +21,6 @@ import (
 	"io"
 
 	"seehuhn.de/go/postscript/psenc"
-	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
@@ -243,7 +242,7 @@ func isStandardEncoding(encoding []glyph.ID, glyphs []*Glyph) bool {
 func expertEncoding(glyphs []*Glyph) []glyph.ID {
 	res := make([]glyph.ID, 256)
 	for gid, g := range glyphs {
-		code, ok := type1.ExpertEncoding[g.Name]
+		code, ok := expertEnc[g.Name]
 		if ok {
 			res[code] = glyph.ID(gid)
 		}
@@ -259,4 +258,188 @@ func isExpertEncoding(encoding []glyph.ID, glyphs []*Glyph) bool {
 		}
 	}
 	return true
+}
+
+// expertEnc is the expert encoding for Type 1 fonts.
+var expertEnc = map[string]byte{
+	"space":             32,
+	"exclamsmall":       33,
+	"Hungarumlautsmall": 34,
+
+	"dollaroldstyle":      36,
+	"dollarsuperior":      37,
+	"ampersandsmall":      38,
+	"Acutesmall":          39,
+	"parenleftsuperior":   40,
+	"parenrightsuperior":  41,
+	"twodotenleader":      42,
+	"onedotenleader":      43,
+	"comma":               44,
+	"hyphen":              45,
+	"period":              46,
+	"fraction":            47,
+	"zerooldstyle":        48,
+	"oneoldstyle":         49,
+	"twooldstyle":         50,
+	"threeoldstyle":       51,
+	"fouroldstyle":        52,
+	"fiveoldstyle":        53,
+	"sixoldstyle":         54,
+	"sevenoldstyle":       55,
+	"eightoldstyle":       56,
+	"nineoldstyle":        57,
+	"colon":               58,
+	"semicolon":           59,
+	"commasuperior":       60,
+	"threequartersemdash": 61,
+	"periodsuperior":      62,
+	"questionsmall":       63,
+
+	"asuperior":    65,
+	"bsuperior":    66,
+	"centsuperior": 67,
+	"dsuperior":    68,
+	"esuperior":    69,
+
+	"isuperior": 73,
+
+	"lsuperior": 76,
+	"msuperior": 77,
+	"nsuperior": 78,
+	"osuperior": 79,
+
+	"rsuperior": 82,
+	"ssuperior": 83,
+	"tsuperior": 84,
+
+	"ff":                86,
+	"fi":                87,
+	"fl":                88,
+	"ffi":               89,
+	"ffl":               90,
+	"parenleftinferior": 91,
+
+	"parenrightinferior": 93,
+	"Circumflexsmall":    94,
+	"hyphensuperior":     95,
+	"Gravesmall":         96,
+	"Asmall":             97,
+	"Bsmall":             98,
+	"Csmall":             99,
+	"Dsmall":             100,
+	"Esmall":             101,
+	"Fsmall":             102,
+	"Gsmall":             103,
+	"Hsmall":             104,
+	"Ismall":             105,
+	"Jsmall":             106,
+	"Ksmall":             107,
+	"Lsmall":             108,
+	"Msmall":             109,
+	"Nsmall":             110,
+	"Osmall":             111,
+	"Psmall":             112,
+	"Qsmall":             113,
+	"Rsmall":             114,
+	"Ssmall":             115,
+	"Tsmall":             116,
+	"Usmall":             117,
+	"Vsmall":             118,
+	"Wsmall":             119,
+	"Xsmall":             120,
+	"Ysmall":             121,
+	"Zsmall":             122,
+	"colonmonetary":      123,
+	"onefitted":          124,
+	"rupiah":             125,
+	"Tildesmall":         126,
+
+	"exclamdownsmall": 161,
+	"centoldstyle":    162,
+	"Lslashsmall":     163,
+
+	"Scaronsmall":   166,
+	"Zcaronsmall":   167,
+	"Dieresissmall": 168,
+	"Brevesmall":    169,
+	"Caronsmall":    170,
+
+	"Dotaccentsmall": 172,
+
+	"Macronsmall": 175,
+
+	"figuredash":     178,
+	"hypheninferior": 179,
+
+	"Ogoneksmall":  182,
+	"Ringsmall":    183,
+	"Cedillasmall": 184,
+
+	"onequarter":        188,
+	"onehalf":           189,
+	"threequarters":     190,
+	"questiondownsmall": 191,
+	"oneeighth":         192,
+	"threeeighths":      193,
+	"fiveeighths":       194,
+	"seveneighths":      195,
+	"onethird":          196,
+	"twothirds":         197,
+
+	"zerosuperior":     200,
+	"onesuperior":      201,
+	"twosuperior":      202,
+	"threesuperior":    203,
+	"foursuperior":     204,
+	"fivesuperior":     205,
+	"sixsuperior":      206,
+	"sevensuperior":    207,
+	"eightsuperior":    208,
+	"ninesuperior":     209,
+	"zeroinferior":     210,
+	"oneinferior":      211,
+	"twoinferior":      212,
+	"threeinferior":    213,
+	"fourinferior":     214,
+	"fiveinferior":     215,
+	"sixinferior":      216,
+	"seveninferior":    217,
+	"eightinferior":    218,
+	"nineinferior":     219,
+	"centinferior":     220,
+	"dollarinferior":   221,
+	"periodinferior":   222,
+	"commainferior":    223,
+	"Agravesmall":      224,
+	"Aacutesmall":      225,
+	"Acircumflexsmall": 226,
+	"Atildesmall":      227,
+	"Adieresissmall":   228,
+	"Aringsmall":       229,
+	"AEsmall":          230,
+	"Ccedillasmall":    231,
+	"Egravesmall":      232,
+	"Eacutesmall":      233,
+	"Ecircumflexsmall": 234,
+	"Edieresissmall":   235,
+	"Igravesmall":      236,
+	"Iacutesmall":      237,
+	"Icircumflexsmall": 238,
+	"Idieresissmall":   239,
+	"Ethsmall":         240,
+	"Ntildesmall":      241,
+	"Ogravesmall":      242,
+	"Oacutesmall":      243,
+	"Ocircumflexsmall": 244,
+	"Otildesmall":      245,
+	"Odieresissmall":   246,
+	"OEsmall":          247,
+	"Oslashsmall":      248,
+	"Ugravesmall":      249,
+	"Uacutesmall":      250,
+	"Ucircumflexsmall": 251,
+	"Udieresissmall":   252,
+	"Yacutesmall":      253,
+	"Thornsmall":       254,
+	"Ydieresissmall":   255,
 }

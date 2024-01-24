@@ -21,6 +21,7 @@ import (
 	"math"
 	"strings"
 
+	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
@@ -31,7 +32,8 @@ import (
 
 // Font stores a CFF font.
 //
-// TODO(voss): make this more similar to type1.Font
+// TODO(voss): make this more similar to type1.Font.  Maybe merge Outlines into
+// Font?
 type Font struct {
 	*type1.FontInfo
 	*Outlines
@@ -84,13 +86,13 @@ type Outlines struct {
 	// ROS specifies the character collection of the font, using Adobe's
 	// Registry, Ordering, Supplement system.  This must be non-nil
 	// if and only if the font is a CIDFont.
-	ROS *type1.CIDSystemInfo
+	ROS *cid.SystemInfo
 
 	// GIDToCID lists the character identifiers corresponding to the glyphs.
 	// This is only present for CIDFonts, and encodes the information from the
 	// charset table in the CFF font.  When present, the first entry
 	// (corresponding to the .notdef glyph) must be 0.
-	GIDToCID []type1.CID
+	GIDToCID []cid.CID
 }
 
 // IsCIDKeyed returns true if the font is a CID-keyed font.

@@ -20,8 +20,8 @@ import (
 	"errors"
 	"fmt"
 
+	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
-	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyf"
@@ -289,7 +289,7 @@ func (s *subsetter) SubsetCFF(oldOutlines *cff.Outlines) *cff.Outlines {
 	newOutlines.ROS = oldOutlines.ROS
 
 	if oldOutlines.GIDToCID != nil {
-		newOutlines.GIDToCID = make([]type1.CID, len(s.glyphs))
+		newOutlines.GIDToCID = make([]cid.CID, len(s.glyphs))
 		for newGid, oldGid := range s.glyphs {
 			newOutlines.GIDToCID[newGid] = oldOutlines.GIDToCID[oldGid]
 		}

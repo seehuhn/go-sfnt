@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 
+	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
@@ -141,7 +142,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if len(ROS) != 3 {
 			return nil, invalidSince("wrong number of ROS values")
 		}
-		ros := &type1.CIDSystemInfo{}
+		ros := &cid.SystemInfo{}
 		if reg, ok := ROS[0].(string); ok {
 			ros.Registry = reg
 		} else {
@@ -214,7 +215,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		cff.GIDToCID = make([]type1.CID, nGlyphs) // filled in below
+		cff.GIDToCID = make([]cid.CID, nGlyphs) // filled in below
 	} else {
 		switch charsetOffs {
 		case 0: // ISOAdobe charset
@@ -280,7 +281,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		}
 		if isCIDFont {
 			if charset != nil {
-				cff.GIDToCID[gid] = type1.CID(charset[gid])
+				cff.GIDToCID[gid] = cid.CID(charset[gid])
 			}
 		} else {
 			name, err := strings.get(charset[gid])

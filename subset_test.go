@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"testing"
 
+	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/cff"
@@ -44,14 +45,14 @@ func TestFDSelect(t *testing.T) {
 	o1.FDSelect = func(gid glyph.ID) int {
 		return int(gid) % 10
 	}
-	o1.ROS = &type1.CIDSystemInfo{
+	o1.ROS = &cid.SystemInfo{
 		Registry:   "Seehuhn",
 		Ordering:   "Sonderbar",
 		Supplement: 0,
 	}
-	o1.GIDToCID = make([]type1.CID, 10)
+	o1.GIDToCID = make([]cid.CID, 10)
 	for i := 0; i < 10; i++ {
-		o1.GIDToCID[i] = type1.CID(i)
+		o1.GIDToCID[i] = cid.CID(i)
 	}
 	i1 := &Font{
 		FamilyName: "Test",
