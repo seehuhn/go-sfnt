@@ -62,6 +62,10 @@ func (cff *Font) Widths() []funit.Int16 {
 	return res
 }
 
+func (cff *Font) GlyphWidthPDF(gid glyph.ID) float64 {
+	return float64(cff.Glyphs[gid].Width) * cff.FontInfo.FontMatrix[0]
+}
+
 // Outlines stores the glyph data of a CFF font.
 type Outlines struct {
 	Glyphs []*Glyph
