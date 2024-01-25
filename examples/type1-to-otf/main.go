@@ -101,7 +101,7 @@ func readAfm(afmName string) (*type1.Font, error) {
 	}
 	defer fd.Close()
 
-	return afm.Read(fd)
+	return afm.ReadOld(fd)
 }
 
 func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
@@ -121,7 +121,7 @@ func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 	glyphs := make([]*cff.Glyph, 0, len(glyphNames))
 	name2gid := make(map[string]glyph.ID, len(glyphNames))
 	for _, name := range glyphNames {
-		t1 := t1Info.Outlines[name]
+		t1 := t1Info.Glyphs[name]
 		t1i := t1Info.GlyphInfo[name]
 		if t1i.WidthY != 0 {
 			return nil, fmt.Errorf("unsupported WidthY=%d for glyph %q",
