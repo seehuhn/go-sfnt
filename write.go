@@ -273,7 +273,7 @@ func (f *Font) makeName() []byte {
 		Identifier:     fullName + "; " + f.Version.String() + "; " + dayString,
 		FullName:       fullName,
 		Version:        "Version " + f.Version.String(),
-		PostScriptName: f.PostscriptName(),
+		PostScriptName: f.PostScriptName(),
 		SampleText:     f.SampleText,
 	}
 	nameInfo := &name.Info{

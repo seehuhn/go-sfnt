@@ -74,7 +74,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "warning: no AFM file specified")
 	}
 
-	var afm *type1.Font
+	var afm *afm.Info
 	if afmName != "" {
 		var err error
 		afm, err = readAfm(afmName)
@@ -94,17 +94,17 @@ func main() {
 	}
 }
 
-func readAfm(afmName string) (*type1.Font, error) {
+func readAfm(afmName string) (*afm.Info, error) {
 	fd, err := os.Open(afmName)
 	if err != nil {
 		return nil, err
 	}
 	defer fd.Close()
 
-	return afm.ReadOld(fd)
+	return afm.Read(fd)
 }
 
-func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
+func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 	fd, err := os.Open(fname)
 	if err != nil {
 		return nil, err
@@ -122,12 +122,11 @@ func readType1(fname string, afm *type1.Font) (*sfnt.Font, error) {
 	name2gid := make(map[string]glyph.ID, len(glyphNames))
 	for _, name := range glyphNames {
 		t1 := t1Info.Glyphs[name]
-		t1i := t1Info.GlyphInfo[name]
-		if t1i.WidthY != 0 {
+		if t1.WidthY != 0 {
 			return nil, fmt.Errorf("unsupported WidthY=%d for glyph %q",
-				t1i.WidthY, name)
+				t1.WidthY, name)
 		}
-		g := cff.NewGlyph(name, t1i.WidthX)
+		g := cff.NewGlyph(name, t1.WidthX)
 		for _, cmd := range t1.Cmds {
 			switch cmd.Op {
 			case type1.OpMoveTo:
@@ -308,13 +307,13 @@ func makeCmap(t1Info *type1.Font, glyphNames []string) cmap.Subtable {
 	return cmap
 }
 
-func makeLigatures(afm *type1.Font, name2gid map[string]glyph.ID) *gtab.Info {
+func makeLigatures(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
 	if afm == nil {
 		return nil
 	}
 
 	ll := map[glyph.ID][]gtab.Ligature{}
-	for left, g := range afm.GlyphInfo {
+	for left, g := range afm.Glyphs {
 		a := name2gid[left]
 		for right, repl := range g.Ligatures {
 			b := name2gid[right]
@@ -355,7 +354,7 @@ func makeLigatures(afm *type1.Font, name2gid map[string]glyph.ID) *gtab.Info {
 	return gsub
 }
 
-func makeKerningTable(afm *type1.Font, name2gid map[string]glyph.ID) *gtab.Info {
+func makeKerningTable(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
 	if afm == nil || len(afm.Kern) == 0 {
 		return nil
 	}

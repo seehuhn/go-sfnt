@@ -8,5 +8,5 @@ golang.org/x/text v0.14.0 h1:ScX5w1eTa3QqT8oi6+ziP7dTV1S2+ALU0bI+0zXKWiQ=
 golang.org/x/text v0.14.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=
 seehuhn.de/go/dijkstra v0.9.3 h1:uVbFjlAuhlwV45qM7S4Wz+C7XlfbgAaTfcZX1r8OgIA=
 seehuhn.de/go/dijkstra v0.9.3/go.mod h1:YcrFNNQ1BIVFI0xIYnNa/StiSKQXuQIID8zgZjwAOFE=
-seehuhn.de/go/postscript v0.3.7-0.20240124234632-54459adfe743 h1:PCJcnU1oiDkPgx+2GXj93n2WHgbI428AmkbXVoxikIY=
-seehuhn.de/go/postscript v0.3.7-0.20240124234632-54459adfe743/go.mod h1:G3Bh9SsgQQfn31kN2N9EWc5tPwoTYPqRMcvocejTDLs=
+seehuhn.de/go/postscript v0.3.7-0.20240125192807-ef0ef529fc55 h1:C0EWp1hPG51FWZDk0PaxI/eRZx076nUfP5RIkdbAJjY=
+seehuhn.de/go/postscript v0.3.7-0.20240125192807-ef0ef529fc55/go.mod h1:G3Bh9SsgQQfn31kN2N9EWc5tPwoTYPqRMcvocejTDLs=

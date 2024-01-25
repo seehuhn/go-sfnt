@@ -22,13 +22,13 @@ import (
 	"seehuhn.de/go/sfnt/os2"
 )
 
-func TestPostscriptName(t *testing.T) {
+func TestPostScriptName(t *testing.T) {
 	info := &Font{
 		FamilyName: `A(n)d[r]o{m}e/d<a> N%ebula`,
 		Weight:     os2.WeightBold,
 		IsItalic:   true,
 	}
-	psName := info.PostscriptName()
+	psName := info.PostScriptName()
 	if psName != "AndromedaNebula-BoldItalic" {
 		t.Errorf("wrong postscript name: %q", psName)
 	}
@@ -38,7 +38,7 @@ func TestPostscriptName(t *testing.T) {
 		rr = append(rr, rune(i))
 	}
 	info.FamilyName = string(rr)
-	psName = info.PostscriptName()
+	psName = info.PostScriptName()
 	if len(psName) != 127-33-10+len("-BoldItalic") {
 		t.Errorf("wrong postscript name: %q", psName)
 	}

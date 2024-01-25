@@ -260,7 +260,7 @@ func isExpertEncoding(encoding []glyph.ID, glyphs []*Glyph) bool {
 	return true
 }
 
-// expertEnc is the expert encoding for Type 1 fonts.
+// expertEnc is the expert encoding for CFF fonts.
 var expertEnc = map[string]byte{
 	"space":             32,
 	"exclamsmall":       33,
