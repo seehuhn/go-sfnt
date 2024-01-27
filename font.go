@@ -95,7 +95,6 @@ func (f *Font) Clone() *Font {
 
 // GetFontInfo returns an Adobe FontInfo structure for the given font.
 func (f *Font) GetFontInfo() *type1.FontInfo {
-	q := 1 / float64(f.UnitsPerEm)
 	fontInfo := &type1.FontInfo{
 		FontName:   f.PostScriptName(),
 		FullName:   f.FullName(),
@@ -106,7 +105,7 @@ func (f *Font) GetFontInfo() *type1.FontInfo {
 		Copyright: strings.ReplaceAll(f.Copyright, "©", "(c)"),
 		Notice:    f.Trademark,
 
-		FontMatrix: [6]float64{q, 0, 0, q, 0, 0},
+		FontMatrix: f.FontMatrix,
 
 		ItalicAngle:  f.ItalicAngle,
 		IsFixedPitch: f.IsFixedPitch(),
