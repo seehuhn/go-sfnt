@@ -234,6 +234,8 @@ type GlyphOp struct {
 }
 
 // GlyphOpType is the type of a CFF glyph drawing command.
+//
+// TODO(voss): merge this with the Type 1 command type?
 type GlyphOpType byte
 
 func (op GlyphOpType) String() string {
