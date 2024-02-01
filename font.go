@@ -249,6 +249,28 @@ func (f *Font) Widths() []funit.Int16 {
 	}
 }
 
+// WidthsPDF returns the advance widths of the glyphs in the font.
+func (f *Font) WidthsPDF() []float64 {
+	widths := make([]float64, f.NumGlyphs())
+	switch outlines := f.Outlines.(type) {
+	case *cff.Outlines:
+		for gid, g := range outlines.Glyphs {
+			widths[gid] = float64(g.Width) * f.FontMatrix[0]
+		}
+		return widths
+	case *glyf.Outlines:
+		if outlines.Widths == nil {
+			return nil
+		}
+		for gid, w := range outlines.Widths {
+			widths[gid] = float64(w) / float64(f.UnitsPerEm)
+		}
+	default:
+		panic("unexpected font type")
+	}
+	return widths
+}
+
 // GlyphBBoxes returns the glyph bounding boxes for the font.
 func (f *Font) GlyphBBoxes() []funit.Rect16 {
 	extents := make([]funit.Rect16, f.NumGlyphs())
