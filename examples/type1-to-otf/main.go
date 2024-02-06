@@ -74,7 +74,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "warning: no AFM file specified")
 	}
 
-	var afm *afm.Info
+	var afm *afm.Metrics
 	if afmName != "" {
 		var err error
 		afm, err = readAfm(afmName)
@@ -94,7 +94,7 @@ func main() {
 	}
 }
 
-func readAfm(afmName string) (*afm.Info, error) {
+func readAfm(afmName string) (*afm.Metrics, error) {
 	fd, err := os.Open(afmName)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func readAfm(afmName string) (*afm.Info, error) {
 	return afm.Read(fd)
 }
 
-func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
+func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 	fd, err := os.Open(fname)
 	if err != nil {
 		return nil, err
@@ -123,10 +123,10 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 	for _, name := range glyphNames {
 		t1 := t1Info.Glyphs[name]
 		if t1.WidthY != 0 {
-			return nil, fmt.Errorf("unsupported WidthY=%d for glyph %q",
+			return nil, fmt.Errorf("unsupported WidthY=%g for glyph %q",
 				t1.WidthY, name)
 		}
-		g := cff.NewGlyph(name, t1.WidthX)
+		g := cff.NewGlyph(name, funit.Int16(t1.WidthX))
 		for _, cmd := range t1.Cmds {
 			switch cmd.Op {
 			case type1.OpMoveTo:
@@ -179,10 +179,10 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 
 	unitsPerEm := math.Round(1 / t1Info.FontMatrix[0])
 
-	var ascent funit.Int16
-	var descent funit.Int16
-	var capHeight funit.Int16
-	var xHeight funit.Int16
+	var ascent float64
+	var descent float64
+	var capHeight float64
+	var xHeight float64
 	if afm != nil {
 		ascent = afm.Ascent
 		descent = afm.Descent
@@ -193,7 +193,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 			if gid, exists := name2gid[name]; exists {
 				g := glyphs[gid]
 				bb := g.Extent()
-				ascent = bb.URy
+				ascent = float64(bb.URy)
 				break
 			}
 		}
@@ -201,7 +201,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 			if gid, exists := name2gid[name]; exists {
 				g := glyphs[gid]
 				bb := g.Extent()
-				descent = bb.LLy
+				descent = float64(bb.LLy)
 				break
 			}
 		}
@@ -209,7 +209,7 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 			if gid, exists := name2gid[name]; exists {
 				g := glyphs[gid]
 				bb := g.Extent()
-				capHeight = bb.URy
+				capHeight = float64(bb.URy)
 				break
 			}
 		}
@@ -217,13 +217,13 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 			if gid, exists := name2gid[name]; exists {
 				g := glyphs[gid]
 				bb := g.Extent()
-				xHeight = bb.URy
+				xHeight = float64(bb.URy)
 				break
 			}
 		}
 	}
 
-	minBaseLineSkip := funit.Int16(math.Round(1.2 * float64(unitsPerEm)))
+	minBaseLineSkip := math.Ceil(1.2 * float64(unitsPerEm))
 	if d := minBaseLineSkip - (ascent - descent); d > 0 {
 		d1 := d / 3
 		d2 := d - d1
@@ -250,10 +250,10 @@ func readType1(fname string, afm *afm.Info) (*sfnt.Font, error) {
 		Copyright:          t1Info.FontInfo.Copyright,
 		Trademark:          t1Info.FontInfo.Notice,
 		UnitsPerEm:         uint16(unitsPerEm),
-		Ascent:             ascent,
-		Descent:            descent,
-		CapHeight:          capHeight,
-		XHeight:            xHeight,
+		Ascent:             funit.Int16(math.Round(ascent)),
+		Descent:            funit.Int16(math.Round(descent)),
+		CapHeight:          funit.Int16(math.Round(capHeight)),
+		XHeight:            funit.Int16(math.Round(xHeight)),
 		ItalicAngle:        t1Info.FontInfo.ItalicAngle,
 		UnderlinePosition:  t1Info.FontInfo.UnderlinePosition,
 		UnderlineThickness: t1Info.FontInfo.UnderlineThickness,
@@ -307,7 +307,7 @@ func makeCmap(t1Info *type1.Font, glyphNames []string) cmap.Subtable {
 	return cmap
 }
 
-func makeLigatures(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
+func makeLigatures(afm *afm.Metrics, name2gid map[string]glyph.ID) *gtab.Info {
 	if afm == nil {
 		return nil
 	}
@@ -354,7 +354,7 @@ func makeLigatures(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
 	return gsub
 }
 
-func makeKerningTable(afm *afm.Info, name2gid map[string]glyph.ID) *gtab.Info {
+func makeKerningTable(afm *afm.Metrics, name2gid map[string]glyph.ID) *gtab.Info {
 	if afm == nil || len(afm.Kern) == 0 {
 		return nil
 	}
