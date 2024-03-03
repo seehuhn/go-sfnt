@@ -40,6 +40,7 @@ func otfToBCP47(script otfScript, lang otfLang) (language.Tag, error) {
 	if !strings.Contains(bcpLang, "-") {
 		tag += "-" + bcpScript
 	}
+
 	tag += "-x-" + string(script)
 	for len(lang) > 0 && lang[len(lang)-1] == ' ' {
 		lang = lang[:len(lang)-1]
@@ -47,6 +48,7 @@ func otfToBCP47(script otfScript, lang otfLang) (language.Tag, error) {
 	if lang != "" {
 		tag += "-" + string(lang)
 	}
+
 	return language.Parse(tag)
 }
 

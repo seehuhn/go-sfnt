@@ -161,18 +161,18 @@ var (
 	// GsubDefaultFeatures can be used as an argument for the Info.FindLookups()
 	// method.
 	GsubDefaultFeatures = map[string]bool{
-		"calt": true,
-		"ccmp": true,
-		"clig": true,
-		"liga": true,
-		"locl": true,
+		"calt": true, // Contextual Alternates
+		"ccmp": true, // Glyph Composition / Decomposition
+		"clig": true, // Contextual Ligatures
+		"liga": true, // Standard Ligatures
+		"locl": true, // Localized Forms
 	}
 
 	// GposDefaultFeatures can be used as an argument for the Info.FindLookups()
 	// method.
 	GposDefaultFeatures = map[string]bool{
-		"kern": true,
-		"mark": true,
-		"mkmk": true,
+		"kern": true, // Kerning
+		"mark": true, // Mark Positioning
+		"mkmk": true, // Mark to Mark Positioning
 	}
 )

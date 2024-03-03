@@ -208,7 +208,7 @@ func (l *Gsub1_2) Encode() []byte {
 }
 
 // Gsub2_1 is a Multiple Substitution GSUB subtable (type 2, format 1).
-// Lookups of this type allow to replace a singly glyph with multiple glyphs.
+// Lookups of this type allow to replace a single glyph with multiple glyphs.
 // The original glyph must be contained in the coverage table.
 // The new glyphs are found by looking up the replacement GIDs in the
 // `Repl` table (indexed by the coverage index of the original GID).

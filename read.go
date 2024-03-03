@@ -471,6 +471,11 @@ func Read(r io.Reader) (*Font, error) {
 		if err != nil {
 			return nil, fmt.Errorf("GSUB table: %w", err)
 		}
+	} else if !info.IsFixedPitch() {
+		cmap, _ := info.CMapTable.GetBest()
+		if cmap != nil {
+			info.Gsub = standardLigatures(cmap)
+		}
 	}
 
 	if dir.Has("GPOS") {

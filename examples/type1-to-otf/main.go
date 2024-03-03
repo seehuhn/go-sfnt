@@ -324,6 +324,8 @@ func makeLigatures(afm *afm.Metrics, name2gid map[string]glyph.ID) *gtab.Info {
 		}
 	}
 
+	// TODO(voss): merge this with the code in go-sfnt/ligatures.go
+
 	keys := maps.Keys(ll)
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
