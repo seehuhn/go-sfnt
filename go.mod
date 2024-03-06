@@ -12,4 +12,4 @@ require (
 	seehuhn.de/go/dijkstra v0.9.3
 )
 
-require seehuhn.de/go/postscript v0.4.2
+require seehuhn.de/go/postscript v0.4.3
