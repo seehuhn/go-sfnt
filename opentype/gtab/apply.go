@@ -63,7 +63,11 @@ func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gd
 		return seq, pos + 1
 	}
 	lookup := ll[lookupIndex]
+
+	// TODO(voss): applyLookupAt is called in a loop.  Move makeFilter out of
+	// the loop.
 	keep := makeFilter(lookup.Meta, gdef)
+
 	if !keep(seq[pos].GID) {
 		return seq, pos + 1
 	}

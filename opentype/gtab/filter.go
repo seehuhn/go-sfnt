@@ -50,15 +50,15 @@ type keepGlyphFn func(glyph.ID) bool
 // lookup flags.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#lookupFlags
 func makeFilter(meta *LookupMetaInfo, gdefTable *gdef.Table) keepGlyphFn {
-	if gdefTable == nil {
+	flags := meta.LookupFlag
+	if gdefTable == nil || flags == 0 {
 		return keepAllGlyphs
 	}
 
-	flags := meta.LookupFlag
 	markAttachType := uint16((flags & LookupMarkAttachTypeMask) >> 8)
 	var markGlyphSet coverage.Set
 
-	type filterSel int
+	type filterSel byte
 	const (
 		filterBase filterSel = 1 << iota
 		filterLigatures
