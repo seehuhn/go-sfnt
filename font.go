@@ -363,14 +363,14 @@ func (f *Font) IsFixedPitch() bool {
 }
 
 // Layout returns the glyph sequence for the given text.
-func (f *Font) Layout(cmap cmap.Subtable, gsubLookups, gposLookups []gtab.LookupIndex, s string) []glyph.Info {
-	rr := []rune(s)
-
-	seq := make([]glyph.Info, len(rr))
-	for i, r := range rr {
+func (f *Font) Layout(seq []glyph.Info, cmap cmap.Subtable, gsubLookups, gposLookups []gtab.LookupIndex, s string) []glyph.Info {
+	seq = seq[:0]
+	for _, r := range s {
 		gid := cmap.Lookup(r)
-		seq[i].GID = gid
-		seq[i].Text = []rune{r}
+		seq = append(seq, glyph.Info{
+			GID:  gid,
+			Text: []rune{r},
+		})
 	}
 
 	if f.Gsub != nil {
