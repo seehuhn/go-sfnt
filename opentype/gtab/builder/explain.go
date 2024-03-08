@@ -362,16 +362,16 @@ func newExplainer(fontInfo *sfnt.Font) *explainer {
 }
 
 func (ee *explainer) explainFlags(flags gtab.LookupFlags) {
-	if flags&gtab.LookupIgnoreMarks != 0 {
+	if flags&gtab.IgnoreMarks != 0 {
 		ee.w.WriteString(" -marks")
 	}
-	if flags&gtab.LookupRightToLeft != 0 {
+	if flags&gtab.RightToLeft != 0 {
 		ee.w.WriteString(" -rtl")
 	}
-	if flags&gtab.LookupIgnoreBaseGlyphs != 0 {
+	if flags&gtab.IgnoreBaseGlyphs != 0 {
 		ee.w.WriteString(" -base")
 	}
-	if flags&gtab.LookupIgnoreLigatures != 0 {
+	if flags&gtab.IgnoreLigatures != 0 {
 		ee.w.WriteString(" -lig")
 	}
 	// if flags&LookupUseMarkFilteringSet != 0 {

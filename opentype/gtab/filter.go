@@ -55,7 +55,7 @@ func makeFilter(meta *LookupMetaInfo, gdefTable *gdef.Table) keepGlyphFn {
 		return keepAllGlyphs
 	}
 
-	markAttachType := uint16((flags & LookupMarkAttachTypeMask) >> 8)
+	markAttachType := uint16((flags & MarkAttachTypeMask) >> 8)
 	var markGlyphSet coverage.Set
 
 	type filterSel byte
@@ -67,19 +67,19 @@ func makeFilter(meta *LookupMetaInfo, gdefTable *gdef.Table) keepGlyphFn {
 		filterAttachClass
 	)
 	var sel filterSel
-	if flags&LookupIgnoreBaseGlyphs != 0 && gdefTable.GlyphClass != nil {
+	if flags&IgnoreBaseGlyphs != 0 && gdefTable.GlyphClass != nil {
 		sel |= filterBase
 	}
-	if flags&LookupIgnoreLigatures != 0 && gdefTable.GlyphClass != nil {
+	if flags&IgnoreLigatures != 0 && gdefTable.GlyphClass != nil {
 		sel |= filterLigatures
 	}
-	if flags&LookupIgnoreMarks != 0 {
+	if flags&IgnoreMarks != 0 {
 		// If the IGNORE_MARKS bit is set, this supersedes any mark filtering set
 		// or mark attachment type indications.
 		if gdefTable.GlyphClass != nil {
 			sel |= filterAllMarks
 		}
-	} else if flags&LookupUseMarkFilteringSet != 0 {
+	} else if flags&UseMarkFilteringSet != 0 {
 		// If a mark filtering set is specified, this supersedes any mark
 		// attachment type indication in the lookup flag.
 		if int(meta.MarkFilteringSet) < len(gdefTable.MarkGlyphSets) {
@@ -105,11 +105,9 @@ func makeFilter(meta *LookupMetaInfo, gdefTable *gdef.Table) keepGlyphFn {
 			return false
 		}
 		if sel&filterMarksFromSet != 0 && !markGlyphSet[gid] {
-			// TODO(voss): does this only apply to mark glyphs?
 			return false
 		}
-		if sel&filterAttachClass != 0 && gdefTable.MarkAttachClass[gid] != markAttachType {
-			// TODO(voss): does this only apply to mark glyphs?
+		if sel&filterAttachClass != 0 && gdefTable.GlyphClass[gid] == gdef.GlyphClassMark && gdefTable.MarkAttachClass[gid] != markAttachType {
 			return false
 		}
 		return true

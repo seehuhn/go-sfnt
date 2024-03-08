@@ -1078,11 +1078,11 @@ func (p *parser) readLookupFlags() gtab.LookupFlags {
 		which := p.readIdentifier()
 		switch which {
 		case "marks":
-			flags |= gtab.LookupIgnoreMarks
+			flags |= gtab.IgnoreMarks
 		case "ligs":
-			flags |= gtab.LookupIgnoreLigatures
+			flags |= gtab.IgnoreLigatures
 		case "base":
-			flags |= gtab.LookupIgnoreBaseGlyphs
+			flags |= gtab.IgnoreBaseGlyphs
 		default:
 			p.fatal("unknown lookup flag: %s", which)
 		}

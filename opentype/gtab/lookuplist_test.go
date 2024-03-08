@@ -24,37 +24,168 @@ import (
 	"testing"
 
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/classdef"
+	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/parser"
 )
 
-func readDummySubtable(p *parser.Parser, pos int64, info *LookupMetaInfo) (Subtable, error) {
-	if info.LookupType > 32 {
-		return nil, errors.New("invalid type for dummy lookup")
+// TestLookupFlags tests that the lookup flags cause the correct glyphs to be
+// ignored.
+func TestLookupFlags(t *testing.T) {
+	// The lookup flags can specify glyphs to be ignored in a variety of ways:
+	//   - all base glyphs
+	//   - all ligature glyphs
+	//   - all mark glyphs
+	//   - a subset of mark glyphs, specified by a mark filtering set
+	//   - a subset of mark glyphs, specified by a mark attachment type
+
+	// The glyphs used in our test.
+	const (
+		repl glyph.ID = iota + 1 // We set this up as a ligature between the first and last glyph in the sequence.
+
+		// The following glyphs are can be ignored by the lookup flags.
+		A
+		B
+		C
+		mark1
+		mark2
+		mark3
+		mark4
+		lig1
+		lig2
+	)
+
+	// Assign glyphs to the various classes.
+	gdefTable := &gdef.Table{
+		GlyphClass: classdef.Table{
+			A:     gdef.GlyphClassBase,
+			B:     gdef.GlyphClassBase,
+			C:     gdef.GlyphClassBase,
+			mark1: gdef.GlyphClassMark,
+			mark2: gdef.GlyphClassMark,
+			mark3: gdef.GlyphClassMark,
+			mark4: gdef.GlyphClassMark,
+			lig1:  gdef.GlyphClassLigature,
+			lig2:  gdef.GlyphClassLigature,
+		},
+		MarkAttachClass: classdef.Table{
+			mark1: 1,
+			mark2: 2,
+			mark3: 2,
+			mark4: 1,
+		},
+		MarkGlyphSets: []coverage.Set{
+			{mark1: true, mark2: true},
+			{mark1: true, mark3: true},
+		},
 	}
-	err := p.SeekPos(pos)
-	if err != nil {
-		return nil, err
+
+	type testCase struct {
+		in          []glyph.ID
+		flags       LookupFlags
+		set         uint16
+		shouldMerge bool
 	}
-	res := make(dummySubTable, info.LookupType)
-	_, err = p.Read(res)
-	if err != nil {
-		return nil, err
+	cases := []testCase{
+		{in: []glyph.ID{A, B}, flags: 0, shouldMerge: true},
+		{in: []glyph.ID{A, A, B}, flags: 0, shouldMerge: false},
+		{in: []glyph.ID{A, mark1, B}, flags: 0, shouldMerge: false},
+		{in: []glyph.ID{A, repl, B}, flags: 0, shouldMerge: false},
+
+		{in: []glyph.ID{mark1, mark2}, flags: IgnoreBaseGlyphs, shouldMerge: true},
+		{in: []glyph.ID{mark1, A, B, mark2}, flags: IgnoreBaseGlyphs, shouldMerge: true},
+		{in: []glyph.ID{mark1, lig1, mark1}, flags: IgnoreBaseGlyphs, shouldMerge: false},
+		{in: []glyph.ID{mark1, lig1, mark2}, flags: IgnoreBaseGlyphs, shouldMerge: false},
+		{in: []glyph.ID{A, B}, flags: IgnoreBaseGlyphs, shouldMerge: false},
+		{in: []glyph.ID{A, B, C}, flags: IgnoreBaseGlyphs, shouldMerge: false},
+
+		{in: []glyph.ID{mark1, mark2}, flags: IgnoreLigatures, shouldMerge: true},
+		{in: []glyph.ID{mark1, lig1, lig2, mark2}, flags: IgnoreLigatures, shouldMerge: true},
+		{in: []glyph.ID{lig1, lig2}, flags: IgnoreLigatures, shouldMerge: false},
+
+		{in: []glyph.ID{A, B}, flags: IgnoreMarks, shouldMerge: true},
+		{in: []glyph.ID{A, mark1, mark2, B}, flags: IgnoreMarks, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark2}, flags: IgnoreMarks, shouldMerge: false},
+
+		// mark filtering set 0 keeps mark1 and mark2, and ignores mark3, mark4
+		{in: []glyph.ID{mark1, mark2}, flags: UseMarkFilteringSet, set: 0, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark3, mark2}, flags: UseMarkFilteringSet, set: 0, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark3, mark3, mark1}, flags: UseMarkFilteringSet, set: 0, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark3, mark2, mark3, mark1}, flags: UseMarkFilteringSet, set: 0, shouldMerge: false},
+
+		// mark filtering set 1 keeps mark1 and mark3, and ignores mark2, mark4
+		{in: []glyph.ID{mark1, mark3}, flags: UseMarkFilteringSet, set: 1, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark2, mark3}, flags: UseMarkFilteringSet, set: 1, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark2, mark2, mark1}, flags: UseMarkFilteringSet, set: 1, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark2, mark3, mark2, mark1}, flags: UseMarkFilteringSet, set: 1, shouldMerge: false},
+
+		// attachment type 1 ignores mark2, mark3.  All other glyphs, including mark1 and mark4, are kept.
+		{in: []glyph.ID{mark1, mark1}, flags: 1 << 8, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark2, mark1}, flags: 1 << 8, shouldMerge: true},
+		{in: []glyph.ID{mark1, mark4, mark1}, flags: 1 << 8, shouldMerge: false},
+		{in: []glyph.ID{mark1, A, mark1}, flags: 1 << 8, shouldMerge: false},
+
+		// attachment type 2 ignores mark1, mark4.  All other glyphs, including mark2 and mark3, are kept.
+		{in: []glyph.ID{mark2, mark3}, flags: 2 << 8, shouldMerge: true},
+		{in: []glyph.ID{mark2, mark1, mark4, mark3}, flags: 2 << 8, shouldMerge: true},
+		{in: []glyph.ID{mark2, mark3, mark2}, flags: 2 << 8, shouldMerge: false},
+		{in: []glyph.ID{mark2, A, mark2}, flags: 2 << 8, shouldMerge: false},
+
+		// Finally, we test a few combinations of flags:
+		{in: []glyph.ID{A, B}, flags: IgnoreMarks | IgnoreLigatures, shouldMerge: true},
+		{in: []glyph.ID{A, mark1, lig2, B}, flags: IgnoreMarks | IgnoreLigatures, shouldMerge: true},
+		{in: []glyph.ID{A, B, C}, flags: IgnoreMarks | IgnoreLigatures, shouldMerge: false},
+		{in: []glyph.ID{mark1, A, mark2, B, mark3}, flags: IgnoreBaseGlyphs | UseMarkFilteringSet, set: 1, shouldMerge: true},
+		{in: []glyph.ID{mark1, A, mark3, B, mark1}, flags: IgnoreBaseGlyphs | UseMarkFilteringSet, set: 1, shouldMerge: false},
+		{in: []glyph.ID{mark2, mark3}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: true},
+		{in: []glyph.ID{mark2, A, mark3}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: true},
+		{in: []glyph.ID{mark2, mark1, mark3}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: true},
+		{in: []glyph.ID{mark2, A, B, C, mark1, mark4, mark3}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: true},
+		{in: []glyph.ID{mark2, A, mark4, mark3}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: true},
+		{in: []glyph.ID{mark2, mark2}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: true},
+		{in: []glyph.ID{mark2, lig1, mark2}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: false},
+		{in: []glyph.ID{mark2, mark3, mark2}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: false},
+		{in: []glyph.ID{mark2, repl, mark2}, flags: IgnoreBaseGlyphs | (2 << 8), shouldMerge: false},
 	}
-	return res, nil
-}
 
-type dummySubTable []byte
+	for i, c := range cases {
+		t.Run(fmt.Sprintf("c%02d", i), func(t *testing.T) {
+			// Construct a lookup table that replaces AB with repl
+			// and has the specified flags and mark filtering set.
+			lookupTable := &LookupTable{
+				Meta: &LookupMetaInfo{
+					LookupType:       4, // ligature substitution
+					LookupFlag:       c.flags,
+					MarkFilteringSet: c.set,
+				},
+				Subtables: []Subtable{
+					&Gsub4_1{ // replace the pair of the first and last glyph with repl
+						Cov: coverage.Table{c.in[0]: 0},
+						Repl: [][]Ligature{
+							{{In: []glyph.ID{c.in[len(c.in)-1]}, Out: repl}},
+						},
+					},
+				},
+			}
+			lookupList := LookupList{lookupTable}
 
-func (st dummySubTable) Apply(_ keepGlyphFn, glyphs []glyph.Info, a, b int) *Match {
-	return nil
-}
+			seq := make([]glyph.Info, len(c.in))
+			for i, g := range c.in {
+				seq[i].GID = g
+			}
+			seq, pos := lookupList.applyLookupAt(seq, 0, gdefTable, 0, len(seq))
 
-func (st dummySubTable) EncodeLen() int {
-	return len(st)
-}
-
-func (st dummySubTable) Encode() []byte {
-	return []byte(st)
+			hasMerged := seq[0].GID == repl && pos == len(seq)
+			if hasMerged && !c.shouldMerge {
+				t.Errorf("test %d: lookup flags %v/0x%02x: merged when it should not",
+					i, c.in, c.flags)
+			} else if !hasMerged && c.shouldMerge {
+				t.Errorf("test %d: lookup flags %v/0x%02x: did not merge when it should",
+					i, c.in, c.flags)
+			}
+		})
+	}
 }
 
 func FuzzLookupList(f *testing.F) {
@@ -72,7 +203,7 @@ func FuzzLookupList(f *testing.F) {
 		&LookupTable{
 			Meta: &LookupMetaInfo{
 				LookupType: 4,
-				LookupFlag: LookupUseMarkFilteringSet,
+				LookupFlag: UseMarkFilteringSet,
 			},
 			Subtables: Subtables{
 				dummySubTable{1, 2, 3, 4},
@@ -95,7 +226,7 @@ func FuzzLookupList(f *testing.F) {
 		&LookupTable{
 			Meta: &LookupMetaInfo{
 				LookupType:       2,
-				LookupFlag:       LookupUseMarkFilteringSet,
+				LookupFlag:       UseMarkFilteringSet,
 				MarkFilteringSet: 7,
 			},
 			Subtables: Subtables{
@@ -137,4 +268,34 @@ func FuzzLookupList(f *testing.F) {
 			t.Fatal("different")
 		}
 	})
+}
+
+func readDummySubtable(p *parser.Parser, pos int64, info *LookupMetaInfo) (Subtable, error) {
+	if info.LookupType > 32 {
+		return nil, errors.New("invalid type for dummy lookup")
+	}
+	err := p.SeekPos(pos)
+	if err != nil {
+		return nil, err
+	}
+	res := make(dummySubTable, info.LookupType)
+	_, err = p.Read(res)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+type dummySubTable []byte
+
+func (st dummySubTable) Apply(_ keepGlyphFn, glyphs []glyph.Info, a, b int) *Match {
+	return nil
+}
+
+func (st dummySubTable) EncodeLen() int {
+	return len(st)
+}
+
+func (st dummySubTable) Encode() []byte {
+	return []byte(st)
 }

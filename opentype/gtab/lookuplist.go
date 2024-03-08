@@ -49,8 +49,13 @@ type LookupTable struct {
 // LookupMetaInfo contains information associated with a lookup but not
 // specific to a subtable.
 type LookupMetaInfo struct {
-	LookupType       uint16
-	LookupFlag       LookupFlags
+	LookupType uint16
+	LookupFlag LookupFlags
+
+	// An index into the [seehuhn.de/go/sfnt/opentype/gdef.Table.MarkGlyphSets]
+	// array.  This is only used, if the [LookupUseMarkFilteringSet] flag is
+	// set.  In this case, all marks not present in the specified mark glyph
+	// set are skipped.
 	MarkFilteringSet uint16
 }
 
@@ -60,12 +65,32 @@ type LookupFlags uint16
 
 // Bit values for LookupFlag.
 const (
-	LookupRightToLeft         LookupFlags = 0x0001
-	LookupIgnoreBaseGlyphs    LookupFlags = 0x0002
-	LookupIgnoreLigatures     LookupFlags = 0x0004
-	LookupIgnoreMarks         LookupFlags = 0x0008
-	LookupUseMarkFilteringSet LookupFlags = 0x0010
-	LookupMarkAttachTypeMask  LookupFlags = 0xFF00
+	// RightToLeft indicates that for GPOS lookup type 3 (cursive
+	// attachment), the last glyph in the sequence (rather than the first) will
+	// be positioned on the baseline.
+	RightToLeft LookupFlags = 0x0001
+
+	// IgnoreBaseGlyphs indicates that the lookup ignores glyphs which
+	// are classified as base glyphs in the GDEF table.
+	IgnoreBaseGlyphs LookupFlags = 0x0002
+
+	// IgnoreLigatures indicates that the lookup ignores glyphs which
+	// are classified as ligatures in the GDEF table.
+	IgnoreLigatures LookupFlags = 0x0004
+
+	// IgnoreMarks indicates that the lookup ignores glyphs which are
+	// classified as marks in the GDEF table.
+	IgnoreMarks LookupFlags = 0x0008
+
+	// UseMarkFilteringSet indicates that the lookup ignores all
+	// glyphs classified as marks in the GDEF table, except for those
+	// in the specified mark filtering set.
+	UseMarkFilteringSet LookupFlags = 0x0010
+
+	// MarkAttachTypeMask, if not zero, skips over all marks that are not
+	// of the specified type.  Mark attachment classes must be defined in the
+	// MarkAttachClass Table in the GDEF table.
+	MarkAttachTypeMask LookupFlags = 0xFF00
 )
 
 // Subtable represents a subtable of a "GSUB" or "GPOS" lookup table.
@@ -157,7 +182,7 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 			subtableOffsets = append(subtableOffsets, subtableOffset)
 		}
 		var markFilteringSet uint16
-		if lookupFlag&LookupUseMarkFilteringSet != 0 {
+		if lookupFlag&UseMarkFilteringSet != 0 {
 			markFilteringSet, err = p.ReadUint16()
 			if err != nil {
 				return nil, err
@@ -254,7 +279,7 @@ func (ll LookupList) encode(extLookupType uint16) []byte {
 	})
 	for i, l := range ll {
 		lookupHeaderLen := 6 + 2*len(l.Subtables)
-		if l.Meta.LookupFlag&LookupUseMarkFilteringSet != 0 {
+		if l.Meta.LookupFlag&UseMarkFilteringSet != 0 {
 			lookupHeaderLen += 2
 		}
 		tCode := chunkCode(i) << 14
@@ -335,7 +360,7 @@ func (ll LookupList) encode(extLookupType uint16) []byte {
 				subtableOffset := subtablePos - base
 				buf = append(buf, byte(subtableOffset>>8), byte(subtableOffset))
 			}
-			if li.Meta.LookupFlag&LookupUseMarkFilteringSet != 0 {
+			if li.Meta.LookupFlag&UseMarkFilteringSet != 0 {
 				buf = append(buf,
 					byte(li.Meta.MarkFilteringSet>>8), byte(li.Meta.MarkFilteringSet),
 				)
@@ -402,7 +427,7 @@ func (ll LookupList) tryReorder(chunks []layoutChunk) []layoutChunk {
 		oldSize := lookupSize[tCode]
 		l := ll[tCode>>14]
 		lookupHeaderLen := 6 + 2*len(l.Subtables)
-		if l.Meta.LookupFlag&LookupUseMarkFilteringSet != 0 {
+		if l.Meta.LookupFlag&UseMarkFilteringSet != 0 {
 			lookupHeaderLen += 2
 		}
 		newSize := uint32(lookupHeaderLen) + 8*uint32(len(l.Subtables))

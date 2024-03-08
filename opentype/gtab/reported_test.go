@@ -187,7 +187,7 @@ func Test9738(t *testing.T) {
 			{ // lookup index 2: B(A*)B -> B\1AA
 				Meta: &gtab.LookupMetaInfo{
 					LookupType: 5,
-					LookupFlag: gtab.LookupIgnoreBaseGlyphs,
+					LookupFlag: gtab.IgnoreBaseGlyphs,
 				},
 				Subtables: []gtab.Subtable{
 					&gtab.SeqContext1{

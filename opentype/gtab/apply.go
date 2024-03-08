@@ -55,6 +55,7 @@ type nested struct {
 }
 
 // applyLookupAt applies a single lookup to the given glyphs at position pos.
+// It returns the new glyph sequence and position for the next lookup.
 func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gdef *gdef.Table, pos, b int) ([]glyph.Info, int) {
 	numLookups := len(ll)
 
