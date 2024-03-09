@@ -197,8 +197,8 @@ func (p *parser) readGsub1() *gtab.LookupTable {
 	}
 	return &gtab.LookupTable{
 		Meta: &gtab.LookupMetaInfo{
-			LookupType: 1,
-			LookupFlag: flags,
+			LookupType:  1,
+			LookupFlags: flags,
 		},
 		Subtables: []gtab.Subtable{subtable},
 	}
@@ -249,8 +249,8 @@ func (p *parser) readGsub2() *gtab.LookupTable {
 
 	return &gtab.LookupTable{
 		Meta: &gtab.LookupMetaInfo{
-			LookupType: 2,
-			LookupFlag: flags,
+			LookupType:  2,
+			LookupFlags: flags,
 		},
 		Subtables: []gtab.Subtable{subtable},
 	}
@@ -298,8 +298,8 @@ func (p *parser) readGsub3() *gtab.LookupTable {
 
 	return &gtab.LookupTable{
 		Meta: &gtab.LookupMetaInfo{
-			LookupType: 3,
-			LookupFlag: flags,
+			LookupType:  3,
+			LookupFlags: flags,
 		},
 		Subtables: []gtab.Subtable{subtable},
 	}
@@ -342,7 +342,7 @@ func (p *parser) readGsub4() *gtab.LookupTable {
 		Repl: repl,
 	}
 	return &gtab.LookupTable{
-		Meta:      &gtab.LookupMetaInfo{LookupType: 4, LookupFlag: flags},
+		Meta:      &gtab.LookupMetaInfo{LookupType: 4, LookupFlags: flags},
 		Subtables: []gtab.Subtable{subtable},
 	}
 }
@@ -354,8 +354,8 @@ func (p *parser) readGpos1() *gtab.LookupTable {
 
 	lookup := &gtab.LookupTable{
 		Meta: &gtab.LookupMetaInfo{
-			LookupType: 1,
-			LookupFlag: flags,
+			LookupType:  1,
+			LookupFlags: flags,
 		},
 	}
 
@@ -416,8 +416,8 @@ func (p *parser) readGpos2() *gtab.LookupTable {
 
 	lookup := &gtab.LookupTable{
 		Meta: &gtab.LookupMetaInfo{
-			LookupType: 2,
-			LookupFlag: flags,
+			LookupType:  2,
+			LookupFlags: flags,
 		},
 	}
 
@@ -534,8 +534,8 @@ func (p *parser) readGpos3() *gtab.LookupTable {
 
 	lookup := &gtab.LookupTable{
 		Meta: &gtab.LookupMetaInfo{
-			LookupType: 3,
-			LookupFlag: flags,
+			LookupType:  3,
+			LookupFlags: flags,
 		},
 	}
 
@@ -596,8 +596,8 @@ func (p *parser) readGpos4() *gtab.LookupTable {
 
 	lookup := &gtab.LookupTable{
 		Meta: &gtab.LookupMetaInfo{
-			LookupType: 4,
-			LookupFlag: flags,
+			LookupType:  4,
+			LookupFlags: flags,
 		},
 	}
 	for {
@@ -696,7 +696,7 @@ func (p *parser) readSeqCtx(lookupType uint16) *gtab.LookupTable {
 	flags := p.readLookupFlags()
 
 	lookup := &gtab.LookupTable{
-		Meta:      &gtab.LookupMetaInfo{LookupType: lookupType, LookupFlag: flags},
+		Meta:      &gtab.LookupMetaInfo{LookupType: lookupType, LookupFlags: flags},
 		Subtables: []gtab.Subtable{},
 	}
 
@@ -840,7 +840,7 @@ func (p *parser) readChainedSeqCtx(lookupType uint16) *gtab.LookupTable {
 	flags := p.readLookupFlags()
 
 	lookup := &gtab.LookupTable{
-		Meta:      &gtab.LookupMetaInfo{LookupType: lookupType, LookupFlag: flags},
+		Meta:      &gtab.LookupMetaInfo{LookupType: lookupType, LookupFlags: flags},
 		Subtables: []gtab.Subtable{},
 	}
 

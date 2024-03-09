@@ -18,7 +18,6 @@ package gtab
 
 import (
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 )
 
@@ -50,70 +49,76 @@ type keepGlyphFn func(glyph.ID) bool
 // lookup flags.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#lookupFlags
 func makeFilter(meta *LookupMetaInfo, gdefTable *gdef.Table) keepGlyphFn {
-	flags := meta.LookupFlag
-	if gdefTable == nil || flags == 0 {
-		return keepAllGlyphs
+	keep := newKeepFunc(meta, gdefTable)
+	return keep.Keep
+}
+
+type keepFunc struct {
+	gdef  *gdef.Table
+	flags LookupFlags
+	set   uint16
+}
+
+func newKeepFunc(meta *LookupMetaInfo, gdef *gdef.Table) *keepFunc {
+	if gdef == nil || gdef.GlyphClass == nil {
+		return nil
 	}
 
-	markAttachType := uint16((flags & MarkAttachTypeMask) >> 8)
-	var markGlyphSet coverage.Set
-
-	type filterSel byte
-	const (
-		filterBase filterSel = 1 << iota
-		filterLigatures
-		filterAllMarks
-		filterMarksFromSet
-		filterAttachClass
-	)
-	var sel filterSel
-	if flags&IgnoreBaseGlyphs != 0 && gdefTable.GlyphClass != nil {
-		sel |= filterBase
-	}
-	if flags&IgnoreLigatures != 0 && gdefTable.GlyphClass != nil {
-		sel |= filterLigatures
-	}
+	flags := meta.LookupFlags
 	if flags&IgnoreMarks != 0 {
-		// If the IGNORE_MARKS bit is set, this supersedes any mark filtering set
-		// or mark attachment type indications.
-		if gdefTable.GlyphClass != nil {
-			sel |= filterAllMarks
-		}
+		// If the IGNORE_MARKS bit is set, this supersedes any mark filtering
+		// set or mark attachment type indications.
+		flags &^= UseMarkFilteringSet | MarkAttachTypeMask
 	} else if flags&UseMarkFilteringSet != 0 {
 		// If a mark filtering set is specified, this supersedes any mark
 		// attachment type indication in the lookup flag.
-		if int(meta.MarkFilteringSet) < len(gdefTable.MarkGlyphSets) {
-			sel |= filterMarksFromSet
-			markGlyphSet = gdefTable.MarkGlyphSets[meta.MarkFilteringSet]
+		flags &^= MarkAttachTypeMask
+
+		if n := len(gdef.MarkGlyphSets); int(meta.MarkFilteringSet) >= n {
+			flags &^= UseMarkFilteringSet
 		}
-	} else if markAttachType != 0 && gdefTable.MarkAttachClass != nil {
-		sel |= filterAttachClass
+	} else if flags&MarkAttachTypeMask != 0 {
+		if gdef.MarkAttachClass == nil {
+			flags &^= MarkAttachTypeMask
+		}
+	}
+	if flags == 0 {
+		return nil
 	}
 
-	if sel == 0 {
-		return keepAllGlyphs
+	return &keepFunc{
+		gdef:  gdef,
+		flags: flags,
+		set:   meta.MarkFilteringSet,
 	}
+}
 
-	filterFunc := func(gid glyph.ID) bool {
-		if sel&filterBase != 0 && gdefTable.GlyphClass[gid] == gdef.GlyphClassBase {
-			return false
-		}
-		if sel&filterLigatures != 0 && gdefTable.GlyphClass[gid] == gdef.GlyphClassLigature {
-			return false
-		}
-		if sel&filterAllMarks != 0 && gdefTable.GlyphClass[gid] == gdef.GlyphClassMark {
-			return false
-		}
-		if sel&filterMarksFromSet != 0 && !markGlyphSet[gid] {
-			return false
-		}
-		if sel&filterAttachClass != 0 && gdefTable.GlyphClass[gid] == gdef.GlyphClassMark && gdefTable.MarkAttachClass[gid] != markAttachType {
-			return false
-		}
+func (k *keepFunc) Keep(gid glyph.ID) bool {
+	if k == nil {
 		return true
 	}
 
-	return filterFunc
+	switch k.gdef.GlyphClass[gid] {
+	case gdef.GlyphClassBase:
+		if k.flags&IgnoreBaseGlyphs != 0 {
+			return false
+		}
+	case gdef.GlyphClassLigature:
+		if k.flags&IgnoreLigatures != 0 {
+			return false
+		}
+	case gdef.GlyphClassMark:
+		if k.flags&IgnoreMarks != 0 {
+			return false
+		} else if k.flags&UseMarkFilteringSet != 0 {
+			if !k.gdef.MarkGlyphSets[k.set][gid] {
+				return false
+			}
+		} else if m := k.flags & MarkAttachTypeMask; m != 0 {
+			if k.gdef.MarkAttachClass[gid] != uint16(m>>8) {
+				return false
+			}
+		}
+	}
+	return true
 }
-
-func keepAllGlyphs(glyph.ID) bool { return true }

@@ -34,6 +34,7 @@ type LookupList []*LookupTable
 
 // LookupTable represents a lookup table inside a "GSUB" or "GPOS" table of a
 // font.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#lookup-table
 type LookupTable struct {
 	Meta *LookupMetaInfo
@@ -46,20 +47,39 @@ type LookupTable struct {
 	Subtables Subtables
 }
 
-// LookupMetaInfo contains information associated with a lookup but not
-// specific to a subtable.
+// LookupMetaInfo contains information associated with a [LookupTable].
+// Only information which is not specific to a particular subtable is
+// included here.
 type LookupMetaInfo struct {
+	// LookupType identifies the type of the lookups inside a lookup table.
+	// Different numbering schemes are used for GSUB and GPOS tables.
 	LookupType uint16
-	LookupFlag LookupFlags
 
-	// An index into the [seehuhn.de/go/sfnt/opentype/gdef.Table.MarkGlyphSets]
-	// array.  This is only used, if the [LookupUseMarkFilteringSet] flag is
-	// set.  In this case, all marks not present in the specified mark glyph
-	// set are skipped.
+	// LookupFlags contains flags which modify application of the lookup to a
+	// glyph string.
+	LookupFlags LookupFlags
+
+	// An index into the MarkGlyphSets slice in the corresponding GDEF struct.
+	// This is only used, if the MarkFilteringSet flag is set.  In this case,
+	// all marks not present in the specified mark glyph set are skipped.
 	MarkFilteringSet uint16
 }
 
 // LookupFlags contains bits which modify application of a lookup to a glyph string.
+//
+// LookupFlags can specify glyphs to be ignored in a variety of ways:
+//   - all base glyphs
+//   - all ligature glyphs
+//   - all mark glyphs
+//   - a subset of mark glyphs, specified by a mark filtering set
+//   - a subset of mark glyphs, specified by a mark attachment type
+//
+// When this is used, the lookup is applied as if the ignored glyphs
+// were not present in the input sequence.
+//
+// There is also a flag value to control the behaviour of GPOS lookup type
+// 3 (cursive attachment).
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#lookupFlags
 type LookupFlags uint16
 
@@ -116,8 +136,7 @@ type Subtable interface {
 type Subtables []Subtable
 
 // Apply tries the subtables one by one and applies the first one that
-// matches.  If no subtable matches, the unchanged glyphs and a negative
-// position are returned.
+// matches.  If no subtable matches, nil is returned.
 func (ss Subtables) Apply(keep keepGlyphFn, seq []glyph.Info, pos, b int) *Match {
 	for _, subtable := range ss {
 		match := subtable.Apply(keep, seq, pos, b)
@@ -191,7 +210,7 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 
 		meta := &LookupMetaInfo{
 			LookupType:       lookupType,
-			LookupFlag:       lookupFlag,
+			LookupFlags:      lookupFlag,
 			MarkFilteringSet: markFilteringSet,
 		}
 
@@ -279,7 +298,7 @@ func (ll LookupList) encode(extLookupType uint16) []byte {
 	})
 	for i, l := range ll {
 		lookupHeaderLen := 6 + 2*len(l.Subtables)
-		if l.Meta.LookupFlag&UseMarkFilteringSet != 0 {
+		if l.Meta.LookupFlags&UseMarkFilteringSet != 0 {
 			lookupHeaderLen += 2
 		}
 		tCode := chunkCode(i) << 14
@@ -347,7 +366,7 @@ func (ll LookupList) encode(extLookupType uint16) []byte {
 			}
 			buf = append(buf,
 				byte(lookupType>>8), byte(lookupType),
-				byte(li.Meta.LookupFlag>>8), byte(li.Meta.LookupFlag),
+				byte(li.Meta.LookupFlags>>8), byte(li.Meta.LookupFlags),
 				byte(subTableCount>>8), byte(subTableCount),
 			)
 			base := chunkPos[code]
@@ -360,7 +379,7 @@ func (ll LookupList) encode(extLookupType uint16) []byte {
 				subtableOffset := subtablePos - base
 				buf = append(buf, byte(subtableOffset>>8), byte(subtableOffset))
 			}
-			if li.Meta.LookupFlag&UseMarkFilteringSet != 0 {
+			if li.Meta.LookupFlags&UseMarkFilteringSet != 0 {
 				buf = append(buf,
 					byte(li.Meta.MarkFilteringSet>>8), byte(li.Meta.MarkFilteringSet),
 				)
@@ -427,7 +446,7 @@ func (ll LookupList) tryReorder(chunks []layoutChunk) []layoutChunk {
 		oldSize := lookupSize[tCode]
 		l := ll[tCode>>14]
 		lookupHeaderLen := 6 + 2*len(l.Subtables)
-		if l.Meta.LookupFlag&UseMarkFilteringSet != 0 {
+		if l.Meta.LookupFlags&UseMarkFilteringSet != 0 {
 			lookupHeaderLen += 2
 		}
 		newSize := uint32(lookupHeaderLen) + 8*uint32(len(l.Subtables))

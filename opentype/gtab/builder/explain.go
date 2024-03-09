@@ -44,7 +44,7 @@ func ExplainGsub(fontInfo *sfnt.Font) string {
 		for i, subtable := range lookup.Subtables {
 			if i == 0 {
 				fmt.Fprintf(ee.w, "GSUB%d:", lookup.Meta.LookupType)
-				ee.explainFlags(lookup.Meta.LookupFlag)
+				ee.explainFlags(lookup.Meta.LookupFlags)
 			} else {
 				ee.w.WriteString(" ||\n\t")
 			}
@@ -162,7 +162,7 @@ func ExplainGpos(fontInfo *sfnt.Font) []string {
 		for i, subtable := range lookup.Subtables {
 			if i == 0 {
 				fmt.Fprintf(ee.w, "GPOS%d:", lookup.Meta.LookupType)
-				ee.explainFlags(lookup.Meta.LookupFlag)
+				ee.explainFlags(lookup.Meta.LookupFlags)
 			} else {
 				ee.w.WriteString(" ||\n\t")
 			}
@@ -374,7 +374,7 @@ func (ee *explainer) explainFlags(flags gtab.LookupFlags) {
 	if flags&gtab.IgnoreLigatures != 0 {
 		ee.w.WriteString(" -lig")
 	}
-	// if flags&LookupUseMarkFilteringSet != 0 {
+	// if flags&UseMarkFilteringSet != 0 {
 	// 	ee.w.WriteString(" -UseMarkFilteringSet")
 	// }
 	// if flags&LookupMarkAttachTypeMask != 0 {

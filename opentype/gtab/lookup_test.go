@@ -33,13 +33,6 @@ import (
 // TestLookupFlags tests that the lookup flags cause the correct glyphs to be
 // ignored.
 func TestLookupFlags(t *testing.T) {
-	// The lookup flags can specify glyphs to be ignored in a variety of ways:
-	//   - all base glyphs
-	//   - all ligature glyphs
-	//   - all mark glyphs
-	//   - a subset of mark glyphs, specified by a mark filtering set
-	//   - a subset of mark glyphs, specified by a mark attachment type
-
 	// The glyphs used in our test.
 	const (
 		repl glyph.ID = iota + 1 // We set this up as a ligature between the first and last glyph in the sequence.
@@ -151,16 +144,17 @@ func TestLookupFlags(t *testing.T) {
 
 	for i, c := range cases {
 		t.Run(fmt.Sprintf("c%02d", i), func(t *testing.T) {
-			// Construct a lookup table that replaces AB with repl
-			// and has the specified flags and mark filtering set.
+			// Construct a lookup table that combines the first and last glyph
+			// in the sequence into `repl` and which has the specified flags
+			// and mark filtering set.
 			lookupTable := &LookupTable{
 				Meta: &LookupMetaInfo{
 					LookupType:       4, // ligature substitution
-					LookupFlag:       c.flags,
+					LookupFlags:      c.flags,
 					MarkFilteringSet: c.set,
 				},
 				Subtables: []Subtable{
-					&Gsub4_1{ // replace the pair of the first and last glyph with repl
+					&Gsub4_1{ // combine the pair of the first and last glyph into repl
 						Cov: coverage.Table{c.in[0]: 0},
 						Repl: [][]Ligature{
 							{{In: []glyph.ID{c.in[len(c.in)-1]}, Out: repl}},
@@ -174,9 +168,9 @@ func TestLookupFlags(t *testing.T) {
 			for i, g := range c.in {
 				seq[i].GID = g
 			}
-			seq, pos := lookupList.applyLookupAt(seq, 0, gdefTable, 0, len(seq))
+			seq = lookupList.ApplyLookup(seq, 0, gdefTable)
 
-			hasMerged := seq[0].GID == repl && pos == len(seq)
+			hasMerged := seq[0].GID == repl
 			if hasMerged && !c.shouldMerge {
 				t.Errorf("test %d: lookup flags %v/0x%02x: merged when it should not",
 					i, c.in, c.flags)
@@ -202,8 +196,8 @@ func FuzzLookupList(f *testing.F) {
 	l = LookupList{
 		&LookupTable{
 			Meta: &LookupMetaInfo{
-				LookupType: 4,
-				LookupFlag: UseMarkFilteringSet,
+				LookupType:  4,
+				LookupFlags: UseMarkFilteringSet,
 			},
 			Subtables: Subtables{
 				dummySubTable{1, 2, 3, 4},
@@ -226,7 +220,7 @@ func FuzzLookupList(f *testing.F) {
 		&LookupTable{
 			Meta: &LookupMetaInfo{
 				LookupType:       2,
-				LookupFlag:       UseMarkFilteringSet,
+				LookupFlags:      UseMarkFilteringSet,
 				MarkFilteringSet: 7,
 			},
 			Subtables: Subtables{
