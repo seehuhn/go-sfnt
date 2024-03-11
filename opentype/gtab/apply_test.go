@@ -21,8 +21,53 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/text/language"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/coverage"
 )
+
+func TestLigature(t *testing.T) {
+	cov := coverage.Table{
+		1: 0,
+	}
+	repl := [][]Ligature{
+		{{In: []glyph.ID{2}, Out: 4}}, // 1 2 -> 4
+	}
+	subst := &Gsub4_1{
+		Cov:  cov,
+		Repl: repl,
+	}
+	gsub := &Info{
+		ScriptList: map[language.Tag]*Features{
+			language.MustParse("und-Latn-x-latn"): {Optional: []FeatureIndex{0}},
+		},
+		FeatureList: []*Feature{
+			{Tag: "liga", Lookups: []LookupIndex{0}},
+		},
+		LookupList: []*LookupTable{
+			{
+				Meta:      &LookupMetaInfo{LookupType: 4},
+				Subtables: []Subtable{subst},
+			},
+		},
+	}
+
+	in := []glyph.Info{
+		{GID: 1, Text: []rune("a")},
+		{GID: 2, Text: []rune("b")},
+		{GID: 3, Text: []rune("c")},
+	}
+	out := gsub.LookupList.ApplyLookup(in, 0, nil)
+
+	expected := []glyph.Info{
+		{GID: 4, Text: []rune("ab")},
+		{GID: 3, Text: []rune("c")},
+	}
+
+	if d := cmp.Diff(expected, out); d != "" {
+		t.Errorf("unexpected result (-want +got):\n%s", d)
+	}
+}
 
 func TestApplyMatch(t *testing.T) {
 	cases := []struct {

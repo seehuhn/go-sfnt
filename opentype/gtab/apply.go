@@ -23,23 +23,6 @@ import (
 	"seehuhn.de/go/sfnt/opentype/gdef"
 )
 
-// ApplyLookup applies a single lookup to the given glyphs.
-func (ll LookupList) ApplyLookup(seq []glyph.Info, lookupIndex LookupIndex, gdef *gdef.Table) []glyph.Info {
-	pos := 0
-	numLeft := len(seq)
-	for pos < len(seq) {
-		// TODO(voss): GSUB 8.1 subtables are applied in reverse order.
-		seq, pos = ll.applyLookupAt(seq, lookupIndex, gdef, pos, len(seq))
-		newNumLeft := len(seq) - pos
-		if newNumLeft >= numLeft {
-			pos = len(seq) - numLeft + 1
-		}
-		numLeft = newNumLeft
-	}
-
-	return seq
-}
-
 // Match describes the effect of applying a Lookup to a glyph sequence.
 type Match struct {
 	InputPos []int // in increasing order
@@ -54,27 +37,52 @@ type nested struct {
 	EndPos   int
 }
 
+type applyLookup struct {
+	ll   LookupList
+	seq  []glyph.Info
+	gdef *gdef.Table
+	keep *KeepFunc
+}
+
+// ApplyLookup applies a single lookup to the given glyphs.
+func (ll LookupList) ApplyLookup(seq []glyph.Info, lookupIndex LookupIndex, gdef *gdef.Table) []glyph.Info {
+	if int(lookupIndex) >= len(ll) {
+		return seq
+	}
+	ctx := &applyLookup{
+		ll:   ll,
+		seq:  seq,
+		gdef: gdef,
+		keep: newKeepFunc(ll[lookupIndex].Meta, gdef),
+	}
+
+	pos := 0
+	numLeft := len(ctx.seq)
+	for pos < len(ctx.seq) {
+		// TODO(voss): GSUB 8.1 subtables are applied in reverse order.
+		pos = ctx.At(lookupIndex, pos)
+		newNumLeft := len(ctx.seq) - pos
+		if newNumLeft >= numLeft {
+			pos = len(ctx.seq) - numLeft + 1
+		}
+		numLeft = newNumLeft
+	}
+
+	return ctx.seq
+}
+
 // applyLookupAt applies a single lookup to the given glyphs at position pos.
 // It returns the new glyph sequence and position for the next lookup.
-func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gdef *gdef.Table, pos, b int) ([]glyph.Info, int) {
-	numLookups := len(ll)
+func (ctx *applyLookup) At(lookupIndex LookupIndex, pos int) int {
+	lookup := ctx.ll[lookupIndex]
 
-	// Check if the first lookup applies to the input sequence.
-	if int(lookupIndex) >= numLookups {
-		return seq, pos + 1
+	// Check if the lookup applies to the input sequence.
+	if !ctx.keep.Keep(ctx.seq[pos].GID) {
+		return pos + 1
 	}
-	lookup := ll[lookupIndex]
-
-	// TODO(voss): applyLookupAt is called in a loop.  Move makeFilter out of
-	// the loop.
-	keep := newKeepFunc(lookup.Meta, gdef)
-
-	if !keep.Keep(seq[pos].GID) {
-		return seq, pos + 1
-	}
-	match := lookup.Subtables.Apply(keep, seq, pos, b)
+	match := lookup.Subtables.Apply(ctx.keep, ctx.seq, pos, len(ctx.seq))
 	if match == nil {
-		return seq, pos + 1
+		return pos + 1
 	}
 	next := match.Next
 
@@ -82,8 +90,8 @@ func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gd
 		if len(match.Actions) > 0 {
 			panic("invalid match object")
 		}
-		seq = applyMatch(seq, match, pos)
-		return seq, next + len(match.Replace) - len(match.InputPos)
+		ctx.seq = applyMatch(ctx.seq, match, pos)
+		return next + len(match.Replace) - len(match.InputPos)
 	}
 
 	stack := []*nested{
@@ -113,17 +121,15 @@ func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gd
 		end := stack[k].EndPos
 		stack[k].Actions = stack[k].Actions[1:]
 
-		if int(lookupIndex) >= numLookups {
+		if int(lookupIndex) >= len(ctx.ll) {
 			continue
 		}
-		lookup := ll[lookupIndex]
+		lookup := ctx.ll[lookupIndex]
 
-		keep := newKeepFunc(lookup.Meta, gdef)
+		keep := newKeepFunc(lookup.Meta, ctx.gdef)
 		var match *Match
-		if keep.Keep(seq[pos].GID) {
-			// We have to pass keep into Apply, so that lookups operating on
-			// sequences of glyphs can check the glyps different from seq[pos].
-			match = lookup.Subtables.Apply(keep, seq, pos, end)
+		if keep.Keep(ctx.seq[pos].GID) {
+			match = lookup.Subtables.Apply(keep, ctx.seq, pos, end)
 		}
 		if match == nil {
 			continue
@@ -133,7 +139,7 @@ func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gd
 			if len(match.Actions) > 0 {
 				panic("invalid match object")
 			}
-			seq = applyMatch(seq, match, pos)
+			ctx.seq = applyMatch(ctx.seq, match, pos)
 			fixMatchPos(stack, match.InputPos, len(match.Replace))
 			next += len(match.Replace) - len(match.InputPos)
 		} else {
@@ -145,7 +151,7 @@ func (ll LookupList) applyLookupAt(seq []glyph.Info, lookupIndex LookupIndex, gd
 		}
 	}
 
-	return seq, next
+	return next
 }
 
 func fixMatchPos(actions []*nested, remove []int, numInsert int) {
