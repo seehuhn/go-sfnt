@@ -34,7 +34,7 @@ type Gpos6_1 struct {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos6_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
+func (l *Gpos6_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 	mark1Idx, ok := l.Mark1Cov[seq[a].GID]
 	if !ok {
 		return nil

@@ -40,82 +40,57 @@ import (
 //      6  |    .      .      X      .      X
 //      4  |    X      X      .      X      .
 
-// keepGlyphFn is used to drop ignored characters in lookups with non-zero
-// lookup flags.  Functions of this type return true if the glyph should be
-// used, and false if the glyph should be ignored.
-type keepGlyphFn func(glyph.ID) bool
-
-// makeFilter returns a function which filters glyphs according to the
-// lookup flags.
+// A KeepFunc decised which glyphs to consider in a lookup.
+// Glyphs where the KeepFunc returns false are ignored.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#lookupFlags
-func makeFilter(meta *LookupMetaInfo, gdefTable *gdef.Table) keepGlyphFn {
-	keep := newKeepFunc(meta, gdefTable)
-	return keep.Keep
+type KeepFunc struct {
+	Gdef *gdef.Table
+	Meta *LookupMetaInfo
 }
 
-type keepFunc struct {
-	gdef  *gdef.Table
-	flags LookupFlags
-	set   uint16
-}
-
-func newKeepFunc(meta *LookupMetaInfo, gdef *gdef.Table) *keepFunc {
-	if gdef == nil || gdef.GlyphClass == nil {
+func newKeepFunc(meta *LookupMetaInfo, gdef *gdef.Table) *KeepFunc {
+	if gdef == nil || gdef.GlyphClass == nil || meta.LookupFlags == 0 {
 		return nil
 	}
 
-	flags := meta.LookupFlags
-	if flags&IgnoreMarks != 0 {
-		// If the IGNORE_MARKS bit is set, this supersedes any mark filtering
-		// set or mark attachment type indications.
-		flags &^= UseMarkFilteringSet | MarkAttachTypeMask
-	} else if flags&UseMarkFilteringSet != 0 {
-		// If a mark filtering set is specified, this supersedes any mark
-		// attachment type indication in the lookup flag.
-		flags &^= MarkAttachTypeMask
-
-		if n := len(gdef.MarkGlyphSets); int(meta.MarkFilteringSet) >= n {
-			flags &^= UseMarkFilteringSet
-		}
-	} else if flags&MarkAttachTypeMask != 0 {
-		if gdef.MarkAttachClass == nil {
-			flags &^= MarkAttachTypeMask
-		}
-	}
-	if flags == 0 {
-		return nil
-	}
-
-	return &keepFunc{
-		gdef:  gdef,
-		flags: flags,
-		set:   meta.MarkFilteringSet,
+	return &KeepFunc{
+		Gdef: gdef,
+		Meta: meta,
 	}
 }
 
-func (k *keepFunc) Keep(gid glyph.ID) bool {
+// Keep returns true, if the glyph with the given ID should be considered in
+// the lookup.
+func (k *KeepFunc) Keep(gid glyph.ID) bool {
 	if k == nil {
 		return true
 	}
 
-	switch k.gdef.GlyphClass[gid] {
+	flags := k.Meta.LookupFlags
+	switch k.Gdef.GlyphClass[gid] {
 	case gdef.GlyphClassBase:
-		if k.flags&IgnoreBaseGlyphs != 0 {
+		if flags&IgnoreBaseGlyphs != 0 {
 			return false
 		}
 	case gdef.GlyphClassLigature:
-		if k.flags&IgnoreLigatures != 0 {
+		if flags&IgnoreLigatures != 0 {
 			return false
 		}
 	case gdef.GlyphClassMark:
-		if k.flags&IgnoreMarks != 0 {
+		if flags&IgnoreMarks != 0 {
+			// If the IGNORE_MARKS bit is set, this supersedes any mark filtering
+			// set or mark attachment type indications.
 			return false
-		} else if k.flags&UseMarkFilteringSet != 0 {
-			if !k.gdef.MarkGlyphSets[k.set][gid] {
+		} else if flags&UseMarkFilteringSet != 0 {
+			// If a mark filtering set is specified, this supersedes any mark
+			// attachment type indication in the lookup flag.
+			set := k.Meta.MarkFilteringSet
+			if k.Gdef.MarkGlyphSets == nil || !k.Gdef.MarkGlyphSets[set][gid] {
 				return false
 			}
-		} else if m := k.flags & MarkAttachTypeMask; m != 0 {
-			if k.gdef.MarkAttachClass[gid] != uint16(m>>8) {
+		} else if m := flags & MarkAttachTypeMask; m != 0 {
+			if k.Gdef.MarkAttachClass == nil || k.Gdef.MarkAttachClass[gid] != uint16(m>>8) {
 				return false
 			}
 		}

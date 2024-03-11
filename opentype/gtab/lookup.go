@@ -125,7 +125,7 @@ type Subtable interface {
 	// keep(seq[i].Gid) is false must be ignored.  The caller already
 	// checks the glyph at location a, so only subsequent glyphs need to
 	// be tested by the Subtable implementation.
-	Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match
+	Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match
 
 	EncodeLen() int
 
@@ -137,7 +137,7 @@ type Subtables []Subtable
 
 // Apply tries the subtables one by one and applies the first one that
 // matches.  If no subtable matches, nil is returned.
-func (ss Subtables) Apply(keep keepGlyphFn, seq []glyph.Info, pos, b int) *Match {
+func (ss Subtables) Apply(keep *KeepFunc, seq []glyph.Info, pos, b int) *Match {
 	for _, subtable := range ss {
 		match := subtable.Apply(keep, seq, pos, b)
 		if match != nil {
@@ -517,7 +517,7 @@ func readExtensionSubtable(p *parser.Parser, _ int64) (Subtable, error) {
 	return res, nil
 }
 
-func (l *extensionSubtable) Apply(keepGlyphFn, []glyph.Info, int, int) *Match {
+func (l *extensionSubtable) Apply(*KeepFunc, []glyph.Info, int, int) *Match {
 	panic("unreachable")
 }
 

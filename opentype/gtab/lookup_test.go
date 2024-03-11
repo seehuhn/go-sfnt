@@ -282,7 +282,7 @@ func readDummySubtable(p *parser.Parser, pos int64, info *LookupMetaInfo) (Subta
 
 type dummySubTable []byte
 
-func (st dummySubTable) Apply(_ keepGlyphFn, glyphs []glyph.Info, a, b int) *Match {
+func (st dummySubTable) Apply(_ *KeepFunc, glyphs []glyph.Info, a, b int) *Match {
 	return nil
 }
 

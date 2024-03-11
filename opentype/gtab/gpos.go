@@ -71,7 +71,7 @@ type notImplementedGposSubtable struct {
 	lookupType, lookupFormat uint16
 }
 
-func (st notImplementedGposSubtable) Apply(_ keepGlyphFn, _ []glyph.Info, _, _ int) *Match {
+func (st notImplementedGposSubtable) Apply(_ *KeepFunc, _ []glyph.Info, _, _ int) *Match {
 	return nil
 }
 
@@ -119,7 +119,7 @@ func readGpos1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos1_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
+func (l *Gpos1_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 	g := seq[a]
 	_, ok := l.Cov[g.GID]
 	if !ok {
@@ -197,7 +197,7 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos1_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
+func (l *Gpos1_2) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 	g := seq[a]
 	idx, ok := l.Cov[g.GID]
 	if !ok {
@@ -263,9 +263,9 @@ type PairAdjust struct {
 }
 
 // Apply implements the Subtable interface.
-func (l Gpos2_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
+func (l Gpos2_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 	p := a + 1
-	for p < b && !keep(seq[p].GID) {
+	for p < b && !keep.Keep(seq[p].GID) {
 		p++
 	}
 	if p >= b {
@@ -474,7 +474,7 @@ type Gpos2_2 struct {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos2_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
+func (l *Gpos2_2) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 	g1 := seq[a]
 	_, ok := l.Cov[g1.GID]
 	if !ok {
@@ -482,7 +482,7 @@ func (l *Gpos2_2) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
 	}
 
 	p := a + 1
-	for p < b && !keep(seq[p].GID) {
+	for p < b && !keep.Keep(seq[p].GID) {
 		p++
 	}
 	if p >= b {
@@ -675,7 +675,7 @@ type EntryExitRecord struct {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos3_1) Apply(keep keepGlyphFn, seq []glyph.Info, a, b int) *Match {
+func (l *Gpos3_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 	// TODO(voss): this is only correct if the RIGHT_TO_LEFT flag is not set.
 
 	g := seq[a]

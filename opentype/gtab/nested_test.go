@@ -23,6 +23,7 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/gdef"
 )
 
 type debugNestedLookup struct {
@@ -30,7 +31,7 @@ type debugNestedLookup struct {
 	actions  SeqLookups
 }
 
-func (l *debugNestedLookup) Apply(_ keepGlyphFn, seq []glyph.Info, a, b int) *Match {
+func (l *debugNestedLookup) Apply(_ *KeepFunc, seq []glyph.Info, a, b int) *Match {
 	if a != 0 {
 		return &Match{
 			InputPos: []int{a},
@@ -116,6 +117,22 @@ func TestNestedSimple(t *testing.T) {
 	}
 }
 
+// makeDebugKeepFunc returns a KeepFunc which keeps glyphs with GID < 50,
+// and ignores all glyphs 50, ..., 255.
+func makeDebugKeepFunc() *KeepFunc {
+	class := classdef.Table{}
+	for i := glyph.ID(0); i < 256; i++ {
+		if i < 50 {
+			class[i] = gdef.GlyphClassBase
+		} else {
+			class[i] = gdef.GlyphClassMark
+		}
+	}
+	gdef := &gdef.Table{GlyphClass: class}
+	meta := &LookupMetaInfo{LookupFlags: IgnoreMarks}
+	return &KeepFunc{Gdef: gdef, Meta: meta}
+}
+
 func TestSeqContext1(t *testing.T) {
 	in := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5}}
 	l := &SeqContext1{
@@ -139,7 +156,7 @@ func TestSeqContext1(t *testing.T) {
 			},
 		},
 	}
-	keep := func(g glyph.ID) bool { return g < 50 }
+	keep := makeDebugKeepFunc()
 
 	cases := []struct {
 		before, after int
@@ -179,7 +196,7 @@ func TestSeqContext2(t *testing.T) {
 			},
 		},
 	}
-	keep := func(g glyph.ID) bool { return g < 50 }
+	keep := makeDebugKeepFunc()
 
 	cases := []struct {
 		before, after int
@@ -194,7 +211,7 @@ func TestSeqContext2(t *testing.T) {
 	for _, test := range cases {
 		m := l.Apply(keep, in, test.before, len(in))
 		next := -1
-		if keep(in[test.before].GID) && m != nil {
+		if keep.Keep(in[test.before].GID) && m != nil {
 			next = m.Next
 		}
 		if next != test.after {
@@ -212,7 +229,7 @@ func TestSeqContext3(t *testing.T) {
 			{3: 0, 5: 1},
 		},
 	}
-	keep := func(g glyph.ID) bool { return g < 50 }
+	keep := makeDebugKeepFunc()
 
 	cases := []struct {
 		before, after int
@@ -267,7 +284,7 @@ func TestChainedSeqContext1(t *testing.T) {
 			},
 		},
 	}
-	keep := func(g glyph.ID) bool { return g < 50 }
+	keep := makeDebugKeepFunc()
 
 	cases := []struct {
 		before, after int
