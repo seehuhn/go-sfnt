@@ -30,6 +30,32 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
+// The following is a list of all OpenType lookup types.
+var (
+	_ Subtable = (*Gsub1_1)(nil)
+	_ Subtable = (*Gsub1_2)(nil)
+	_ Subtable = (*Gsub2_1)(nil)
+	_ Subtable = (*Gsub3_1)(nil)
+	_ Subtable = (*Gsub4_1)(nil)
+	_ Subtable = (*Gsub8_1)(nil)
+
+	_ Subtable = (*Gpos1_1)(nil)
+	_ Subtable = (*Gpos1_2)(nil)
+	_ Subtable = (*Gpos2_1)(nil)
+	_ Subtable = (*Gpos2_2)(nil)
+	_ Subtable = (*Gpos3_1)(nil)
+	_ Subtable = (*Gpos4_1)(nil)
+	// _ Subtable = (*Gpos5_1)(nil) // TODO(voss): implement this
+	_ Subtable = (*Gpos6_1)(nil)
+
+	_ Subtable = (*SeqContext1)(nil)
+	_ Subtable = (*SeqContext2)(nil)
+	_ Subtable = (*SeqContext3)(nil)
+	_ Subtable = (*ChainedSeqContext1)(nil)
+	_ Subtable = (*ChainedSeqContext2)(nil)
+	_ Subtable = (*ChainedSeqContext3)(nil)
+)
+
 // TestLookupFlags tests that the lookup flags cause the correct glyphs to be
 // ignored.
 func TestLookupFlags(t *testing.T) {
