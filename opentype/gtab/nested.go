@@ -30,11 +30,8 @@ type SeqLookup struct {
 	LookupListIndex LookupIndex
 }
 
-// SeqLookups describes the actions of nested lookups.
-type SeqLookups []SeqLookup
-
-func readNested(p *parser.Parser, seqLookupCount int) (SeqLookups, error) {
-	res := make(SeqLookups, seqLookupCount)
+func readNested(p *parser.Parser, seqLookupCount int) ([]SeqLookup, error) {
+	res := make([]SeqLookup, seqLookupCount)
 	for i := range res {
 		buf, err := p.ReadBytes(4)
 		if err != nil {
@@ -56,7 +53,7 @@ type SeqContext1 struct {
 // SeqRule describes a rule in a SeqContext1 subtable.
 type SeqRule struct {
 	Input   []glyph.ID // excludes the first input glyph, since this is in Cov
-	Actions SeqLookups
+	Actions []SeqLookup
 }
 
 func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -275,7 +272,7 @@ type SeqContext2 struct {
 // be performed
 type ClassSeqRule struct {
 	Input   []uint16 // excludes the first input glyph
-	Actions SeqLookups
+	Actions []SeqLookup
 }
 
 func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -512,7 +509,7 @@ func (l *SeqContext2) Encode() []byte {
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-3-coverage-based-glyph-contexts
 type SeqContext3 struct {
 	Input   []coverage.Table
-	Actions SeqLookups
+	Actions []SeqLookup
 }
 
 func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -644,7 +641,7 @@ type ChainedSeqRule struct {
 	Backtrack []glyph.ID
 	Input     []glyph.ID // excludes the first input glyph, since this is in Cov
 	Lookahead []glyph.ID
-	Actions   SeqLookups
+	Actions   []SeqLookup
 }
 
 func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -955,7 +952,7 @@ type ChainedClassSeqRule struct {
 	Backtrack []uint16
 	Input     []uint16 // excludes the first input glyph, since this is in Cov
 	Lookahead []uint16
-	Actions   SeqLookups
+	Actions   []SeqLookup
 }
 
 func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -1305,7 +1302,7 @@ type ChainedSeqContext3 struct {
 	Backtrack []coverage.Set
 	Input     []coverage.Set
 	Lookahead []coverage.Set
-	Actions   SeqLookups
+	Actions   []SeqLookup
 }
 
 func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {

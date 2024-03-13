@@ -507,7 +507,7 @@ func (ee *explainer) writeCoveredSet(cov coverage.Table) {
 	ee.writeGlyphSet(cov.Glyphs())
 }
 
-func (ee *explainer) explainNested(actions gtab.SeqLookups) {
+func (ee *explainer) explainNested(actions []gtab.SeqLookup) {
 	for i, a := range actions {
 		if i > 0 {
 			ee.w.WriteRune(' ')

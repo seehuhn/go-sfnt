@@ -23,64 +23,56 @@ import (
 	"seehuhn.de/go/sfnt/opentype/gdef"
 )
 
-// Match describes the effect of applying a Lookup to a glyph sequence.
-type Match struct {
-	InputPos []int // in increasing order
-	Replace  []glyph.Info
-	Actions  SeqLookups
-	Next     int
-}
-
-type nested struct {
-	InputPos []int
-	Actions  SeqLookups
-	EndPos   int
-}
-
-type applyLookup struct {
-	ll   LookupList
-	seq  []glyph.Info
-	gdef *gdef.Table
-	keep *KeepFunc
-}
-
 // ApplyLookup applies a single lookup to the given glyphs.
+//
+// This is the main entry-point for external users of GSUB and GPOS tables.
 func (ll LookupList) ApplyLookup(seq []glyph.Info, lookupIndex LookupIndex, gdef *gdef.Table) []glyph.Info {
 	if int(lookupIndex) >= len(ll) {
 		return seq
 	}
+
 	ctx := &applyLookup{
-		ll:   ll,
-		seq:  seq,
-		gdef: gdef,
-		keep: newKeepFunc(ll[lookupIndex].Meta, gdef),
+		ll:     ll,
+		lookup: ll[lookupIndex],
+		seq:    seq,
+		gdef:   gdef,
+		keep:   newKeepFunc(ll[lookupIndex].Meta, gdef),
 	}
 
 	pos := 0
-	numLeft := len(ctx.seq)
+	// TODO(voss): GSUB 8.1 subtables are applied in reverse order.
 	for pos < len(ctx.seq) {
-		// TODO(voss): GSUB 8.1 subtables are applied in reverse order.
-		pos = ctx.At(lookupIndex, pos)
-		newNumLeft := len(ctx.seq) - pos
-		if newNumLeft >= numLeft {
-			pos = len(ctx.seq) - numLeft + 1
+		oldTodo := len(ctx.seq) - pos
+		pos = ctx.At(pos)
+
+		// Make sure that every step makes some progress.
+		// TODO(voss): Is this needed?
+		newTodo := len(ctx.seq) - pos
+		if newTodo >= oldTodo {
+			pos = len(ctx.seq) - oldTodo + 1
 		}
-		numLeft = newNumLeft
+		oldTodo = newTodo
 	}
 
 	return ctx.seq
 }
 
+type applyLookup struct {
+	ll     LookupList
+	lookup *LookupTable
+	seq    []glyph.Info
+	gdef   *gdef.Table
+	keep   *KeepFunc
+}
+
 // applyLookupAt applies a single lookup to the given glyphs at position pos.
 // It returns the new glyph sequence and position for the next lookup.
-func (ctx *applyLookup) At(lookupIndex LookupIndex, pos int) int {
-	lookup := ctx.ll[lookupIndex]
-
+func (ctx *applyLookup) At(pos int) int {
 	// Check if the lookup applies to the input sequence.
 	if !ctx.keep.Keep(ctx.seq[pos].GID) {
 		return pos + 1
 	}
-	match := lookup.Subtables.Apply(ctx.keep, ctx.seq, pos, len(ctx.seq))
+	match := ctx.lookup.Subtables.Apply(ctx.keep, ctx.seq, pos, len(ctx.seq))
 	if match == nil {
 		return pos + 1
 	}
@@ -140,7 +132,7 @@ func (ctx *applyLookup) At(lookupIndex LookupIndex, pos int) int {
 				panic("invalid match object")
 			}
 			ctx.seq = applyMatch(ctx.seq, match, pos)
-			fixMatchPos(stack, match.InputPos, len(match.Replace))
+			fixActionStack(stack, match.InputPos, len(match.Replace))
 			next += len(match.Replace) - len(match.InputPos)
 		} else {
 			stack = append(stack, &nested{
@@ -154,7 +146,21 @@ func (ctx *applyLookup) At(lookupIndex LookupIndex, pos int) int {
 	return next
 }
 
-func fixMatchPos(actions []*nested, remove []int, numInsert int) {
+// Match describes the effect of applying a Lookup to a glyph sequence.
+type Match struct {
+	InputPos []int // in increasing order
+	Replace  []glyph.Info
+	Actions  []SeqLookup
+	Next     int
+}
+
+type nested struct {
+	InputPos []int
+	Actions  []SeqLookup
+	EndPos   int
+}
+
+func fixActionStack(actions []*nested, remove []int, numInsert int) {
 	if len(actions) == 0 {
 		return
 	}
@@ -221,6 +227,8 @@ func fixMatchPos(actions []*nested, remove []int, numInsert int) {
 		// completely.  The rule we are using here is that we include the
 		// new glyphs, if and only if one of the endpoints of the match
 		// was included in the original action input sequence.
+		//
+		// See the test cases for TestGsub for details.
 		addToInput := false
 		if len(in) > 0 && in[0] == insertPos {
 			// first matched glyph was present

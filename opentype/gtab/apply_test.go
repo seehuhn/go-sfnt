@@ -26,6 +26,8 @@ import (
 	"seehuhn.de/go/sfnt/opentype/coverage"
 )
 
+// TestLigature tests the simple case where a type 4 GSUB lookup is used
+// to replace two glyphs with one.
 func TestLigature(t *testing.T) {
 	cov := coverage.Table{
 		1: 0,
@@ -252,7 +254,7 @@ func TestFixMatchPos(t *testing.T) {
 					EndPos:   endPos,
 				},
 			}
-			fixMatchPos(actions, test.remove, test.numInsert)
+			fixActionStack(actions, test.remove, test.numInsert)
 			if d := cmp.Diff(test.out, actions[0].InputPos); d != "" {
 				t.Errorf("%d: %s", i, d)
 			}

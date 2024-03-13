@@ -366,6 +366,7 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
+// CovAndAdjust returns the coverage table and the adjustments.
 func (l Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
 	seen := make(map[glyph.ID]bool)
 	for pair := range l {

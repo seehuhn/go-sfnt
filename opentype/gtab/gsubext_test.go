@@ -31,86 +31,95 @@ import (
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/opentype/gtab/builder"
+	"seehuhn.de/go/sfnt/opentype/gtab/testcases"
 )
 
-func TestGsub(t *testing.T) {
-	fontInfo := debug.MakeSimpleFont()
+var exportFonts = flag.Bool("export-fonts", false, "export fonts used in tests")
 
-	cmap, err := fontInfo.CMapTable.GetBest()
+// TestGsub tests corner cases for GSUB rules.
+//
+// To test the behaviour of other implementations, use the "-export-fonts"
+// flag.  This will create a font file for each test case.
+//
+// I have used the following procedure on MacOS:
+//
+// 1. Run one of the tests, using commands like the folowing:
+//
+//	go test -run TestGsub/63 -export-fonts
+//
+// This shows the expected ligature substituions, e.g. "LALALAL -> LXXAL", and
+// saves the font file "test0063.otf".
+//
+// 2. Install the font in the system using the "Font Book" app, for example by
+// double clicking on the generated .otf file.
+//
+// 3. The MacOS "Font Book" app can be used to show the ligature substitutions
+// in MacOS.  The sample text in the font file is set to the input string, so
+// so substituions can be seen directly.  There is also the possibility to edit
+// the sample text to see the effect of the substitutions.
+//
+// 4. Use "hb-view" (part of the Harfbuzz suite) to show the ligature
+// substitutions in Harfbuzz.  For example, the following command shows the
+// ligature substitutions for the input string "LALALAL":
+//
+//	hb-view test0063.otf LALALAL
+//
+// Alternatively, "hb-shape" can be used:
+//
+//	hb-shape --no-clusters --no-positions test0063.otf LALALAL
+//
+// 5. To see the ligature substitutions in Microsoft Word: (a) open word, quit
+// word, open word, open a new, blank document, (b) Click on the font name, and
+// replace with the name of the newly installed font (e.g. "Test0064"), (c)
+// Open the "Text Effects" menu (the icon is a white "A" with a blue outline),
+// and choose "Ligatures > All Ligatures", and (d) type the input string into
+// the document.
+func TestGsub(t *testing.T) {
+	fontGen, err := testcases.NewFontGen()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	gdef := &gdef.Table{
-		GlyphClass: classdef.Table{
-			cmap.Lookup('B'): gdef.GlyphClassBase,
-			cmap.Lookup('K'): gdef.GlyphClassLigature,
-			cmap.Lookup('L'): gdef.GlyphClassLigature,
-			cmap.Lookup('M'): gdef.GlyphClassMark,
-			cmap.Lookup('N'): gdef.GlyphClassMark,
-		},
-	}
-
-	a, b := cmap.CodeRange()
-	rev := make(map[glyph.ID]rune)
-	for r := a; r <= b; r++ {
-		gid := cmap.Lookup(r)
-		if gid != 0 {
-			rev[gid] = r
-		}
-	}
-
-	for testIdx, test := range gsubTestCases {
+	for testIdx, test := range testcases.Gsub {
 		t.Run(fmt.Sprintf("%02d", testIdx+1), func(t *testing.T) {
-			lookupList, err := builder.Parse(fontInfo, test.desc)
+			info, err := fontGen.GsubTestFont(testIdx)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			gsub := &gtab.Info{
-				ScriptList: map[language.Tag]*gtab.Features{
-					language.MustParse("und-Zzzz"): {Required: 0},
-				},
-				FeatureList: []*gtab.Feature{
-					{Tag: "test", Lookups: []gtab.LookupIndex{0}},
-				},
-				LookupList: lookupList,
-			}
-
 			if *exportFonts {
 				fontName := fmt.Sprintf("test%04d.otf", testIdx+1)
-				fmt.Printf("%s %s -> %s\n", fontName, test.in, test.out)
-				fontInfo.Gdef = gdef
-				fontInfo.Gsub = gsub
-				exportFont(fontInfo, testIdx+1, test.in)
+				fmt.Printf("%s %s -> %s\n", fontName, test.In, test.Out)
+				exportFont(info, testIdx+1, test.In)
 			}
 
-			seq := make([]glyph.Info, len(test.in))
-			for i, r := range test.in {
-				seq[i].GID = cmap.Lookup(r)
+			seq := make([]glyph.Info, len(test.In))
+			for i, r := range test.In {
+				seq[i].GID = fontGen.CMap.Lookup(r)
 				seq[i].Text = []rune{r}
 			}
-			lookups := gsub.FindLookups(language.AmericanEnglish, nil)
+			lookups := info.Gsub.FindLookups(language.AmericanEnglish, nil)
 			for _, lookupIndex := range lookups {
-				seq = gsub.LookupList.ApplyLookup(seq, lookupIndex, gdef)
+				seq = info.Gsub.LookupList.ApplyLookup(seq, lookupIndex, info.Gdef)
 			}
 
 			var textRunes []rune
 			var outRunes []rune
 			for _, g := range seq {
 				textRunes = append(textRunes, g.Text...)
-				outRunes = append(outRunes, rev[g.GID])
+				outRunes = append(outRunes, fontGen.Rev[g.GID])
 			}
 			text := string(textRunes)
 			out := string(outRunes)
 
-			expectedText := test.text
+			expectedText := test.Text
 			if expectedText == "" {
-				expectedText = test.in
+				expectedText = test.In
 			}
-			// fmt.Printf("test%04d.otf %s -> %s\n", testIdx+1, test.in, test.out)
-			if out != test.out {
-				t.Errorf("expected output %q, got %q", test.out, out)
+			fmt.Printf("%s (test%04d.otf) %s -> %s\n",
+				t.Name(), testIdx+1, test.In, test.Out)
+			if out != test.Out {
+				t.Errorf("expected output %q, got %q", test.Out, out)
 			} else if text != expectedText {
 				t.Errorf("expected text %q, got %q", expectedText, text)
 			}
@@ -119,8 +128,8 @@ func TestGsub(t *testing.T) {
 }
 
 func FuzzGsub(f *testing.F) {
-	for _, test := range gsubTestCases {
-		f.Add(test.desc, test.in)
+	for _, test := range testcases.Gsub {
+		f.Add(test.Desc, test.In)
 	}
 
 	fontInfo := debug.MakeSimpleFont()
@@ -181,8 +190,6 @@ func FuzzGsub(f *testing.F) {
 	})
 }
 
-var exportFonts = flag.Bool("export-fonts", false, "export fonts used in tests")
-
 func exportFont(fontInfo *sfnt.Font, idx int, in string) {
 	if !*exportFonts {
 		return
@@ -207,845 +214,4 @@ func exportFont(fontInfo *sfnt.Font, idx int, in string) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-type gsubTestCase struct {
-	desc    string
-	in, out string
-	text    string // text content, if different from `in`
-}
-
-var gsubTestCases = []gsubTestCase{
-	{ // test0001.odf
-		desc: "GSUB1: A->X, C->Z",
-		in:   "ABC",
-		out:  "XBZ",
-	},
-	{
-		desc: "GSUB1: A->B, B->A",
-		in:   "ABC",
-		out:  "BAC",
-	},
-	{
-		desc: "GSUB1: -base A->B, B->A",
-		in:   "ABC",
-		out:  "BBC",
-	},
-	{
-		desc: "GSUB1: -marks A->B, M->N",
-		in:   "AAMBA",
-		out:  "BBMBB",
-	},
-
-	{
-		desc: `GSUB2: A->A A`,
-		in:   "AA",
-		out:  "AAAA",
-	},
-	{
-		desc: `GSUB2: -marks A -> "ABA", M -> A`,
-		in:   "ABMA",
-		out:  "ABABMABA",
-	},
-
-	{
-		desc: `GSUB3: A -> [B C D]`,
-		in:   "AB",
-		out:  "BB",
-	},
-	{
-		desc: `GSUB3: -marks A -> [B C], M -> [B C]`,
-		in:   "AM",
-		out:  "BM",
-	},
-	{
-		desc: `GSUB3: A -> []`,
-		in:   "AB",
-		out:  "AB",
-	},
-
-	{
-		desc: `GSUB4: "BA" -> B`,
-		in:   "ABAABA",
-		out:  "ABAB",
-	},
-	{
-		desc: `GSUB4: "AAA" -> "B", "AA" -> "C", "A" -> "D"`,
-		in:   "AAAAAXA",
-		out:  "BCXD",
-	},
-	{
-		desc: `GSUB4: -marks "AAA" -> "X"`,
-		in:   "AAABMAAACAMAADAAMAEAAAM",
-		out:  "XBMXCXMDXMEXM",
-		text: "AAABMAAACAAAMDAAAMEAAAM",
-	},
-	{
-		desc: `GSUB4: -marks "AAA" -> "C", "AA" -> "B"`,
-		in:   "AAAMAMAMAAA",
-		out:  "CMCMMB",
-		text: "AAAMAAAMMAA",
-	},
-
-	{
-		desc: `GSUB5: "AAA" -> 3@2 1@0 2@1
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		in:  "AAA",
-		out: "XYZ",
-	},
-	{ // test0011.odf
-		desc: `GSUB5: "XXX" -> 1@0
-				GSUB1: "X" -> "A"`,
-		in:  "XXXXXXXX",
-		out: "AXXAXXXX",
-	},
-	{
-		desc: `GSUB5: "ABC" -> 1@0 1@1 1@2
-				GSUB1: "B" -> "X"`,
-		in:  "ABC",
-		out: "AXC",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: "AAAA" -> 1@0 4@2 3@1 2@0
-				GSUB4: "AA" -> "A"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		in:  "AAAA",
-		out: "XYZ",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: "AAA" -> 1@0 4@2 3@1 2@0
-				GSUB2: "A" -> "AA"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		in:  "AAA",
-		out: "XYZA",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: "AAA" -> 1@0 5@2 4@1 3@0
-				GSUB5: "AA" -> 2@1
-				GSUB2: "A" -> "AA"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		in:  "AAA",
-		out: "XYZA",
-	},
-
-	//
-	// ------------------------------------------------------------------
-	// Testing glyph positions in recursive lookups, in particular when the
-	// sequence length changes:
-	//
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: "AA" -> 1@0 2@0
-				GSUB1: "A" -> "B"
-				GSUB1: "A" -> "X", "B" -> "X"`,
-		in:  "AA",
-		out: "XA",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: "AA" -> 1@0 2@0
-				GSUB2: "A" -> "B"
-				GSUB1: "A" -> "X", "B" -> "X"`,
-		in:  "AA",
-		out: "XA",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: "AA" -> 1@0 2@0
-				GSUB4: "A" -> "B"
-				GSUB1: "A" -> "X", "B" -> "X"`,
-		in:  "AA",
-		out: "XA",
-	},
-	//
-	// The same, but with one more level of nesting.
-	{
-		desc: `GSUB5: "AA" -> 1@0 3@0
-				GSUB5: "A" -> 2@0
-				GSUB1: "A" -> "B"
-				GSUB1: "A" -> "X", "B" -> "X"`,
-		in:  "AA",
-		out: "XA",
-	},
-	{
-		desc: `GSUB5: "AA" -> 1@0 3@0
-				GSUB5: "A" -> 2@0
-				GSUB2: "A" -> "B"
-				GSUB1: "A" -> "X", "B" -> "X"`,
-		in:  "AA",
-		out: "XA",
-	},
-	{
-		desc: `GSUB5: "AA" -> 1@0 3@0
-				GSUB5: "A" -> 2@0
-				GSUB4: "A" -> "B"
-				GSUB1: "A" -> "X", "B" -> "X"`,
-		in:  "AA",
-		out: "XA",
-	},
-	//
-	// ... and with ligatures ignored
-	{
-		desc: `GSUB5: -ligs "AA" -> 1@0 3@0
-				GSUB5: "A" -> 2@0
-				GSUB1: "A" -> "B"
-				GSUB1: "A" -> "X", "B" -> "X"`,
-		in:  "ALA",
-		out: "XLA",
-	},
-	{
-		desc: `GSUB5: -ligs "AA" -> 1@0 3@0
-				GSUB5: "AL" -> 2@0
-				GSUB1: "A" -> "B"
-				GSUB1: "A" -> "X", "B" -> "X"`,
-		in:  "ALA",
-		out: "XLA",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: -ligs "AA" -> 1@0 3@1
-				GSUB5: "AL" -> 2@0
-				GSUB2: "A" -> "BB"
-				GSUB1: "A" -> "Y", "B" -> "Y"`,
-		in:  "ALA",
-		out: "BYLA",
-	},
-
-	// everything above currently passes ---------------------------------
-
-	// Check under which circumstances new glyphs are added to the
-	// input sequence.
-
-	// ------------------------------------------------------------------
-	// single glyphs:
-	//   A: yes
-	//   M: no
-
-	// We have seen above that if a normal glyph is replaced, the
-	// replacement IS added to the input sequence.
-
-	// If a single ignored glyph is replaced, the replacement is NOT added
-	// to the input sequence:
-	{ // ALA -> ABA -> ABX
-		// harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: -ligs "AA" -> 1@0 3@1
-				GSUB5: "ALA" -> 2@1
-				GSUB4: "L" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "ALA",
-		out: "ABX",
-	},
-	{ // ALA -> ABBA -> ...
-		// harfbuzz: AYBA, Mac: ABYA, Windows: ABBY
-		desc: `GSUB5: -ligs "AA" -> 1@0 3@1
-				GSUB5: "AL" -> 2@1
-				GSUB2: "L" -> "BB"
-				GSUB1: "A" -> "Y", "B" -> "Y"`,
-		in:  "ALA",
-		out: "ABBY",
-	},
-
-	// ------------------------------------------------------------------
-	// pairs:
-	//   AA: yes
-	//   MA: yes
-	//   AM: mixed????
-	//   MM: no
-
-	// When a pair of normal glyphs is replaced, the replacement IS added.
-	{ // AAA -> AB -> ...
-		// harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: -ligs "AAA" -> 1@0 3@1
-				GSUB5: "AAA" -> 2@1
-				GSUB4: "AA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AAA",
-		out: "AY",
-	},
-
-	{ // ALA -> AB -> ...
-		// harfbuzz: AB, Mac: AB, Windows: AY -> yes
-		desc: `GSUB5: -ligs "AA" -> 1@0 3@1
-				GSUB5: "ALA" -> 2@1
-				GSUB4: "LA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "ALA",
-		out: "AY",
-	},
-
-	// normal+ignored
-	{ // harfbuzz: , Mac: YAA, Windows: YAA -> yes
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@0
-				GSUB5: "AM" -> 2@0
-				GSUB4: "AM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAA",
-		out: "YAA",
-	},
-	// { // harfbuzz: AXA, Mac: AXA, Windows: AAX -> no ????????????????????
-	// 	desc: `GSUB5: -marks "AAA" -> 1@1 2@1
-	// 			GSUB4: "AM" -> "A"
-	// 			GSUB1: "A" -> "X"`,
-	// 	in:  "AAMA",
-	// 	out: "AAX",
-	// },
-	// { // harfbuzz: AXA, Mac: AXA, Windows: AAX -> no ????????????????????
-	// 	desc: `GSUB5: -marks "ALA" -> 1@1 2@1
-	// 			GSUB4: "LM" -> "A"
-	// 			GSUB1: "A" -> "X"`,
-	// 	in:  "ALMA",
-	// 	out: "AAX",
-	// },
-
-	// When a pair of ignored glyphs is replaced, the replacement is NOT
-	// added.
-	{ // ALLA -> ABA -> ...
-		// harfbuzz: ABA, Mac: ABX, Windows: ABX -> no
-		desc: `GSUB5: -ligs "AA" -> 1@0 3@1
-				GSUB5: "ALL" -> 2@1
-				GSUB4: "LL" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "ALLA",
-		out: "ABX",
-	},
-
-	// ------------------------------------------------------------------
-	// triples:
-	//   AAA: (I assume yes)
-	//   AAM: yes
-	//   AMA: yes
-	//   AMM: yes
-	//   MAA: yes
-	//   MAM: no
-	//   MMA: yes
-	//   MMM: no
-
-	{ // harfbuzz: YA, Mac: YA, Windows: YA -> included
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@0
-				GSUB5: "AAM" -> 2@0
-				GSUB4: "AAM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AAMA",
-		out: "YA",
-	},
-
-	{ // harfbuzz: YA, Mac: YA, Windows: YA -> included
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@0
-				GSUB5: "AMA" -> 2@0
-				GSUB4: "AMA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAA",
-		out: "YA",
-	},
-	{ // harfbuzz: ABA, Mac: AYA, Windows: AYA -> included
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@1
-				GSUB5: "AAMA" -> 2@1
-				GSUB4: "AMA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AAMAA",
-		out: "AYA",
-	},
-	{ // harfbuzz: ABX, Mac: AYA, Windows: AYA -> included
-		desc: `GSUB5: -marks "AAAA" -> 1@0 3@1
-				GSUB5: "AAMA" -> 2@1
-				GSUB4: "AMA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AAMAA",
-		out: "AYA",
-	},
-
-	{ // harfbuzz: YAA, Mac: YAA, Windows: YAA -> included
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@0
-				GSUB5: "AMM" -> 2@0
-				GSUB4: "AMM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMMAA",
-		out: "YAA",
-	},
-
-	{ // harfbuzz: AB, Mac: AB, Windows: AY -> included
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@1
-				GSUB5: "AMAA" -> 2@1
-				GSUB4: "MAA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAA",
-		out: "AY",
-	},
-
-	{ // harfbuzz: ABA, Mac: ABX, Windows: ABX -> not included
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@1
-				GSUB5: "AMAM" -> 2@1
-				GSUB4: "MAM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAMA",
-		out: "ABX",
-	},
-	{ // ALALA -> ABA -> ...
-		// harfbuzz: ABA, Mac: ABX, Windows: ABX -> not included
-		desc: `GSUB5: -ligs "AAA" -> 1@0 3@1
-				GSUB5: "ALALA" -> 2@1
-				GSUB4: "LAL" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "ALALA",
-		out: "ABX",
-	},
-
-	{ // harfbuzz: ABA, Mac: ABX, Windows: AYA -> included
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@1
-				GSUB5: "AMMA" -> 2@1
-				GSUB4: "MMA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMMAA",
-		out: "AYA",
-	},
-
-	{ // harfbuzz: ABAA, Mac: ABXA, Windows: ABXA -> not included
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@1
-				GSUB5: "AMMM" -> 2@1
-				GSUB4: "MMM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMMMAA",
-		out: "ABXA",
-	},
-
-	// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-	// sequences of length 4
-	//   AAAA -> (yes, I guess)
-	//   AAAM
-	//   AAMA
-	//   AAMM
-	//   AMAA
-	//   AMAM yes
-	//   AMMA
-	//   AMMM yes
-	//   MAAA
-	//   MAAM no
-	//   MAMA yes
-	//   MAMM no
-	//   MMAA
-	//   MMAM no
-	//   MMMA
-	//   MMMM -> (no, I guess)
-
-	{ // harfbuzz: , Mac: YA, Windows: YA -> yes
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@0
-				GSUB5: "AMAM" -> 2@0
-				GSUB4: "AMAM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAMA",
-		out: "YA",
-	},
-
-	{ // harfbuzz: , Mac: YAA, Windows: YAA -> yes
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@0
-				GSUB5: "AMMM" -> 2@0
-				GSUB4: "AMMM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMMMAA",
-		out: "YAA",
-	},
-
-	{ // harfbuzz: , Mac: ABX, Windows: ABX -> no
-		desc: `GSUB5: -marks "AAAA" -> 1@0 3@1
-				GSUB5: "AMAAM" -> 2@1
-				GSUB4: "MAAM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAAMA",
-		out: "ABX",
-	},
-
-	{ // harfbuzz: , Mac: AB, Windows: AY -> yes
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@1
-				GSUB5: "AMAMA" -> 2@1
-				GSUB4: "MAMA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAMA",
-		out: "AY",
-	},
-
-	{ // harfbuzz: , Mac: ABX, Windows: ABX -> no
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@1
-				GSUB5: "AMAMM" -> 2@1
-				GSUB4: "MAMM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAMMA",
-		out: "ABX",
-	},
-
-	{ // harfbuzz: , Mac: ABX, Windows: ABX -> no
-		desc: `GSUB5: -marks "AAA" -> 1@0 3@1
-				GSUB5: "AMMAM" -> 2@1
-				GSUB4: "MMAM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMMAMA",
-		out: "ABX",
-	},
-
-	// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-	// The difference between the following two cases is mysterious to me.
-
-	{ // harfbuzz: YAA, Mac: YAA, Windows: YAA -> yes
-		desc: `GSUB5: -marks "AAA" -> 1@0 2@0
-				GSUB4: "AM" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMAA",
-		out: "YAA",
-	},
-	// { // harfbuzz: AYA, Mac: AYA, Windows: ABX -> no ????????????????????
-	// 	desc: `GSUB5: -marks "AAA" -> 1@1 2@1
-	// 			GSUB4: "AM" -> "B"
-	// 			GSUB1: "A" -> "X", "B" -> "Y"`,
-	// 	in:  "AAMA",
-	// 	out: "ABX",
-	// },
-
-	// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-	// longer:
-	//   MMMAAA -> yes
-	//   MMAMAA -> yes
-
-	{ // harfbuzz: ABA, Mac: ABX, Windows: AYA -> included
-		desc: `GSUB5: -marks "AAAAA" -> 1@0 3@1
-				GSUB5: "AMMMAAA" -> 2@1
-				GSUB4: "MMMAAA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMMMAAAA",
-		out: "AYA",
-	},
-
-	{ // harfbuzz: ABA, Mac: ABX, Windows: AYA -> included
-		desc: `GSUB5: -marks "AAAAA" -> 1@0 3@1
-				GSUB5: "AMMAMAA" -> 2@1
-				GSUB4: "MMAMAA" -> "B"
-				GSUB1: "A" -> "X", "B" -> "Y"`,
-		in:  "AMMAMAAA",
-		out: "AYA",
-	},
-
-	// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-	// {
-	// 	// ALMA -> AAA -> ...
-	// 	// harfbuzz: AXA, Mac: AXY, Windows: AAY ????????????????????????
-	// 	desc: `GSUB5: -ligs -marks "AA" -> 1@0 4@1
-	// 			GSUB5: -marks "ALA" -> 2@1 3@1
-	// 			GSUB4: "LM" -> "A"
-	// 			GSUB1: "A" -> "X"
-	// 			GSUB1: "A" -> "Y", "X" -> "Y"`,
-	// 	in:  "ALMA",
-	// 	out: "AAY",
-	// },
-
-	{ // harfbuzz: DEI, Mac: DEI, Windows: DEI
-		desc: `GSUB5: "ABC" -> 1@0 1@2 1@3 2@2
-				GSUB2: "A" -> "DE", "B" -> "FG", "G" -> "H"
-				GSUB4: "FHC" -> "I"`,
-		in:  "ABC",
-		out: "DEI", // ABC -> DEBC -> DEFGC -> DEFHC -> DEI
-	},
-	{ // harfbuzz: AXAAKA, Mac: AAXAKA, Windows: AAAXKA
-		desc: `GSUB5: -ligs "AAA" -> 1@0 2@1 3@1
-				GSUB5: "AK" -> 2@1
-				GSUB2: "K" -> "AA"
-				GSUB1: "A" -> "X", "K" -> "X", "L" -> "X"`,
-		in:  "AKAKA",
-		out: "AAAXKA",
-	},
-	{ //  harfbuzz: AXLAKA, Mac: ALXAKA, Windows: ALLXKA
-		desc: `GSUB5: -ligs "AAA" -> 1@0 2@1 3@1
-				GSUB5: "AK" -> 2@1
-				GSUB2: "K" -> "LL"
-				GSUB1: "A" -> "X", "K" -> "X", "L" -> "X"`,
-		in:  "AKAKA",
-		out: "ALLXKA",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: -ligs "AAA" -> 1@0 5@2 4@1 3@0
-				GSUB5: "AL" -> 2@1
-				GSUB1: "L" -> "A"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		in:  "ALAA",
-		out: "XAYZ",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB5: "AB" -> 1@0 0@0, "AAB" -> 1@0 0@0, "AAAB" -> 1@0 0@0
-				GSUB2: "A" -> "AA"`,
-		in:  "AB",
-		out: "AAAAB",
-	},
-	{ // harfbuzz: XYAZA, Mac: XAYZA, Windows: XAAYZ
-		desc: `GSUB5: -ligs "AAA" -> 1@0 5@2 4@1 3@0
-				GSUB5: "AL" -> 2@1
-				GSUB2: "L" -> "AA"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		in:  "ALAA",
-		out: "XAAYZ",
-	},
-	{ // harfbuzz: XLYZ, Mac: XLYZ, Windows: XLYZA
-		desc: `GSUB5: -ligs "AAAA" -> 1@0 5@2 4@1 3@0
-				GSUB5: "AL" -> 2@1
-				GSUB4: "LA" -> "L"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		in:  "ALAAA",
-		out: "XLYZA",
-	},
-	{ // harfbuzz: AKA, Mac: AKA, Windows: ABAA
-		desc: `GSUB5: -ligs "AAA" -> 1@0
-				GSUB5: "AL" -> 2@1 3@1
-				GSUB4: "LA" -> "K"
-				GSUB1: "L" -> "B"`,
-		in:  "ALAA",
-		out: "ABAA",
-	},
-	{ // harfbuzz: LXLYLZL, Mac: LXLYLZL, Windows: LXLYLZL
-		desc: `GSUB5: -ligs "AAA" -> 3@2 1@0 2@1
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		in:  "LALALAL",
-		out: "LXLYLZL",
-	},
-
-	// { // harfbuzz: LXALX, Mac: LXXX, Windows: LXXAL ???????????????????????
-	// 	desc: `GSUB5: -ligs "AAA" -> 1@0 1@1 1@2
-	// 			GSUB4: "AL" -> "X"`,
-	// 	in:  "LALALAL",
-	// 	out: "LXXAL",
-	// },
-	// { // Mac: LALALX, Windows: LALALAL ????????????????????????????????????
-	// 	desc: `GSUB5: -ligs "AAA" -> 1@2
-	// 			GSUB4: "AL" -> "X"`,
-	// 	in:  "LALALAL",
-	// 	out: "LALALAL",
-	// },
-	{ // Mac: LALALXB, Windows: LALALXB -> "AL" WAS added to input here
-		desc: `GSUB5: -ligs "AAA" -> 1@2
-				GSUB4: "AL" -> "X"`,
-		in:  "LALALALB",
-		out: "LALALXB",
-	},
-	{ // Mac: ABXD, Windows: ABXD -> "CL" was added to input here
-		desc: `GSUB5: -ligs "ABC" -> 1@2
-			GSUB4: C L -> X`,
-		in:  "ABCLD",
-		out: "ABXD",
-	},
-
-	{ // Mac: XCEAAAAXFBCAACX, Windows: XCEAAAAXFBCAACX
-		desc: `GSUB5:
-				"ACE" -> 1@0 ||
-				class :AB: = [A B]
-				class :CD: = [C D]
-				class :EF: = [E F]
-				/A B/ :AB: :CD: :EF: -> 1@1 ||
-				class :AB: = [A B]
-				/A/ :AB: :: :AB: -> 1@2
-			GSUB1: A -> X, B -> X, C -> X, D -> X, E -> X, F -> X`,
-		in:  "ACEAAAACFBCAACB",
-		out: "XCEAAAAXFBCAACX",
-	},
-
-	{ // Mac: XBCFBCXA, Windows: XBCFBCXA
-		desc: `GSUB5:
-				[A-E] [A B] [C-X] -> 1@0 ||
-				[B-E] [B-E] [A-C] -> 1@1
-			GSUB1: A -> X, B -> X, C -> X, D -> X, E -> X, F -> X`,
-		in:  "ABCFBCEA",
-		out: "XBCFBCXA",
-	},
-	{ // Mac: X, Windows: X
-		desc: `GSUB5: -ligs
-				class :A: = [A]
-				/A/ :A: -> 1@0
-			GSUB4: A L -> X`,
-		in:  "AL",
-		out: "X",
-	},
-
-	// lookup rules with context
-
-	{
-		desc: `GSUB6: A B | C D | E F -> 1@0
-			GSUB1: C -> X`,
-		in:  "ABCDEF",
-		out: "ABXDEF",
-	},
-	{
-		desc: `GSUB6: A B | C D | E F -> 1@0
-			GSUB1: C -> X`,
-		in:  "ABCDE",
-		out: "ABCDE",
-	},
-	{
-		desc: `GSUB6: A B | C D | E F -> 1@0
-			GSUB1: C -> X`,
-		in:  "ABC",
-		out: "ABC",
-	},
-	{
-		desc: `GSUB6: A | A | A -> 1@0, X | A | A -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAAA",
-		out: "AXXXXA",
-	},
-	{
-		desc: `GSUB6: | A | A -> 1@0, | A | A -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAAA",
-		out: "XXXXXA",
-	},
-	{
-		desc: `GSUB6: A | A | -> 1@0, X | A | -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAAA",
-		out: "AXXXXX",
-	},
-	{
-		desc: `GSUB6: -ligs A | B B | A -> 1@0 2@0
-			GSUB4: -ligs B B -> X
-			GSUB1: X -> Y`,
-		in:   "ABBALBLBLA",
-		out:  "AYALYLLA",
-		text: "ABBALBBLLA",
-	},
-	{ // harfbuzz: AX, Mac: AX, Windows: ABB
-		desc: `GSUB6: A | B | B -> 1@0
-			GSUB4: B B -> X`,
-		in:  "ABB",
-		out: "ABB",
-	},
-	{ // harfbuzz, Mac and Windows agree on this
-		desc: `GSUB6: B | C | D -> 1@0
-			GSUB6: A B | C | D E -> 2@0
-			GSUB4: C -> X`,
-		in:  "ABCDE",
-		out: "ABXDE",
-	},
-	{
-		desc: `GSUB6: -ligs A | A A | A -> 1@0
-			GSUB4: A L A -> X`,
-		in:  "AALAA",
-		out: "AXA",
-	},
-	{
-		desc: `GSUB6: -ligs A | A | A -> 1@0
-			GSUB4: A L A -> X`,
-		in:  "AALA",
-		out: "AALA",
-	},
-	{
-		desc: `GSUB6: -ligs A | A | A -> 1@0
-			GSUB4: A L -> X`,
-		in:  "AALA",
-		out: "AXA",
-	},
-
-	{
-		desc: `GSUB6:
-				backtrackclass :all: = [A - Z]
-				inputclass :A: = [A B]
-				inputclass :C: = [C D]
-				inputclass :E: = [E F]
-				lookaheadclass :all: = [A - Z]
-				/E F/ :all: | :E: :C: :A: | :all: -> 1@0
-			GSUB1: F -> X`,
-		in:  "GFDBK",
-		out: "GXDBK",
-	},
-	{
-		desc: `GSUB6:
-				backtrackclass :A: = [A]
-				backtrackclass :B: = [B]
-				backtrackclass :C: = [C]
-				inputclass :D: = [D]
-				inputclass :E: = [E]
-				inputclass :F: = [F]
-				lookaheadclass :G: = [G]
-				lookaheadclass :H: = [H]
-				lookaheadclass :I: = [I]
-				/D/ :A: :B: :C: | :D: :E: :F: | :G: :H: :I: -> 1@0
-			GSUB1: D -> X`,
-		in:  "ABCDEFGHI",
-		out: "ABCXEFGHI",
-	},
-	{
-		desc: `GSUB6:
-				backtrackclass :A: = [A X]
-				inputclass :A: = [A]
-				lookaheadclass :A: = [A]
-				/A/ :A: | :A: | :A: -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAA",
-		out: "AXXXA",
-	},
-	{
-		desc: `GSUB6:
-				backtrackclass :A: = [A X]
-				inputclass :A: = [A]
-				/A/ :A: | :A: | -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAA",
-		out: "AXXXX",
-	},
-	{
-		desc: `GSUB6:
-				inputclass :A: = [A]
-				lookaheadclass :A: = [A]
-				/A/ | :A: | :A: -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAA",
-		out: "XXXXA",
-	},
-	{
-		desc: `GSUB6: -ligs
-				backtrackclass :A: = [A]
-				inputclass :LM: = [L M]
-				lookaheadclass :A: = [A]
-				/L M/ :A: | :LM: | :A: -> 1@0
-			GSUB1: L -> X, M -> X`,
-		in:  "ALAMA",
-		out: "ALAXA",
-	},
-
-	{
-		desc: `GSUB6:
-				[A X] | [A] | [A] -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAA",
-		out: "AXXXA",
-	},
-	{
-		desc: `GSUB6:
-				| [A] | [A] -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAA",
-		out: "XXXXA",
-	},
-	{
-		desc: `GSUB6:
-				[A X] | [A] | -> 1@0
-			GSUB1: A -> X`,
-		in:  "AAAAA",
-		out: "AXXXX",
-	},
-	{
-		desc: `GSUB6: -ligs
-				[A] | [L M] | [A] -> 1@0
-			GSUB1: L -> X, M -> X`,
-		in:  "ALAMALMLA",
-		out: "ALAXALXLA",
-	},
 }

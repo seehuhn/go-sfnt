@@ -1198,8 +1198,8 @@ func (p *parser) readGlyph() glyph.ID {
 	return gids[0]
 }
 
-func (p *parser) readNestedLookups() gtab.SeqLookups {
-	var res gtab.SeqLookups
+func (p *parser) readNestedLookups() []gtab.SeqLookup {
+	var res []gtab.SeqLookup
 	for {
 		item := p.readItem()
 		if item.typ != itemInteger {

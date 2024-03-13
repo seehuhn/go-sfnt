@@ -32,6 +32,7 @@ import (
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/os2"
 )
 
 // MakeSimpleFont creates a simple font for use in unit tests.
@@ -215,22 +216,28 @@ func MakeSimpleFont() *sfnt.Font {
 
 	now := time.Now()
 	res := &sfnt.Font{
-		FamilyName:       "Debug",
-		Width:            info.Width,
-		Weight:           info.Weight,
+		FamilyName: "Debug",
+		Width:      info.Width,
+		Weight:     info.Weight,
+		IsRegular:  true,
+
+		CodePageRange: 1 << os2.CP1252,
+
 		Version:          0,
 		CreationTime:     now,
 		ModificationTime: now,
 
-		UnitsPerEm:         info.UnitsPerEm,
-		Ascent:             info.Ascent,
-		Descent:            info.Descent,
-		LineGap:            info.LineGap,
-		CapHeight:          info.CapHeight,
-		XHeight:            info.XHeight,
+		UnitsPerEm: info.UnitsPerEm,
+		FontMatrix: info.FontMatrix,
+
+		Ascent:    info.Ascent,
+		Descent:   info.Descent,
+		LineGap:   info.LineGap,
+		CapHeight: info.CapHeight,
+		XHeight:   info.XHeight,
+
 		UnderlinePosition:  info.UnderlinePosition,
 		UnderlineThickness: info.UnderlineThickness,
-		IsRegular:          true,
 
 		Outlines: newOutlines,
 	}

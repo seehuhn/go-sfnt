@@ -28,7 +28,7 @@ import (
 
 type debugNestedLookup struct {
 	matchPos []int
-	actions  SeqLookups
+	actions  []SeqLookup
 }
 
 func (l *debugNestedLookup) Apply(_ *KeepFunc, seq []glyph.Info, a, b int) *Match {
@@ -72,7 +72,7 @@ func TestNestedSimple(t *testing.T) {
 		{[]int{1, 3}, []glyph.ID{1, 1, 2, 1, 1, 3, 3}},
 	}
 	for _, test := range cases {
-		var nested SeqLookups
+		var nested []SeqLookup
 		for _, seqenceIndex := range test.sequenceIndex {
 			nested = append(nested, SeqLookup{
 				SequenceIndex:   uint16(seqenceIndex),
