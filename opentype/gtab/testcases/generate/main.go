@@ -17,11 +17,16 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"seehuhn.de/go/sfnt"
@@ -41,6 +46,11 @@ func run() error {
 		return err
 	}
 
+	cp, err := newCopier()
+	if err != nil {
+		return err
+	}
+
 	for i := range testcases.Gsub {
 		info, err := fontGen.GsubTestFont(i)
 		if err != nil {
@@ -49,15 +59,38 @@ func run() error {
 
 		c := testcases.Gsub[i]
 
-		err = runOne(info, c)
+		err = cp.run()
+		if err != nil {
+			return err
+		}
+
+		err = runOne(info, c, cp)
 		if err != nil {
 			return err
 		}
 	}
+
+	err = cp.run()
+	if err != io.EOF {
+		if err != nil {
+			return err
+		}
+		panic("copier out of sync")
+	}
+
+	err = os.WriteFile("gsub.go", cp.out.Bytes(), 0644)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func runOne(info *sfnt.Font, test *testcases.GsubTestCase) error {
+func runOne(info *sfnt.Font, test *testcases.GsubTestCase, cp *copier) error {
+	if test.Text == test.In {
+		return errors.New("test.Text == test.In")
+	}
+
 	dir, err := os.MkdirTemp("", "example")
 	if err != nil {
 		log.Fatal(err)
@@ -88,7 +121,7 @@ func runOne(info *sfnt.Font, test *testcases.GsubTestCase) error {
 	}
 	hbOut := repl.Replace(string(outBytes))
 
-	cmd = exec.Command("./macos/test-gsub", fontPath, test.In)
+	cmd = exec.Command("./generate/macos/test-gsub", fontPath, test.In)
 	outBytes, err = cmd.Output()
 	if err != nil {
 		return err
@@ -97,7 +130,7 @@ func runOne(info *sfnt.Font, test *testcases.GsubTestCase) error {
 
 	warn := ""
 	if test.Out != hbOut && test.Out != macOut {
-		warn = " // (!!!)"
+		warn = "(!!!)"
 	} else {
 		if hbOut != test.Out {
 			hbOut += " (!!!)"
@@ -107,12 +140,95 @@ func runOne(info *sfnt.Font, test *testcases.GsubTestCase) error {
 		}
 	}
 
-	fmt.Printf("\t{ // harfbuzz: %s, Mac: %s\n", hbOut, macOut)
-	fmt.Printf("\t\tDesc: `%s`,\n", test.Desc)
-	fmt.Printf("\t\tIn:   %q,\n", test.In)
-	fmt.Printf("\t\tOut:  %q,%s\n", test.Out, warn)
-	fmt.Println("\t},")
+	m := lineRe.FindStringSubmatch(cp.line)
+	if m != nil {
+		if m[1] == ", Windows:" {
+			m[1] = ""
+		}
+		cp.line = fmt.Sprintf("\t{ // harfbuzz: %s, Mac: %s%s",
+			hbOut, macOut, m[1])
+	} else {
+		cp.line = fmt.Sprintf("\t{ // harfbuzz: %s, Mac: %s",
+			hbOut, macOut)
+	}
+	cp.warn = warn
+
 	return nil
 }
 
 var repl = strings.NewReplacer("[", "", "|", "", "]", "", "\n", "")
+
+var (
+	lineRe    = regexp.MustCompile(`//.*([,;] [wW]indows.*)$`)
+	commentRe = regexp.MustCompile(`\s*(//.*)?$`)
+)
+
+type copier struct {
+	in  io.ReadCloser
+	s   *bufio.Scanner
+	out *bytes.Buffer
+
+	inBody bool
+	line   string
+	warn   string
+
+	sec int
+	idx int
+}
+
+func newCopier() (*copier, error) {
+	file, err := os.Open("gsub.go")
+	if err != nil {
+		return nil, err
+	}
+
+	scanner := bufio.NewScanner(file)
+
+	return &copier{
+		in:  file,
+		s:   scanner,
+		out: &bytes.Buffer{},
+	}, nil
+}
+
+func (c *copier) run() error {
+	if c.inBody {
+		c.out.WriteString(c.line)
+		c.out.WriteByte('\n')
+		fmt.Fprintf(c.out, "\t\tName: \"%d_%02d\",\n", c.sec, c.idx)
+	}
+	for c.s.Scan() {
+		c.line = c.s.Text()
+		trimmed := strings.TrimSpace(c.line)
+		if c.inBody {
+			if strings.HasPrefix(trimmed, "{") {
+				c.idx++
+				c.warn = ""
+				return nil
+			} else if strings.HasPrefix(trimmed, "Name: ") {
+				continue
+			} else if strings.HasPrefix(trimmed, "Out: ") {
+				warn := c.warn
+				if warn != "" {
+					warn = " // " + warn
+				}
+				c.line = commentRe.ReplaceAllString(c.line, warn)
+			} else if strings.HasPrefix(trimmed, "// SECTION") {
+				c.sec++
+				c.idx = 0
+			}
+		}
+		c.out.WriteString(c.line)
+		c.out.WriteByte('\n')
+
+		if strings.Contains(c.line, "// START OF TEST CASES") {
+			c.inBody = true
+		} else if strings.Contains(c.line, "// END OF TEST CASES") {
+			c.inBody = false
+		}
+	}
+	if err := c.s.Err(); err != nil {
+		return err
+	}
+	return io.EOF
+}

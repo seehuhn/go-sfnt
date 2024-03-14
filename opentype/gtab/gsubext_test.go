@@ -81,16 +81,16 @@ func TestGsub(t *testing.T) {
 	}
 
 	for testIdx, test := range testcases.Gsub {
-		t.Run(fmt.Sprintf("%02d", testIdx+1), func(t *testing.T) {
+		t.Run(test.Name, func(t *testing.T) {
 			info, err := fontGen.GsubTestFont(testIdx)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			if *exportFonts {
-				fontName := fmt.Sprintf("test%04d.otf", testIdx+1)
+				fontName := fmt.Sprintf("test%s.otf", test.Name)
 				fmt.Printf("%s %s -> %s\n", fontName, test.In, test.Out)
-				exportFont(info, testIdx+1, test.In)
+				exportFont(info, test.Name, test.In)
 			}
 
 			seq := make([]glyph.Info, len(test.In))
@@ -190,18 +190,18 @@ func FuzzGsub(f *testing.F) {
 	})
 }
 
-func exportFont(fontInfo *sfnt.Font, idx int, in string) {
+func exportFont(fontInfo *sfnt.Font, name string, in string) {
 	if !*exportFonts {
 		return
 	}
 
-	fontInfo.FamilyName = fmt.Sprintf("Test%04d", idx)
+	fontInfo.FamilyName = fmt.Sprintf("Test%s", name)
 	now := time.Now()
 	fontInfo.CreationTime = now
 	fontInfo.ModificationTime = now
 	fontInfo.SampleText = in
 
-	fname := fmt.Sprintf("test%04d.otf", idx)
+	fname := fmt.Sprintf("test%s.otf", name)
 	fd, err := os.Create(fname)
 	if err != nil {
 		panic(err)

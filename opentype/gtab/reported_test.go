@@ -120,7 +120,7 @@ func Test9737(t *testing.T) {
 		t.Errorf("unexpected glyphs (-want +got):\n%s", diff)
 	}
 
-	exportFont(fontInfo, 9737, "")
+	exportFont(fontInfo, "9737", "")
 }
 
 // Test9738 tests a situation where HarfBuzz and MS Word disagree.
@@ -239,7 +239,7 @@ func Test9738(t *testing.T) {
 		t.Errorf("unexpected glyphs (-want +got):\n%s", diff)
 	}
 
-	exportFont(fontInfo, 9738, "ABAAAB")
+	exportFont(fontInfo, "9738", "ABAAAB")
 }
 
 func unpack(seq []glyph.Info) []glyph.ID {

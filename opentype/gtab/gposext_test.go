@@ -85,13 +85,14 @@ func TestGpos(t *testing.T) {
 				LookupList: lookupList,
 			}
 
-			fontName := fmt.Sprintf("test%04d.otf", testIdx+501)
+			testName := fmt.Sprintf("%04d", testIdx+501)
+			fontName := "test" + testName + ".otf"
 			if *exportFonts {
 				fmt.Printf("%s %s\n", fontName, test.in)
 
 				fontInfo.Gdef = gdefTable
 				fontInfo.Gpos = gpos
-				exportFont(fontInfo, testIdx+501, test.in)
+				exportFont(fontInfo, testName, test.in)
 			}
 
 			seq := make([]glyph.Info, len(test.in))
