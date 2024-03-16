@@ -331,115 +331,192 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	// ------------------------------------------------------------------
-	// SECTION 3: Testing glyph positions in recursive lookups where the
+	// SECTION 3: Testing lookup positions in recursive lookups where the
 	// sequence length changes.
 
-	// The positions for chained actions are interpreted at the time the child
-	// action is run, not when the parent lookup is matched:
-	{ // harfbuzz: XYZ, Mac: XYZ
+	// Adding/removing matched glyphs in the parent sequence modifies the input
+	// sequence. The positions for chained actions are interpreted at the time
+	// the child action is run, not when the parent lookup is matched. This is
+	// true, even if the added glyphs would have been ignored during the
+	// original matching.
+
+	// If glyphs are removed, the positions of the following actions are
+	// shifted to make up for the removed glyphs; in the following example,
+	// "Z" indicates position 2 after one of the "A"s has been removed.
+	{ // harfbuzz: AAZA, Mac: AAZA, Windows: AAZA
 		Name: "3_01",
-		Desc: `GSUB5: "AAAA" -> 1@0 2@0 3@1 4@2
+		Desc: `GSUB5: "AAAAA" -> 1@0 2@2
 				GSUB4: "AA" -> "A"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
 				GSUB1: "A" -> "Z"`,
-		In:  "AAAA",
-		Out: "XYZ",
+		In:  "AAAAA",
+		Out: "AAZA",
 	},
-	{ // harfbuzz: VWXYZ, Mac: VWXYZ
+	// If one glyph is replaced with several, the new glyphs count towards
+	// the positions of the following actions.  Here, "X" indicates position 1
+	// after the first "A" has been replaced with "AAA".
+	{ // harfbuzz: AXAA, Mac: AXAA, Windows: AXAA
 		Name: "3_02",
-		Desc: `GSUB5: "AAA" -> 1@1 2@0 3@1 4@2 5@3 6@4
+		Desc: `GSUB5: "AA" -> 1@0 2@1
 				GSUB2: "A" -> "AAA"
-				GSUB1: "A" -> "V"
-				GSUB1: "A" -> "W"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		In:  "AAA",
-		Out: "VWXYZ",
+				GSUB1: "A" -> "X"`,
+		In:  "AA",
+		Out: "AXAA",
 	},
-	// Try additional levels of recursion:
-	{ // harfbuzz: VWXYZ, Mac: VWXYZ, Windows: VWXYZ
+	// In a longer chain of actions, the positions are updated after every
+	// action:
+	{ // harfbuzz: B, Mac: B, Windows: B
 		Name: "3_03",
-		Desc: `GSUB5: "AAA" -> 1@1 1@0 3@0 4@1 5@2 6@3 7@4
-				GSUB5: "AA" -> 2@1
-				GSUB2: "A" -> "AA"
-				GSUB1: "A" -> "V"
-				GSUB1: "A" -> "W"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		In:  "AAA",
-		Out: "VWXYZ",
-	},
-	// The positions are updated after every action:
-	{ // harfbuzz: B, Mac: B, Windows: VWXYZ
-		Name: "3_04",
-		Desc: `GSUB5: "BAAAA" -> 1@0 1@0 1@0 1@0
-				GSUB4: "BA" -> "B"`,
-		In:  "BAAAA",
+		Desc: `GSUB5: "AAAAB" -> 1@3 1@2 1@1 1@0
+				GSUB4: "AB" -> "B"`,
+		In:  "AAAAB",
 		Out: "B",
+	},
+	// The rules apply recursively to child lookups.  Here we first substitute
+	// the middle "A" with "AA", position 1 for this sub-lookup is indicated by
+	// "X" to get "(A)AXA".  Then we mark position 1 in the parent lookup with
+	// "Y" to get "AYXA".
+	{ // harfbuzz: AYXA, Mac: AYXA, Windows: AYXA
+		Name: "3_04",
+		Desc: `GSUB5: "AAA" -> 1@1 4@1
+				GSUB5: "AA" -> 2@0 3@1
+				GSUB2: "A" -> "AA"
+				GSUB1: "A" -> "X"
+				GSUB1: "A" -> "Y"`,
+		In:  "AAA",
+		Out: "AYXA",
+	},
+	// The previous example still works, when ignored glyphs are interspersed
+	// with the sequence:
+	{ // harfbuzz: AMYXMA, Mac: AMYXMA
+		Name: "3_05",
+		Desc: `GSUB5: -marks "AAA" -> 1@1 4@1
+				GSUB5: -marks "AA" -> 2@0 3@1
+				GSUB2: "A" -> "AA"
+				GSUB1: "A" -> "X"
+				GSUB1: "A" -> "Y"`,
+		In:  "AMAMA",
+		Out: "AMYXMA",
+	},
+	// If a normally ignored glyph is introduced, it becomes part of the input
+	// sequence:
+	{ // harfbuzz: AYA, Mac: AYA, Windows: AYA
+		Name: "3_06",
+		Desc: `GSUB5: -marks "AA" -> 1@0 2@1
+				GSUB2: "A" -> "AM"
+				GSUB1: "A" -> "X", "M" -> "Y"`,
+		In:  "AA",
+		Out: "AYA",
+	},
+
+	// Check that matches don't overlap when the length of the sequence changes.
+	{ // harfbuzz: XAAAXAAAXAAA, Mac: XAAAXAAAXAAA
+		Name: "3_07",
+		Desc: `GSUB5: "AA" -> 1@0 2@1
+				GSUB1: "A" -> "X"
+				GSUB2: "A" -> "AAA"`,
+		In:  "AAAAAA",
+		Out: "XAAAXAAAXAAA",
+	},
+	{ // harfbuzz: XAXAXA, Mac: XAXAXA
+		Name: "3_08",
+		Desc: `GSUB5: "AAAA" -> 1@0 2@1
+				GSUB1: "A" -> "X"
+				GSUB4: "AAA" -> "A"`,
+		In:  "AAAAAAAAAAAA",
+		Out: "XAXAXA",
 	},
 
 	// ------------------------------------------------------------------
-	// SECTION 4: Check under which circumstances new glyphs are added to the
-	// input sequence.  The behaviour in some of these cases is not precisely
-	// defined in the OpenType specification, and implementations differ.
+	// SECTION 4: Check situations where a child lookup replaces an ignored
+	// glyph.
 
-	// If a matched glyph is replaced, the replacement always stays in the
-	// input sequence, even if the replacement is in an ignored class of
-	// glyphs.
+	// The behaviour in some of these cases is not precisely defined in the
+	// OpenType specification, and implementations differ.
 
-	{ // harfbuzz: XBZ, Mac: XBZ
+	// If embedded ignored glyphs are removed, this does not affect the
+	// input sequence:
+	{ // harfbuzz: AAX (!!!), Mac: AXA, Windows: AXA
 		Name: "4_01",
-		Desc: `GSUB5: -marks "AAA" -> 1@0 3@0 4@1 5@2
-				GSUB5: "AAA" -> 2@1
-				GSUB1: "A" -> "B"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		In:  "AAA",
-		Out: "XBZ",
+		Desc: `GSUB5: -marks "AAA" -> 1@0 2@1
+				GSUB4: "AM" -> "A"
+				GSUB1: "A" -> "X"`,
+		In:  "AMAA",
+		Out: "AXA",
 	},
-	{ // harfbuzz: XMZ, Mac: XMZ
+	{ // harfbuzz: AAA (!!!), Mac: AXA
 		Name: "4_02",
-		Desc: `GSUB5: -marks "AAA" -> 1@0 3@0 4@1 5@2
-				GSUB5: "AAA" -> 2@1
-				GSUB1: "A" -> "M"
-				GSUB1: "A" -> "X"
-				GSUB1: "A" -> "Y"
-				GSUB1: "A" -> "Z"`,
-		In:  "AAA",
-		Out: "XMZ",
+		Desc: `GSUB5: -marks "AAA" -> 1@0 2@1
+				GSUB4: "AMM" -> "A"
+				GSUB1: "A" -> "X"`,
+		In:  "AMMAA",
+		Out: "AXA",
 	},
 
-	// If only embedded ignored glyphs are replaced, the replacement is never
-	// added to the input sequence.
-
-	{ // harfbuzz: XAY, Mac: XAY, Windows: XAY -> not added
+	// If embedded ignored are replaced, should the replacement be added to the
+	// input sequence?
+	{ // harfbuzz: AAX, Mac: AAX, Windows: AAX -> not added
 		Name: "4_03",
-		Desc: `GSUB5: -marks "AA" -> 1@0 3@0 4@1 5@2
+		Desc: `GSUB5: -marks "AA" -> 1@0 3@1
+				GSUB5: "AM" -> 2@1
+				GSUB1: "M" -> "A"
+				GSUB1: "A" -> "X"`,
+		In:  "AMA",
+		Out: "AAX",
+	},
+	{ // harfbuzz: AXAA, Mac: AAXA, Windows: AAAX -> not added
+		Name: "4_04",
+		Desc: `GSUB5: -marks "AA" -> 1@0 3@1
+				GSUB5: "AM" -> 2@1
+				GSUB2: "M" -> "AA"
+				GSUB1: "A" -> "X"`,
+		In:  "AMA",
+		Out: "AAAX", // (!!!)
+	},
+	{ // harfbuzz: AXAAA, Mac: AAXAX, Windows: AAXAA -> ??????????????????
+		Name: "4_05",
+		Desc: `GSUB5: -marks "AA" -> 1@0 3@1
+				GSUB5: "AM" -> 2@1
+				GSUB2: "M" -> "AAA"
+				GSUB1: "A" -> "X"`,
+		In:  "AMA",
+		Out: "AAAAX", // (!!!)
+	},
+
+	{ // harfbuzz: XAYZA, Mac: XAYZA, Windows: XAYZA
+		Name: "4_06",
+		Desc: `GSUB5: -marks "AAAA" -> 1@0 3@0 4@1 5@2
 				GSUB5: "AMA" -> 2@1
 				GSUB1: "M" -> "A"
 				GSUB1: "A" -> "X"
 				GSUB1: "A" -> "Y"
 				GSUB1: "A" -> "Z"`,
-		In:  "AMA",
-		Out: "XAY",
+		In:  "AMAAA",
+		Out: "XAYZA",
 	},
-	{ // harfbuzz: XAA (!!!), Mac: XAY, Windows: XAY -> not added
-		Name: "4_04",
-		Desc: `GSUB5: -marks "AA" -> 1@0 3@0 4@1 5@2
+	{ // harfbuzz: XYZAAAA, Mac: XAYZAAA, Windows: XAYAZAA -> ?????
+		Name: "4_07",
+		Desc: `GSUB5: -marks "AAAA" -> 1@0 3@0 4@1 5@2
+				GSUB5: "AMA" -> 2@1
+				GSUB2: "M" -> "AAA"
+				GSUB1: "A" -> "X"
+				GSUB1: "A" -> "Y"
+				GSUB1: "A" -> "Z"`,
+		In:  "AMAAA",
+		Out: "XAAAYZA", // (!!!)
+	},
+	{ // harfbuzz: XAAYZ (!!!), Mac: XAYZA, Windows: XAYZA
+		Name: "4_08",
+		Desc: `GSUB5: -marks "AAAA" -> 1@0 3@0 4@1 5@2
 				GSUB5: "AMMA" -> 2@1
 				GSUB4: "MM" -> "A"
 				GSUB1: "A" -> "X"
 				GSUB1: "A" -> "Y"
 				GSUB1: "A" -> "Z"`,
-		In:  "AMMA",
-		Out: "XAY",
+		In:  "AMMAAA",
+		Out: "XAYZA",
 	},
 	{ // harfbuzz: XNY, Mac: XNY, Windows: XNY -> not added
-		Name: "4_05",
+		Name: "4_09",
 		Desc: `GSUB5: -marks "AA" -> 1@0 3@0 4@1 5@2
 				GSUB5: "AMA" -> 2@1
 				GSUB1: "M" -> "N"
@@ -450,7 +527,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XNY",
 	},
 	{ // harfbuzz: XNA (!!!), Mac: XNY, Windows: XNY -> not added
-		Name: "4_06",
+		Name: "4_10",
 		Desc: `GSUB5: -marks "AA" -> 1@0 3@0 4@1 5@2
 				GSUB5: "AMMA" -> 2@1
 				GSUB4: "MM" -> "N"
@@ -469,8 +546,8 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	//   MM: no
 
 	// When a pair of normal glyphs is replaced, the replacement IS added.
-	{ // harfbuzz: XYZ, Mac: XYZ
-		Name: "4_07",
+	{ // harfbuzz: XYZ, Mac: XYZ, Windows: XYZ
+		Name: "4_11",
 		Desc: `GSUB5: -marks "AAAA" -> 1@0 2@0 3@1 4@2
 				GSUB4: "AA" -> "A"
 				GSUB1: "A" -> "X"
@@ -479,8 +556,8 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		In:  "AAAA",
 		Out: "XYZ",
 	},
-	{ // harfbuzz: XYZ, Mac: XYZ
-		Name: "4_08",
+	{ // harfbuzz: XYZ, Mac: XYZ, Windows: XYZ
+		Name: "4_12",
 		Desc: `GSUB5: -marks "AAAA" -> 1@1 2@0 3@1 4@2
 				GSUB4: "AA" -> "A"
 				GSUB1: "A" -> "X"
@@ -491,7 +568,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 	// This works, even if the replacement would normally be ignored:
 	{ // harfbuzz: XYZ, Mac: XYZ
-		Name: "4_09",
+		Name: "4_13",
 		Desc: `GSUB5: -marks "AAAA" -> 1@0 2@0 3@1 4@2
 				GSUB4: "AA" -> "M"
 				GSUB1: "M" -> "X"
@@ -501,7 +578,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XYZ",
 	},
 	{ // harfbuzz: XYZ, Mac: XYZ
-		Name: "4_10",
+		Name: "4_14",
 		Desc: `GSUB5: -marks "AAAA" -> 1@1 2@0 3@1 4@2
 				GSUB4: "AA" -> "M"
 				GSUB1: "A" -> "X"
@@ -514,7 +591,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// If a pair of the form matched+ignored is replaced, the replacement is
 	// sometimes added and sometimes not.
 	{ // harfbuzz: XAMY (!!!), Mac: XYMZ, Windows: XYMZ -> added
-		Name: "4_11",
+		Name: "4_15",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 2@0 3@1 4@2
 				GSUB4: "AM" -> "A"
 				GSUB1: "A" -> "X"
@@ -524,7 +601,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XYMZ",
 	},
 	{ // harfbuzz: XMYA (!!!), Mac: XMYZ, Windows: XMYZ -> added
-		Name: "4_12",
+		Name: "4_16",
 		Desc: `GSUB5: -marks "AAA" -> 1@1 2@0 3@1 4@2
 				GSUB4: "AM" -> "A"
 				GSUB1: "A" -> "X"
@@ -534,7 +611,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XMYZ",
 	},
 	{ // harfbuzz: XYA (!!!), Mac: XYZ, Windows: XYZ -> added
-		Name: "4_13",
+		Name: "4_17",
 		Desc: `GSUB5: -marks "AAA" -> 1@1 2@0 3@1 4@2
 				GSUB4: "AM" -> "A"
 				GSUB1: "A" -> "X"
@@ -548,7 +625,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// Otherwise, the difference between the previous test and this one is hard
 	// to explain.
 	{ // harfbuzz: XYA, Mac: XYA, Windows: XAY -> not added ??????????????????
-		Name: "4_14",
+		Name: "4_18",
 		Desc: `GSUB5: -marks "AAA" -> 1@1 2@0 3@1
 				GSUB4: "AM" -> "A"
 				GSUB1: "A" -> "X"
@@ -561,7 +638,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 
 	// normal+ignored
 	{ // harfbuzz: YAA, Mac: YAA, Windows: YAA -> yes
-		Name: "4_15",
+		Name: "4_19",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@0
 				GSUB5: "AM" -> 2@0
 				GSUB4: "AM" -> "B"
@@ -589,7 +666,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	//   MMM: no
 
 	{ // harfbuzz: YA, Mac: YA, Windows: YA -> included
-		Name: "4_16",
+		Name: "4_20",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@0
 				GSUB5: "AAM" -> 2@0
 				GSUB4: "AAM" -> "B"
@@ -599,7 +676,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: YA, Mac: YA, Windows: YA -> included
-		Name: "4_17",
+		Name: "4_21",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@0
 				GSUB5: "AMA" -> 2@0
 				GSUB4: "AMA" -> "B"
@@ -608,7 +685,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "YA",
 	},
 	{ // harfbuzz: ABA (!!!), Mac: AYA, Windows: AYA -> included
-		Name: "4_18",
+		Name: "4_22",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@1
 				GSUB5: "AAMA" -> 2@1
 				GSUB4: "AMA" -> "B"
@@ -617,7 +694,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "AYA",
 	},
 	{ // harfbuzz: ABX (!!!), Mac: AYA, Windows: AYA -> included
-		Name: "4_19",
+		Name: "4_23",
 		Desc: `GSUB5: -marks "AAAA" -> 1@0 3@1
 				GSUB5: "AAMA" -> 2@1
 				GSUB4: "AMA" -> "B"
@@ -627,7 +704,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: YAA, Mac: YAA, Windows: YAA -> included
-		Name: "4_20",
+		Name: "4_24",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@0
 				GSUB5: "AMM" -> 2@0
 				GSUB4: "AMM" -> "B"
@@ -637,7 +714,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: AB, Mac: AB, Windows: AY -> included
-		Name: "4_21",
+		Name: "4_25",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@1
 				GSUB5: "AMAA" -> 2@1
 				GSUB4: "MAA" -> "B"
@@ -647,7 +724,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: ABA (!!!), Mac: ABX, Windows: ABX -> not included
-		Name: "4_22",
+		Name: "4_26",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@1
 				GSUB5: "AMAM" -> 2@1
 				GSUB4: "MAM" -> "B"
@@ -656,7 +733,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "ABX",
 	},
 	{ // harfbuzz: ABA (!!!), Mac: ABX, Windows: ABX -> not included
-		Name: "4_23",
+		Name: "4_27",
 		// ALALA -> ABA -> ...
 		Desc: `GSUB5: -ligs "AAA" -> 1@0 3@1
 				GSUB5: "ALALA" -> 2@1
@@ -667,7 +744,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: ABA, Mac: ABX, Windows: AYA -> included
-		Name: "4_24",
+		Name: "4_28",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@1
 				GSUB5: "AMMA" -> 2@1
 				GSUB4: "MMA" -> "B"
@@ -677,7 +754,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: ABAA (!!!), Mac: ABXA, Windows: ABXA -> not included
-		Name: "4_25",
+		Name: "4_29",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@1
 				GSUB5: "AMMM" -> 2@1
 				GSUB4: "MMM" -> "B"
@@ -707,7 +784,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	//   MMMM -> (no, I guess)
 
 	{ // harfbuzz: YA, Mac: YA, Windows: YA -> yes
-		Name: "4_26",
+		Name: "4_30",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@0
 				GSUB5: "AMAM" -> 2@0
 				GSUB4: "AMAM" -> "B"
@@ -717,7 +794,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: YAA, Mac: YAA, Windows: YAA -> yes
-		Name: "4_27",
+		Name: "4_31",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@0
 				GSUB5: "AMMM" -> 2@0
 				GSUB4: "AMMM" -> "B"
@@ -727,7 +804,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: ABA (!!!), Mac: ABX, Windows: ABX -> no
-		Name: "4_28",
+		Name: "4_32",
 		Desc: `GSUB5: -marks "AAAA" -> 1@0 3@1
 				GSUB5: "AMAAM" -> 2@1
 				GSUB4: "MAAM" -> "B"
@@ -737,7 +814,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: AB, Mac: AB, Windows: AY -> yes
-		Name: "4_29",
+		Name: "4_33",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@1
 				GSUB5: "AMAMA" -> 2@1
 				GSUB4: "MAMA" -> "B"
@@ -747,7 +824,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: ABA (!!!), Mac: ABX, Windows: ABX -> no
-		Name: "4_30",
+		Name: "4_34",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@1
 				GSUB5: "AMAMM" -> 2@1
 				GSUB4: "MAMM" -> "B"
@@ -757,7 +834,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: ABA (!!!), Mac: ABX, Windows: ABX -> no
-		Name: "4_31",
+		Name: "4_35",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 3@1
 				GSUB5: "AMMAM" -> 2@1
 				GSUB4: "MMAM" -> "B"
@@ -771,7 +848,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// The difference between the following two cases is mysterious to me.
 
 	{ // harfbuzz: YAA, Mac: YAA, Windows: YAA -> yes
-		Name: "4_32",
+		Name: "4_36",
 		Desc: `GSUB5: -marks "AAA" -> 1@0 2@0
 				GSUB4: "AM" -> "B"
 				GSUB1: "A" -> "X", "B" -> "Y"`,
@@ -793,7 +870,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	//   MMAMAA -> yes
 
 	{ // harfbuzz: ABA, Mac: ABX, Windows: AYA -> included
-		Name: "4_33",
+		Name: "4_37",
 		Desc: `GSUB5: -marks "AAAAA" -> 1@0 3@1
 				GSUB5: "AMMMAAA" -> 2@1
 				GSUB4: "MMMAAA" -> "B"
@@ -803,7 +880,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: ABA, Mac: ABX, Windows: AYA -> included
-		Name: "4_34",
+		Name: "4_38",
 		Desc: `GSUB5: -marks "AAAAA" -> 1@0 3@1
 				GSUB5: "AMMAMAA" -> 2@1
 				GSUB4: "MMAMAA" -> "B"
@@ -826,7 +903,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// },
 
 	{ // harfbuzz: DEI, Mac: DEI, Windows: DEI
-		Name: "4_35",
+		Name: "4_39",
 		Desc: `GSUB5: "ABC" -> 1@0 1@2 1@3 2@2
 				GSUB2: "A" -> "DE", "B" -> "FG", "G" -> "H"
 				GSUB4: "FHC" -> "I"`,
@@ -834,7 +911,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "DEI",
 	},
 	{ // harfbuzz: AXAAKA, Mac: AAXAKA, Windows: AAAXKA
-		Name: "4_36",
+		Name: "4_40",
 		Desc: `GSUB5: -ligs "AAA" -> 1@0 2@1 3@1
 				GSUB5: "AK" -> 2@1
 				GSUB2: "K" -> "AA"
@@ -843,7 +920,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "AAAXKA", // (!!!)
 	},
 	{ // harfbuzz: AXLAKA, Mac: ALXAKA, Windows: ALLXKA
-		Name: "4_37",
+		Name: "4_41",
 		Desc: `GSUB5: -ligs "AAA" -> 1@0 2@1 3@1
 				GSUB5: "AK" -> 2@1
 				GSUB2: "K" -> "LL"
@@ -852,7 +929,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "ALLXKA", // (!!!)
 	},
 	{ // harfbuzz: XAYZ, Mac: XAYZ
-		Name: "4_38",
+		Name: "4_42",
 		Desc: `GSUB5: -ligs "AAA" -> 1@0 5@2 4@1 3@0
 				GSUB5: "AL" -> 2@1
 				GSUB1: "L" -> "A"
@@ -863,14 +940,14 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XAYZ",
 	},
 	{ // harfbuzz: AAAAB, Mac: AAAAB
-		Name: "4_39",
+		Name: "4_43",
 		Desc: `GSUB5: "AB" -> 1@0 0@0, "AAB" -> 1@0 0@0, "AAAB" -> 1@0 0@0
 				GSUB2: "A" -> "AA"`,
 		In:  "AB",
 		Out: "AAAAB",
 	},
 	{ // harfbuzz: XYAZA, Mac: XAYZA, Windows: XAAYZ
-		Name: "4_40",
+		Name: "4_44",
 		Desc: `GSUB5: -ligs "AAA" -> 1@0 5@2 4@1 3@0
 				GSUB5: "AL" -> 2@1
 				GSUB2: "L" -> "AA"
@@ -881,7 +958,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XAAYZ", // (!!!)
 	},
 	{ // harfbuzz: XLYZ, Mac: XLYZ, Windows: XLYZA
-		Name: "4_41",
+		Name: "4_45",
 		Desc: `GSUB5: -ligs "AAAA" -> 1@0 5@2 4@1 3@0
 				GSUB5: "AL" -> 2@1
 				GSUB4: "LA" -> "L"
@@ -892,7 +969,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XLYZA", // (!!!)
 	},
 	{ // harfbuzz: AKA, Mac: AKA, Windows: ABAA
-		Name: "4_42",
+		Name: "4_46",
 		Desc: `GSUB5: -ligs "AAA" -> 1@0
 				GSUB5: "AL" -> 2@1 3@1
 				GSUB4: "LA" -> "K"
@@ -901,7 +978,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "ABAA", // (!!!)
 	},
 	{ // harfbuzz: LXLYLZL, Mac: LXLYLZL, Windows: LXLYLZL
-		Name: "4_43",
+		Name: "4_47",
 		Desc: `GSUB5: -ligs "AAA" -> 3@2 1@0 2@1
 				GSUB1: "A" -> "X"
 				GSUB1: "A" -> "Y"
@@ -923,14 +1000,14 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// 	out: "LALALAL",
 	// },
 	{ // harfbuzz: LALALXB, Mac: LALALXB, Windows: LALALXB -> "AL" WAS added to input here
-		Name: "4_44",
+		Name: "4_48",
 		Desc: `GSUB5: -ligs "AAA" -> 1@2
 				GSUB4: "AL" -> "X"`,
 		In:  "LALALALB",
 		Out: "LALALXB",
 	},
 	{ // harfbuzz: ABXD, Mac: ABXD, Windows: ABXD -> "CL" was added to input here
-		Name: "4_45",
+		Name: "4_49",
 		Desc: `GSUB5: -ligs "ABC" -> 1@2
 			GSUB4: C L -> X`,
 		In:  "ABCLD",
@@ -938,7 +1015,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: XCEAAAAXFBCAACX, Mac: XCEAAAAXFBCAACX, Windows: XCEAAAAXFBCAACX
-		Name: "4_46",
+		Name: "4_50",
 		Desc: `GSUB5:
 				"ACE" -> 1@0 ||
 				class :AB: = [A B]
@@ -953,7 +1030,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	{ // harfbuzz: XBCFBCXA, Mac: XBCFBCXA, Windows: XBCFBCXA
-		Name: "4_47",
+		Name: "4_51",
 		Desc: `GSUB5:
 				[A-E] [A B] [C-X] -> 1@0 ||
 				[B-E] [B-E] [A-C] -> 1@1
@@ -962,7 +1039,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XBCFBCXA",
 	},
 	{ // harfbuzz: X, Mac: X, Windows: X
-		Name: "4_48",
+		Name: "4_52",
 		Desc: `GSUB5: -ligs
 				class :A: = [A]
 				/A/ :A: -> 1@0
