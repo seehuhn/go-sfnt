@@ -39,17 +39,23 @@ func (f *Font) NewLayouter(lang language.Tag, gsubFeatures, gposFeatures map[str
 		return nil, err
 	}
 
-	if gsubFeatures == nil {
-		gsubFeatures = gtab.GsubDefaultFeatures
-	}
-	gsubLookups := f.Gsub.FindLookups(lang, gsubFeatures)
-	gsub := f.Gsub.LookupList.NewEngine(gsubLookups, f.Gdef)
+	var gsub, gpos *gtab.LayoutEngine
 
-	if gposFeatures == nil {
-		gposFeatures = gtab.GposDefaultFeatures
+	if f.Gsub != nil {
+		if gsubFeatures == nil {
+			gsubFeatures = gtab.GsubDefaultFeatures
+		}
+		gsubLookups := f.Gsub.FindLookups(lang, gsubFeatures)
+		gsub = f.Gsub.LookupList.NewEngine(gsubLookups, f.Gdef)
 	}
-	gposLookups := f.Gpos.FindLookups(lang, gposFeatures)
-	gpos := f.Gpos.LookupList.NewEngine(gposLookups, f.Gdef)
+
+	if f.Gpos != nil {
+		if gposFeatures == nil {
+			gposFeatures = gtab.GposDefaultFeatures
+		}
+		gposLookups := f.Gpos.FindLookups(lang, gposFeatures)
+		gpos = f.Gpos.LookupList.NewEngine(gposLookups, f.Gdef)
+	}
 
 	return &Layouter{
 		font: f,
