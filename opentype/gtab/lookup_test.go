@@ -194,7 +194,8 @@ func TestLookupFlags(t *testing.T) {
 			for i, g := range c.in {
 				seq[i].GID = g
 			}
-			seq = lookupList.ApplyLookup(seq, 0, gdefTable)
+			e := lookupList.NewEngine([]LookupIndex{0}, gdefTable)
+			seq = e.Apply(seq)
 
 			hasMerged := seq[0].GID == repl
 			if hasMerged && !c.shouldMerge {

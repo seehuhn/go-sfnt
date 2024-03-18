@@ -23,40 +23,6 @@ import (
 	"seehuhn.de/go/sfnt/opentype/gdef"
 )
 
-// ApplyLookup applies a single lookup to the given glyphs.
-//
-// This is the main entry-point for external users of GSUB and GPOS tables.
-func (ll LookupList) ApplyLookup(seq []glyph.Info, lookupIndex LookupIndex, gdef *gdef.Table) []glyph.Info {
-	if int(lookupIndex) >= len(ll) {
-		return seq
-	}
-
-	ctx := &applyLookup{
-		ll:     ll,
-		lookup: ll[lookupIndex],
-		seq:    seq,
-		gdef:   gdef,
-		keep:   newKeepFunc(ll[lookupIndex].Meta, gdef),
-	}
-
-	pos := 0
-	// TODO(voss): GSUB 8.1 subtables are applied in reverse order.
-	for pos < len(ctx.seq) {
-		oldTodo := len(ctx.seq) - pos
-		pos = ctx.At(pos)
-
-		// Make sure that every step makes some progress.
-		// TODO(voss): Is this needed?
-		newTodo := len(ctx.seq) - pos
-		if newTodo >= oldTodo {
-			pos = len(ctx.seq) - oldTodo + 1
-		}
-		oldTodo = newTodo
-	}
-
-	return ctx.seq
-}
-
 type applyLookup struct {
 	ll     LookupList
 	lookup *LookupTable

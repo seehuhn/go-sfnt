@@ -39,7 +39,7 @@ type Feature struct {
 	// https://docs.microsoft.com/en-us/typography/opentype/spec/featuretags
 	Tag string
 
-	// Lookups is a list of lookup indices that are used by this feature.
+	// Lookups is a list of lookup indices that implement this feature.
 	Lookups []LookupIndex
 }
 

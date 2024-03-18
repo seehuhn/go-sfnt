@@ -59,7 +59,8 @@ func TestLigature(t *testing.T) {
 		{GID: 2, Text: []rune("b")},
 		{GID: 3, Text: []rune("c")},
 	}
-	out := gsub.LookupList.ApplyLookup(in, 0, nil)
+	e := gsub.LookupList.NewEngine([]LookupIndex{0}, nil)
+	out := e.Apply(in)
 
 	expected := []glyph.Info{
 		{GID: 4, Text: []rune("ab")},

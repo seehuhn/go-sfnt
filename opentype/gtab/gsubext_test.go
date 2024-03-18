@@ -99,9 +99,8 @@ func TestGsub(t *testing.T) {
 				seq[i].Text = []rune{r}
 			}
 			lookups := info.Gsub.FindLookups(language.AmericanEnglish, nil)
-			for _, lookupIndex := range lookups {
-				seq = info.Gsub.LookupList.ApplyLookup(seq, lookupIndex, info.Gdef)
-			}
+			e := info.Gsub.LookupList.NewEngine(lookups, info.Gdef)
+			seq = e.Apply(seq)
 
 			var textRunes []rune
 			var outRunes []rune
@@ -170,9 +169,8 @@ func FuzzGsub(f *testing.F) {
 			seq[i].Text = []rune{r}
 		}
 		lookups := gsub.FindLookups(language.AmericanEnglish, nil)
-		for _, lookupIndex := range lookups {
-			seq = gsub.LookupList.ApplyLookup(seq, lookupIndex, gdefTable)
-		}
+		e := gsub.LookupList.NewEngine(lookups, gdefTable)
+		seq = e.Apply(seq)
 
 		runeCountIn := len([]rune(in))
 		runeCountOut := 0

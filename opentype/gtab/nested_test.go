@@ -106,7 +106,8 @@ func TestNestedSimple(t *testing.T) {
 		seq := []glyph.Info{
 			{GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1},
 		}
-		seq = info.LookupList.ApplyLookup(seq, 0, nil)
+		e := info.LookupList.NewEngine([]LookupIndex{0}, nil)
+		seq = e.Apply(seq)
 		var out []glyph.ID
 		for _, g := range seq {
 			out = append(out, g.GID)
