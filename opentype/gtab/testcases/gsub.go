@@ -100,8 +100,8 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out:  "ABABMABA",
 	},
 
-	// GSUB3 replaces sequences of glyphs with list of glyphs to choose
-	// from.  Our implementation always chooses the first glyph from the list.
+	// GSUB3 replaces sequences of glyphs with one of list of possible choices.
+	// Our implementation always chooses the first glyph from the list.
 
 	{ // harfbuzz: BB, Mac: BB
 		Name: "1_07",
@@ -123,7 +123,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out:  "AAA",
 	},
 
-	// GSUB4 replaces sequences of glyphs with single glyphs.
+	// GSUB4 replaces a sequence of glyphs with a single glyph.
 	// This is normally used for ligatures.
 
 	{ // harfbuzz: AXAX, Mac: AXAX
@@ -138,7 +138,8 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		In:   "AAAAAXA",
 		Out:  "BCXD",
 	},
-	// Any ignored glyphs inside the match are moved after the replacement:
+	// Any ignored glyphs embedded inside the match are moved after the
+	// replacement:
 	{ // harfbuzz: XM, Mac: XM
 		Name: "1_12",
 		Desc: `GSUB4: -marks "AA" -> "X"`,
@@ -153,7 +154,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out:  "XLMN",
 		Text: "ABLMN",
 	},
-	// Sequences including ignored glyphs are not replaced:
+	// Sequences explicitly including ignored glyphs are not replaced:
 	{ // harfbuzz: AMA, Mac: AMA
 		Name: "1_14",
 		Desc: `GSUB4: -marks "AMA" -> "X"`,
@@ -335,10 +336,10 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// sequence length changes.
 
 	// Adding/removing matched glyphs in the parent sequence modifies the input
-	// sequence. The positions for chained actions are interpreted at the time
-	// the child action is run, not when the parent lookup is matched. This is
-	// true, even if the added glyphs would have been ignored during the
-	// original matching.
+	// sequence.  This is true, even if the added glyphs would have been
+	// ignored during the original matching.  The positions for chained actions
+	// are interpreted at the time the child action is run, not when the parent
+	// lookup is matched.
 
 	// If glyphs are removed, the positions of the following actions are
 	// shifted to make up for the removed glyphs; in the following example,
@@ -428,10 +429,9 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 
 	// ------------------------------------------------------------------
 	// SECTION 4: Check situations where a child lookup replaces an ignored
-	// glyph.
-
-	// The behaviour in some of these cases is not precisely defined in the
-	// OpenType specification, and implementations differ.
+	// glyph.  The behaviour in some of these cases is not precisely defined in
+	// the OpenType specification, and the behaviour of different
+	// implementations differs.
 
 	// If embedded ignored glyphs are removed, this does not affect the
 	// input sequence:
@@ -452,8 +452,8 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "AXA",
 	},
 
-	// If embedded ignored are replaced, should the replacement be added to the
-	// input sequence?
+	// If embedded ignored glyphs are replaced, should the replacement be added
+	// to the input sequence?
 	{ // harfbuzz: AAX, Mac: AAX, Windows: AAX -> not added
 		Name: "4_03",
 		Desc: `GSUB5: -marks "AA" -> 1@0 3@1
