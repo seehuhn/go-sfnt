@@ -355,18 +355,34 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// If one glyph is replaced with several, the new glyphs count towards
 	// the positions of the following actions.  Here, "X" indicates position 1
 	// after the first "A" has been replaced with "AAA".
-	{ // harfbuzz: AXAA, Mac: AXAA, Windows: AXAA
+	{ // harfbuzz: AXA, Mac: AXA, Windows: AXA
 		Name: "3_02",
+		Desc: `GSUB5: "AA" -> 1@0 2@1
+				GSUB2: "A" -> "AA"
+				GSUB1: "A" -> "X"`,
+		In:  "AA",
+		Out: "AXA",
+	},
+	{ // harfbuzz: AXAA, Mac: AXAA, Windows: AXAA
+		Name: "3_03",
 		Desc: `GSUB5: "AA" -> 1@0 2@1
 				GSUB2: "A" -> "AAA"
 				GSUB1: "A" -> "X"`,
 		In:  "AA",
 		Out: "AXAA",
 	},
+	{ // harfbuzz: AXAAA, Mac: AXAAA, Windows: AXAAA
+		Name: "3_04",
+		Desc: `GSUB5: "AA" -> 1@0 2@1
+				GSUB2: "A" -> "AAAA"
+				GSUB1: "A" -> "X"`,
+		In:  "AA",
+		Out: "AXAAA",
+	},
 	// In a longer chain of actions, the positions are updated after every
 	// action:
 	{ // harfbuzz: B, Mac: B, Windows: B
-		Name: "3_03",
+		Name: "3_05",
 		Desc: `GSUB5: "AAAAB" -> 1@3 1@2 1@1 1@0
 				GSUB4: "AB" -> "B"`,
 		In:  "AAAAB",
@@ -377,7 +393,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// "X" to get "(A)AXA".  Then we mark position 1 in the parent lookup with
 	// "Y" to get "AYXA".
 	{ // harfbuzz: AYXA, Mac: AYXA, Windows: AYXA
-		Name: "3_04",
+		Name: "3_06",
 		Desc: `GSUB5: "AAA" -> 1@1 4@1
 				GSUB5: "AA" -> 2@0 3@1
 				GSUB2: "A" -> "AA"
@@ -389,7 +405,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// The previous example still works, when ignored glyphs are interspersed
 	// with the sequence:
 	{ // harfbuzz: AMYXMA, Mac: AMYXMA
-		Name: "3_05",
+		Name: "3_07",
 		Desc: `GSUB5: -marks "AAA" -> 1@1 4@1
 				GSUB5: -marks "AA" -> 2@0 3@1
 				GSUB2: "A" -> "AA"
@@ -401,7 +417,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// If a normally ignored glyph is introduced, it becomes part of the input
 	// sequence:
 	{ // harfbuzz: AYA, Mac: AYA, Windows: AYA
-		Name: "3_06",
+		Name: "3_08",
 		Desc: `GSUB5: -marks "AA" -> 1@0 2@1
 				GSUB2: "A" -> "AM"
 				GSUB1: "A" -> "X", "M" -> "Y"`,
@@ -411,7 +427,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 
 	// Check that matches don't overlap when the length of the sequence changes.
 	{ // harfbuzz: XAAAXAAAXAAA, Mac: XAAAXAAAXAAA
-		Name: "3_07",
+		Name: "3_09",
 		Desc: `GSUB5: "AA" -> 1@0 2@1
 				GSUB1: "A" -> "X"
 				GSUB2: "A" -> "AAA"`,
@@ -419,7 +435,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "XAAAXAAAXAAA",
 	},
 	{ // harfbuzz: XAXAXA, Mac: XAXAXA
-		Name: "3_08",
+		Name: "3_10",
 		Desc: `GSUB5: "AAAA" -> 1@0 2@1
 				GSUB1: "A" -> "X"
 				GSUB4: "AAA" -> "A"`,
@@ -429,9 +445,9 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 
 	// ------------------------------------------------------------------
 	// SECTION 4: Check situations where a child lookup replaces an ignored
-	// glyph.  The behaviour in some of these cases is not precisely defined in
-	// the OpenType specification, and the behaviour of different
-	// implementations differs.
+	// glyph.  The expected behaviour in this case is not defined in the
+	// OpenType specification, and implementations differs in what they do
+	// here.
 
 	// If embedded ignored glyphs are removed, this does not affect the
 	// input sequence:
