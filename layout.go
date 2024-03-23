@@ -27,8 +27,8 @@ import (
 type Layouter struct {
 	font *Font
 	cmap cmap.Subtable
-	gsub *gtab.LayoutEngine
-	gpos *gtab.LayoutEngine
+	gsub *gtab.Context
+	gpos *gtab.Context
 	buf  []glyph.Info
 }
 
@@ -39,14 +39,14 @@ func (f *Font) NewLayouter(lang language.Tag, gsubFeatures, gposFeatures map[str
 		return nil, err
 	}
 
-	var gsub, gpos *gtab.LayoutEngine
+	var gsub, gpos *gtab.Context
 
 	if f.Gsub != nil {
 		if gsubFeatures == nil {
 			gsubFeatures = gtab.GsubDefaultFeatures
 		}
 		gsubLookups := f.Gsub.FindLookups(lang, gsubFeatures)
-		gsub = f.Gsub.LookupList.NewEngine(gsubLookups, f.Gdef)
+		gsub = f.Gsub.LookupList.NewContext(gsubLookups, f.Gdef)
 	}
 
 	if f.Gpos != nil {
@@ -54,7 +54,7 @@ func (f *Font) NewLayouter(lang language.Tag, gsubFeatures, gposFeatures map[str
 			gposFeatures = gtab.GposDefaultFeatures
 		}
 		gposLookups := f.Gpos.FindLookups(lang, gposFeatures)
-		gpos = f.Gpos.LookupList.NewEngine(gposLookups, f.Gdef)
+		gpos = f.Gpos.LookupList.NewContext(gposLookups, f.Gdef)
 	}
 
 	return &Layouter{
@@ -80,7 +80,7 @@ func (l *Layouter) Layout(s string) []glyph.Info {
 	}
 
 	if l.gsub != nil {
-		seq = l.gsub.Apply(seq)
+		seq = l.gsub.ApplyAll(seq)
 	}
 
 	font := l.font
@@ -92,7 +92,7 @@ func (l *Layouter) Layout(s string) []glyph.Info {
 	}
 
 	if l.gpos != nil {
-		seq = l.gpos.Apply(seq)
+		seq = l.gpos.ApplyAll(seq)
 	}
 
 	l.buf = seq

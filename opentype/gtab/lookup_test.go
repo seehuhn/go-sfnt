@@ -54,6 +54,10 @@ var (
 	_ Subtable = (*ChainedSeqContext1)(nil)
 	_ Subtable = (*ChainedSeqContext2)(nil)
 	_ Subtable = (*ChainedSeqContext3)(nil)
+
+	_ Subtable = notImplementedGposSubtable{}
+	_ Subtable = (*debugNestedLookup)(nil)
+	_ Subtable = (*dummySubTable)(nil)
 )
 
 // TestLookupFlags tests that the lookup flags cause the correct glyphs to be
@@ -194,8 +198,8 @@ func TestLookupFlags(t *testing.T) {
 			for i, g := range c.in {
 				seq[i].GID = g
 			}
-			e := lookupList.NewEngine([]LookupIndex{0}, gdefTable)
-			seq = e.Apply(seq)
+			e := lookupList.NewContext([]LookupIndex{0}, gdefTable)
+			seq = e.ApplyAll(seq)
 
 			hasMerged := seq[0].GID == repl
 			if hasMerged && !c.shouldMerge {
@@ -213,7 +217,7 @@ func FuzzLookupList(f *testing.F) {
 	l := LookupList{
 		&LookupTable{
 			Meta: &LookupMetaInfo{},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{},
 			},
 		},
@@ -226,7 +230,7 @@ func FuzzLookupList(f *testing.F) {
 				LookupType:  4,
 				LookupFlags: UseMarkFilteringSet,
 			},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{1, 2, 3, 4},
 			},
 		},
@@ -238,7 +242,7 @@ func FuzzLookupList(f *testing.F) {
 			Meta: &LookupMetaInfo{
 				LookupType: 1,
 			},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{0},
 				dummySubTable{1},
 				dummySubTable{2},
@@ -250,7 +254,7 @@ func FuzzLookupList(f *testing.F) {
 				LookupFlags:      UseMarkFilteringSet,
 				MarkFilteringSet: 7,
 			},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{3, 4},
 				dummySubTable{5, 6},
 			},
@@ -259,7 +263,7 @@ func FuzzLookupList(f *testing.F) {
 			Meta: &LookupMetaInfo{
 				LookupType: 3,
 			},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{7, 8, 9},
 			},
 		},
@@ -309,8 +313,8 @@ func readDummySubtable(p *parser.Parser, pos int64, info *LookupMetaInfo) (Subta
 
 type dummySubTable []byte
 
-func (st dummySubTable) Apply(_ *KeepFunc, glyphs []glyph.Info, a, b int) *Match {
-	return nil
+func (st dummySubTable) Apply(ctx *Context, a, b int) int {
+	return -1
 }
 
 func (st dummySubTable) EncodeLen() int {

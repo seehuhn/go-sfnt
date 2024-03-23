@@ -97,7 +97,7 @@ func FuzzGtab(f *testing.F) {
 	info.LookupList = LookupList{
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 1},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{0},
 				dummySubTable{1},
 				dummySubTable{2},
@@ -105,20 +105,20 @@ func FuzzGtab(f *testing.F) {
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 2, LookupFlags: UseMarkFilteringSet, MarkFilteringSet: 7},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{3, 4},
 				dummySubTable{5, 6},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 3},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{7, 8, 9},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 1},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{0},
 				dummySubTable{1},
 				dummySubTable{2},
@@ -126,20 +126,20 @@ func FuzzGtab(f *testing.F) {
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 2, LookupFlags: UseMarkFilteringSet, MarkFilteringSet: 7},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{3, 4},
 				dummySubTable{5, 6},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 3},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{7, 8, 9},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 1},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{0},
 				dummySubTable{1},
 				dummySubTable{2},
@@ -147,20 +147,20 @@ func FuzzGtab(f *testing.F) {
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 2, LookupFlags: UseMarkFilteringSet, MarkFilteringSet: 7},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{3, 4},
 				dummySubTable{5, 6},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 3},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{7, 8, 9},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 5},
-			Subtables: Subtables{
+			Subtables: []Subtable{
 				dummySubTable{10, 11, 12, 13, 14},
 			},
 		},

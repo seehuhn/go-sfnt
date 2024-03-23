@@ -17,7 +17,6 @@
 package gtab
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -59,8 +58,8 @@ func TestLigature(t *testing.T) {
 		{GID: 2, Text: []rune("b")},
 		{GID: 3, Text: []rune("c")},
 	}
-	e := gsub.LookupList.NewEngine([]LookupIndex{0}, nil)
-	out := e.Apply(in)
+	e := gsub.LookupList.NewContext([]LookupIndex{0}, nil)
+	out := e.ApplyAll(in)
 
 	expected := []glyph.Info{
 		{GID: 4, Text: []rune("ab")},
@@ -69,196 +68,5 @@ func TestLigature(t *testing.T) {
 
 	if d := cmp.Diff(expected, out); d != "" {
 		t.Errorf("unexpected result (-want +got):\n%s", d)
-	}
-}
-
-func TestApplyMatch(t *testing.T) {
-	cases := []struct {
-		m   *Match
-		out []glyph.ID
-	}{
-		{
-			m: &Match{
-				InputPos: []int{0},
-				Replace: []glyph.Info{
-					{GID: 100},
-				},
-			},
-			out: []glyph.ID{100, 1, 2, 3, 4, 5, 6},
-		},
-		{
-			m: &Match{
-				InputPos: []int{0, 1},
-				Replace: []glyph.Info{
-					{GID: 100},
-				},
-			},
-			out: []glyph.ID{100, 2, 3, 4, 5, 6},
-		},
-		{
-			m: &Match{
-				InputPos: []int{0, 1, 2},
-				Replace: []glyph.Info{
-					{GID: 100},
-				},
-			},
-			out: []glyph.ID{100, 3, 4, 5, 6},
-		},
-		{
-			m: &Match{
-				InputPos: []int{0, 2, 4},
-				Replace: []glyph.Info{
-					{GID: 100},
-				},
-			},
-			out: []glyph.ID{100, 1, 3, 5, 6},
-		},
-		{
-			m: &Match{
-				InputPos: []int{1},
-				Replace: []glyph.Info{
-					{GID: 100},
-				},
-			},
-			out: []glyph.ID{100, 0, 2, 3, 4, 5, 6},
-		},
-		{
-			m: &Match{
-				InputPos: []int{1, 2},
-				Replace: []glyph.Info{
-					{GID: 100},
-				},
-			},
-			out: []glyph.ID{100, 0, 3, 4, 5, 6},
-		},
-		{
-			m: &Match{
-				InputPos: []int{0},
-				Replace: []glyph.Info{
-					{GID: 100},
-					{GID: 101},
-				},
-			},
-			out: []glyph.ID{100, 101, 1, 2, 3, 4, 5, 6},
-		},
-		{
-			m: &Match{
-				InputPos: []int{0},
-				Replace: []glyph.Info{
-					{GID: 100},
-					{GID: 101},
-					{GID: 102},
-				},
-			},
-			out: []glyph.ID{100, 101, 102, 1, 2, 3, 4, 5, 6},
-		},
-		{
-			m: &Match{
-				InputPos: []int{1, 5},
-				Replace: []glyph.Info{
-					{GID: 100},
-					{GID: 101},
-					{GID: 102},
-				},
-			},
-			out: []glyph.ID{100, 101, 102, 0, 2, 3, 4, 6},
-		},
-	}
-
-	for i, test := range cases {
-		t.Run(fmt.Sprintf("%02d", i+1), func(t *testing.T) {
-			seq := make([]glyph.Info, 7)
-			for i := range seq {
-				seq[i].GID = glyph.ID(i)
-			}
-			seq = applyMatch(seq, test.m, 0)
-			out := make([]glyph.ID, len(seq))
-			for i, g := range seq {
-				out[i] = g.GID
-			}
-			if d := cmp.Diff(out, test.out); d != "" {
-				t.Error(d)
-			}
-		})
-	}
-}
-
-func TestFixMatchPos(t *testing.T) {
-	cases := []struct {
-		in        []int
-		remove    []int
-		numInsert int
-		out       []int
-	}{
-		{ // common case: replace two glyphs with one
-			in:        []int{1, 2},
-			remove:    []int{1, 2},
-			numInsert: 1,
-			out:       []int{1},
-		},
-		{ // common case: replace one glyph with two
-			in:        []int{1},
-			remove:    []int{1},
-			numInsert: 2,
-			out:       []int{1, 2},
-		},
-		{ // replace two glyphs with one, with extra glyphs present at end
-			in:        []int{1, 2, 4},
-			remove:    []int{1, 2},
-			numInsert: 1,
-			out:       []int{1, 3},
-		},
-		{ // glyph 0 was not in input, so is not included in the output either
-			in:        []int{1, 2, 4},
-			remove:    []int{0},
-			numInsert: 1,
-			out:       []int{1, 2, 4},
-		},
-		{
-			in:        []int{1, 2, 4},
-			remove:    []int{1},
-			numInsert: 1,
-			out:       []int{1, 2, 4},
-		},
-		{
-			in:        []int{1, 2, 4},
-			remove:    []int{2},
-			numInsert: 1,
-			out:       []int{1, 2, 4},
-		},
-		{ // glyph 3 was not in input, so is not included in the output either
-			in:        []int{1, 2, 4},
-			remove:    []int{3},
-			numInsert: 1,
-			out:       []int{1, 2, 4},
-		},
-		{
-			in:        []int{1, 2, 4},
-			remove:    []int{4},
-			numInsert: 1,
-			out:       []int{1, 2, 4},
-		},
-		{ // glyph 5 was not in input, so is not included in the output either
-			in:        []int{1, 2, 4},
-			remove:    []int{5},
-			numInsert: 1,
-			out:       []int{1, 2, 4},
-		},
-	}
-	for i, test := range cases {
-		for _, endOffs := range []int{1, 10} {
-			endPos := test.in[len(test.in)-1] + endOffs
-			actions := []*nested{
-				{
-					InputPos: test.in,
-					Actions:  []SeqLookup{},
-					EndPos:   endPos,
-				},
-			}
-			fixActionStack(actions, test.remove, test.numInsert)
-			if d := cmp.Diff(test.out, actions[0].InputPos); d != "" {
-				t.Errorf("%d: %s", i, d)
-			}
-		}
 	}
 }

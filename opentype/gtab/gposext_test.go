@@ -105,8 +105,8 @@ func TestGpos(t *testing.T) {
 				}
 			}
 			lookups := gpos.FindLookups(language.AmericanEnglish, nil)
-			e := gpos.LookupList.NewEngine(lookups, gdefTable)
-			seq = e.Apply(seq)
+			e := gpos.LookupList.NewContext(lookups, gdefTable)
+			seq = e.ApplyAll(seq)
 
 			for _, check := range test.check {
 				switch check.which {
@@ -203,8 +203,8 @@ func FuzzGpos(f *testing.F) {
 			}
 		}
 		lookups := gpos.FindLookups(language.AmericanEnglish, nil)
-		e := gpos.LookupList.NewEngine(lookups, gdefTable)
-		seq = e.Apply(seq)
+		e := gpos.LookupList.NewContext(lookups, gdefTable)
+		seq = e.ApplyAll(seq)
 
 		// TODO(voss): put some plausibility checks here.
 	})

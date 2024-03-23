@@ -107,8 +107,8 @@ func Test9737(t *testing.T) {
 		{GID: gidB},
 	}
 	gsub := fontInfo.Gsub
-	e := gsub.LookupList.NewEngine(gsub.FindLookups(language.AmericanEnglish, nil), nil)
-	gg = e.Apply(gg)
+	e := gsub.LookupList.NewContext(gsub.FindLookups(language.AmericanEnglish, nil), nil)
+	gg = e.ApplyAll(gg)
 	// MS Word gives AAAAB
 	// harfbuzz gives AAB
 
@@ -227,8 +227,8 @@ func Test9738(t *testing.T) {
 		{GID: gidB},
 	}
 	gsub := fontInfo.Gsub
-	e := gsub.LookupList.NewEngine(gsub.FindLookups(language.AmericanEnglish, nil), fontInfo.Gdef)
-	gg = e.Apply(gg)
+	e := gsub.LookupList.NewContext(gsub.FindLookups(language.AmericanEnglish, nil), fontInfo.Gdef)
+	gg = e.ApplyAll(gg)
 
 	got := unpack(gg)
 	expected := []glyph.ID{gidA, gidB, gidA, gidX, gidX, gidB}

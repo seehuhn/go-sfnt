@@ -101,7 +101,8 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 
 	// GSUB3 replaces sequences of glyphs with one of list of possible choices.
-	// Our implementation always chooses the first glyph from the list.
+	// At the moment, our implementation always chooses the first glyph from
+	// the list.
 
 	{ // harfbuzz: BB, Mac: BB
 		Name: "1_07",
@@ -234,6 +235,17 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 				GSUB4: "AM" -> "B"`,
 		In:  "AMAM",
 		Out: "BB",
+	},
+	// Check that the end position of the parent match is correctly
+	// adjusted, if a child-lookup inserts new glyphs between trailing
+	// ignore glyphs.
+	{
+		Desc: `GSUB5: -marks "A" -> 1@0 3@0
+				GSUB5: "AMM" -> 2@2
+				GSUB2: "M" -> "MAAM"
+				GSUB4: "AMMAAM" -> "X"`,
+		In:  "AMM",
+		Out: "X",
 	},
 
 	// Child lookups can be of any type:

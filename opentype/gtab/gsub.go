@@ -18,6 +18,7 @@ package gtab
 
 import (
 	"fmt"
+	"slices"
 
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/coverage"
@@ -93,18 +94,15 @@ func readGsub1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gsub1_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *Gsub1_1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
 	gid := seq[a].GID
 	if _, ok := l.Cov[gid]; !ok {
-		return nil
+		return -1
 	}
-	return &Match{
-		InputPos: []int{a},
-		Replace: []glyph.Info{
-			{GID: gid + l.Delta, Text: seq[a].Text},
-		},
-		Next: a + 1,
-	}
+
+	seq[a].GID += l.Delta
+	return a + 1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -166,20 +164,16 @@ func readGsub1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gsub1_2) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *Gsub1_2) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
 	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
 	if !ok {
-		return nil
+		return -1
 	}
-	m := &Match{
-		InputPos: []int{a},
-		Replace: []glyph.Info{
-			{GID: l.SubstituteGlyphIDs[idx], Text: seq[a].Text},
-		},
-		Next: a + 1,
-	}
-	return m
+
+	seq[a].GID = l.SubstituteGlyphIDs[idx]
+	return a + 1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -261,29 +255,32 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gsub2_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *Gsub2_1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
 	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
 	if !ok {
-		return nil
+		return -1
 	}
 
 	repl := l.Repl[idx]
+	seq[a].GID = repl[0]
 	k := len(repl)
+	if k > 1 {
+		// insert k-1 new glyphs after position a
+		seq = slices.Grow(seq, k-1)
+		seq = seq[:len(seq)+k-1]
+		copy(seq[a+k:], seq[a+1:])
+		for i := 1; i < k; i++ {
+			seq[a+i] = glyph.Info{GID: repl[i]}
+		}
+		ctx.seq = seq
 
-	insert := make([]glyph.Info, k)
-	for i, replGid := range repl {
-		insert[i] = glyph.Info{GID: replGid}
-	}
-	if k > 0 {
-		insert[0].Text = seq[a].Text
+		// Fix up input sequences and positions in parent lookups.
+		ctx.FixStackInsert(a, k)
 	}
 
-	return &Match{
-		InputPos: []int{a},
-		Replace:  insert,
-		Next:     a + 1,
-	}
+	return a + k
 }
 
 // EncodeLen implements the Subtable interface.
@@ -391,25 +388,22 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gsub3_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *Gsub3_1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
 	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
 	if !ok {
-		return nil
+		return -1
 	}
 
 	alt := l.Alternates[idx]
 	if len(alt) == 0 {
-		return nil // TODO(voss): should we return an empty match instead?
+		return -1 // TODO(voss): can this happen?
 	}
 
-	return &Match{
-		InputPos: []int{a},
-		Replace: []glyph.Info{
-			{GID: alt[0], Text: seq[a].Text},
-		},
-		Next: a + 1,
-	}
+	seq[a].GID = alt[0]
+
+	return a + 1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -565,52 +559,64 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gsub4_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *Gsub4_1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+
 	gid := seq[a].GID
 	ligSetIdx, ok := l.Cov[gid]
 	if !ok {
-		return nil
+		return -1
 	}
 	ligSet := l.Repl[ligSetIdx]
 
-	var text []rune
+	keep := ctx.keep
+
 	var matchPos []int
+	var skipPos []int
+	var text []rune
 ligLoop:
 	for j := range ligSet {
 		lig := &ligSet[j]
 
 		matchPos = matchPos[:0]
+		skipPos = matchPos[:0]
 		text = text[:0]
 
-		p := a
-		matchPos = append(matchPos, p)
-		text = append(text, seq[p].Text...)
+		matchPos = append(matchPos, a)
+		text = append(text, seq[a].Text...)
+		p := a + 1
 		for _, ligGid := range lig.In {
-			p++
 			for p < b && !keep.Keep(seq[p].GID) {
+				skipPos = append(skipPos, p)
 				p++
 			}
-			if p >= b {
-				continue ligLoop
-			}
-			if seq[p].GID != ligGid {
+
+			if p >= b || seq[p].GID != ligGid { // no match
 				continue ligLoop
 			}
 
 			matchPos = append(matchPos, p)
 			text = append(text, seq[p].Text...)
+			p++
 		}
 
-		return &Match{
-			InputPos: matchPos,
-			Replace: []glyph.Info{
-				{GID: lig.Out, Text: text},
-			},
-			Next: p + 1,
+		// Insert the ligature glyph.
+		seq[a] = glyph.Info{GID: lig.Out, Text: text}
+
+		// Move all the skipped glyphs after position a.
+		for i, skip := range skipPos {
+			seq[a+i+1] = seq[skip]
 		}
+
+		// Move the tail to the correct position.
+		ctx.seq = slices.Delete(seq, a+1+len(skipPos), a+len(lig.In)+1+len(skipPos))
+
+		ctx.FixStackMerge(matchPos)
+
+		return a + 1 + len(skipPos)
 	}
 
-	return nil
+	return -1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -742,11 +748,14 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gsub8_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *Gsub8_1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	gid := seq[a].GID
 	idx, ok := l.Input[gid]
 	if !ok {
-		return nil
+		return -1
 	}
 
 	p := a
@@ -758,7 +767,7 @@ func (l *Gsub8_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 			p--
 		}
 		if p-glyphsNeeded < 0 || !cov.Contains(seq[p].GID) {
-			return nil
+			return -1
 		}
 	}
 
@@ -771,17 +780,12 @@ func (l *Gsub8_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 			p++
 		}
 		if p+glyphsNeeded >= len(seq) || !cov.Contains(seq[p].GID) {
-			return nil
+			return -1
 		}
 	}
 
-	return &Match{
-		InputPos: []int{a},
-		Replace: []glyph.Info{
-			{GID: l.SubstituteGlyphIDs[idx], Text: seq[a].Text},
-		},
-		Next: a + 1,
-	}
+	seq[a].GID = l.SubstituteGlyphIDs[idx]
+	return a + 1
 }
 
 // EncodeLen implements the Subtable interface.

@@ -20,7 +20,6 @@ import (
 	"sort"
 
 	"golang.org/x/text/language"
-	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -44,7 +43,7 @@ type LookupTable struct {
 	//
 	// The type of the subtables must match Meta.LookupType, but the
 	// subtables may use any format within that type.
-	Subtables Subtables
+	Subtables []Subtable
 }
 
 // LookupMetaInfo contains information associated with a [LookupTable].
@@ -115,36 +114,23 @@ const (
 
 // Subtable represents a subtable of a "GSUB" or "GPOS" lookup table.
 type Subtable interface {
-	// Apply attempts to apply the subtable at the given position.
-	// If returns the new glyphs and the new position.  If the subtable
-	// cannot be applied, the unchanged glyphs and a negative position
-	// are returned
+	// Apply attempts to apply the subtable at position a.  The function
+	// returns the new position.  If the subtable cannot be applied, a negative
+	// position is returned.  Matching the input sequence is restricted to
+	// positions a to b-1.
 	//
-	// This checks whether the Subtable can be applied to seq[a:b-1].
-	// The function keep represents the lookup flags, glyphs for which
-	// keep(seq[i].Gid) is false must be ignored.  The caller already
-	// checks the glyph at location a, so only subsequent glyphs need to
-	// be tested by the Subtable implementation.
-	Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match
+	// The function ctx.Keep represents the lookup flags, glyphs for which
+	// keep(seq[i].Gid) is false must be ignored. The caller already checks the
+	// glyph at location a, so only subsequent glyphs need to be tested by the
+	// Subtable implementation.
+	//
+	// The method can assume that ctx.Keep(seq[a].Gid) is true.  It is the
+	// callers responsibility to ensure this.
+	Apply(ctx *Context, a, b int) int
 
 	EncodeLen() int
 
 	Encode() []byte
-}
-
-// Subtables is a slice of Subtable.
-type Subtables []Subtable
-
-// Apply tries the subtables one by one and applies the first one that
-// matches.  If no subtable matches, nil is returned.
-func (ss Subtables) Apply(keep *KeepFunc, seq []glyph.Info, pos, b int) *Match {
-	for _, subtable := range ss {
-		match := subtable.Apply(keep, seq, pos, b)
-		if match != nil {
-			return match
-		}
-	}
-	return nil
 }
 
 // subtableReader is a function that can decode a subtable.
@@ -214,7 +200,7 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 			MarkFilteringSet: markFilteringSet,
 		}
 
-		subtables := make(Subtables, subTableCount)
+		subtables := make([]Subtable, subTableCount)
 		for j, subtableOffset := range subtableOffsets {
 			subtable, err := sr(p, lookupTablePos+int64(subtableOffset), meta)
 			if err != nil {
@@ -256,7 +242,7 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 	return res, nil
 }
 
-func isExtension(ss Subtables) (uint16, bool) {
+func isExtension(ss []Subtable) (uint16, bool) {
 	if len(ss) == 0 {
 		return 0, false
 	}
@@ -517,7 +503,7 @@ func readExtensionSubtable(p *parser.Parser, _ int64) (Subtable, error) {
 	return res, nil
 }
 
-func (l *extensionSubtable) Apply(*KeepFunc, []glyph.Info, int, int) *Match {
+func (l *extensionSubtable) Apply(*Context, int, int) int {
 	panic("unreachable")
 }
 

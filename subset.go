@@ -131,7 +131,7 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 	for i, tOld := range old.LookupList {
 		tNew := &gtab.LookupTable{
 			Meta:      tOld.Meta,
-			Subtables: make(gtab.Subtables, len(tOld.Subtables)),
+			Subtables: make([]gtab.Subtable, len(tOld.Subtables)),
 		}
 		for j, sOld := range tOld.Subtables {
 			switch sOld := sOld.(type) {
@@ -195,7 +195,7 @@ func (s *subsetter) SubsetGpos(old *gtab.Info) *gtab.Info {
 	for i, tOld := range old.LookupList {
 		tNew := &gtab.LookupTable{
 			Meta:      tOld.Meta,
-			Subtables: make(gtab.Subtables, len(tOld.Subtables)),
+			Subtables: make([]gtab.Subtable, len(tOld.Subtables)),
 		}
 		for j, sOld := range tOld.Subtables {
 			switch sOld := sOld.(type) {

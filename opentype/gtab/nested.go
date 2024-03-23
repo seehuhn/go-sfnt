@@ -138,11 +138,14 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *SeqContext1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *SeqContext1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	gid := seq[a].GID
 	rulesIdx, ok := l.Cov[gid]
 	if !ok {
-		return nil
+		return -1
 	}
 	rules := l.Rules[rulesIdx]
 
@@ -169,14 +172,15 @@ ruleLoop:
 			p++
 		}
 
-		return &Match{
+		ctx.stack = append(ctx.stack, &nested{
 			InputPos: matchPos,
 			Actions:  rule.Actions,
-			Next:     p,
-		}
+			EndPos:   p,
+		})
+		return p
 	}
 
-	return nil
+	return -1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -374,11 +378,14 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *SeqContext2) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *SeqContext2) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	gid := seq[a].GID
 	_, ok := l.Cov[gid]
 	if !ok {
-		return nil
+		return -1
 	}
 	ruleIdx := l.Input[gid]
 	rules := l.Rules[ruleIdx]
@@ -406,14 +413,15 @@ ruleLoop:
 			p++
 		}
 
-		return &Match{
+		ctx.stack = append(ctx.stack, &nested{
 			InputPos: matchPos,
 			Actions:  rule.Actions,
-			Next:     p,
-		}
+			EndPos:   p,
+		})
+		return p
 	}
 
-	return nil
+	return -1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -554,10 +562,13 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *SeqContext3) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *SeqContext3) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	gid := seq[a].GID
 	if !l.Input[0].Contains(gid) {
-		return nil
+		return -1
 	}
 
 	p := a
@@ -570,7 +581,7 @@ func (l *SeqContext3) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 			p++
 		}
 		if p+glyphsNeeded >= b || !cov.Contains(seq[p].GID) {
-			return nil
+			return -1
 		}
 		matchPos = append(matchPos, p)
 	}
@@ -580,11 +591,12 @@ func (l *SeqContext3) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 		p++
 	}
 
-	return &Match{
+	ctx.stack = append(ctx.stack, &nested{
 		InputPos: matchPos,
 		Actions:  l.Actions,
-		Next:     p,
-	}
+		EndPos:   p,
+	})
+	return p
 }
 
 // EncodeLen implements the Subtable interface.
@@ -758,11 +770,14 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 }
 
 // Apply implements the Subtable interface.
-func (l *ChainedSeqContext1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *ChainedSeqContext1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	gid := seq[a].GID
 	rulesIdx, ok := l.Cov[gid]
 	if !ok {
-		return nil
+		return -1
 	}
 	rules := l.Rules[rulesIdx]
 
@@ -815,14 +830,15 @@ ruleLoop:
 			next++
 		}
 
-		return &Match{
+		ctx.stack = append(ctx.stack, &nested{
 			InputPos: matchPos,
 			Actions:  rule.Actions,
-			Next:     next,
-		}
+			EndPos:   next,
+		})
+		return next
 	}
 
-	return nil
+	return -1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -1096,15 +1112,18 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 }
 
 // Apply implements the Subtable interface.
-func (l *ChainedSeqContext2) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *ChainedSeqContext2) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	gid := seq[a].GID
 	_, ok := l.Cov[gid]
 	if !ok {
-		return nil
+		return -1
 	}
 	rulesIdx := l.Input[gid]
 	if int(rulesIdx) >= len(l.Rules) {
-		return nil
+		return -1
 	}
 	rules := l.Rules[rulesIdx]
 
@@ -1157,14 +1176,15 @@ ruleLoop:
 			next++
 		}
 
-		return &Match{
+		ctx.stack = append(ctx.stack, &nested{
 			InputPos: matchPos,
 			Actions:  rule.Actions,
-			Next:     next,
-		}
+			EndPos:   next,
+		})
+		return next
 	}
 
-	return nil
+	return -1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -1368,7 +1388,10 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 }
 
 // Apply implements the Subtable interface.
-func (l *ChainedSeqContext3) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *ChainedSeqContext3) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	p := a
 	glyphsNeeded := len(l.Backtrack)
 	for _, cov := range l.Backtrack {
@@ -1378,16 +1401,17 @@ func (l *ChainedSeqContext3) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *
 			p--
 		}
 		if p-glyphsNeeded < 0 || !cov[seq[p].GID] {
-			return nil
+			return -1
 		}
 	}
 
 	p = a
-	matchPos := []int{p}
+	matchPos := append(ctx.scratch[:0], p)
 	glyphsNeeded = len(l.Input)
 	for _, cov := range l.Input {
 		if p+glyphsNeeded-1 >= b || !cov[seq[p].GID] {
-			return nil
+			ctx.scratch = matchPos // return the scratch space
+			return -1
 		}
 		matchPos = append(matchPos, p)
 		glyphsNeeded--
@@ -1401,7 +1425,8 @@ func (l *ChainedSeqContext3) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *
 	glyphsNeeded = len(l.Lookahead)
 	for _, cov := range l.Lookahead {
 		if p+glyphsNeeded-1 >= len(seq) || !cov[seq[p].GID] {
-			return nil
+			ctx.scratch = matchPos // return the scratch space
+			return -1
 		}
 		glyphsNeeded--
 		p++
@@ -1410,11 +1435,13 @@ func (l *ChainedSeqContext3) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *
 		}
 	}
 
-	return &Match{
+	ctx.scratch = nil // claim the scratch space as our own
+	ctx.stack = append(ctx.stack, &nested{
 		InputPos: matchPos,
 		Actions:  l.Actions,
-		Next:     next,
-	}
+		EndPos:   next,
+	})
+	return next
 }
 
 // EncodeLen implements the Subtable interface.

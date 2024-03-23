@@ -31,21 +31,19 @@ type debugNestedLookup struct {
 	actions  []SeqLookup
 }
 
-func (l *debugNestedLookup) Apply(_ *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *debugNestedLookup) Apply(ctx *Context, a, b int) int {
 	if a != 0 {
-		return &Match{
-			InputPos: []int{a},
-			Replace: []glyph.Info{
-				{GID: 3},
-			},
-			Next: a + 1,
-		}
+		ctx.seq[a].GID = 3
+		return a + 1
 	}
-	return &Match{
+
+	next := l.matchPos[len(l.matchPos)-1] + 1
+	ctx.stack = append(ctx.stack, &nested{
 		InputPos: l.matchPos,
 		Actions:  l.actions,
-		Next:     l.matchPos[len(l.matchPos)-1] + 1,
-	}
+		EndPos:   next,
+	})
+	return next
 }
 
 func (l *debugNestedLookup) EncodeLen() int {
@@ -106,8 +104,8 @@ func TestNestedSimple(t *testing.T) {
 		seq := []glyph.Info{
 			{GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1},
 		}
-		e := info.LookupList.NewEngine([]LookupIndex{0}, nil)
-		seq = e.Apply(seq)
+		e := info.LookupList.NewContext([]LookupIndex{0}, nil)
+		seq = e.ApplyAll(seq)
 		var out []glyph.ID
 		for _, g := range seq {
 			out = append(out, g.GID)
@@ -132,6 +130,15 @@ func makeDebugKeepFunc() *KeepFunc {
 	gdef := &gdef.Table{GlyphClass: class}
 	meta := &LookupMetaInfo{LookupFlags: IgnoreMarks}
 	return &KeepFunc{Gdef: gdef, Meta: meta}
+}
+
+func TestDebugKeepFunc(t *testing.T) {
+	k := makeDebugKeepFunc()
+	for i := glyph.ID(0); i < 256; i++ {
+		if k.Keep(i) != (i < 50) {
+			t.Errorf("Keep(%d) = %v, want %v", i, k.Keep(i), i < 50)
+		}
+	}
 }
 
 func TestSeqContext1(t *testing.T) {
@@ -169,14 +176,11 @@ func TestSeqContext1(t *testing.T) {
 		{4, -1},
 		{5, -1},
 	}
+	ctx := &Context{seq: in, keep: keep}
 	for _, test := range cases {
-		m := l.Apply(keep, in, test.before, len(in))
-		next := -1
-		if m != nil {
-			next = m.Next
-		}
+		next := l.Apply(ctx, test.before, len(in))
 		if next != test.after {
-			t.Errorf("Apply(%d) = %d, want %d", test.before, m.Next, test.after)
+			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
 	}
 }
@@ -206,17 +210,13 @@ func TestSeqContext2(t *testing.T) {
 		{1, 5},  // matches class0, class1, class0, also skips 99
 		{2, -1}, // no match for class1, class0, class1
 		{3, 6},  // matches 4, [99,] 5
-		{4, -1}, // keep returns false
 		{5, -1}, // not in coverage table
 	}
+	ctx := &Context{seq: in, keep: keep}
 	for _, test := range cases {
-		m := l.Apply(keep, in, test.before, len(in))
-		next := -1
-		if keep.Keep(in[test.before].GID) && m != nil {
-			next = m.Next
-		}
+		next := l.Apply(ctx, test.before, len(in))
 		if next != test.after {
-			t.Errorf("Apply(%d) = %d, want %d", test.before, m.Next, test.after)
+			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
 	}
 }
@@ -242,14 +242,11 @@ func TestSeqContext3(t *testing.T) {
 		{4, -1},
 		{5, -1},
 	}
+	ctx := &Context{seq: in, keep: keep}
 	for _, test := range cases {
-		m := l.Apply(keep, in, test.before, len(in))
-		next := -1
-		if m != nil {
-			next = m.Next
-		}
+		next := l.Apply(ctx, test.before, len(in))
 		if next != test.after {
-			t.Errorf("Apply(%d) = %d, want %d", test.before, m.Next, test.after)
+			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
 	}
 }
@@ -296,14 +293,11 @@ func TestChainedSeqContext1(t *testing.T) {
 		{3, -1},
 		{4, 7}, // matches [1, 2,] 3, 4, [5], also skips 99
 	}
+	ctx := &Context{seq: in, keep: keep}
 	for _, test := range cases {
-		m := l.Apply(keep, in, test.before, len(in))
-		next := -1
-		if m != nil {
-			next = m.Next
-		}
+		next := l.Apply(ctx, test.before, len(in))
 		if next != test.after {
-			t.Errorf("Apply(%d) = %d, want %d", test.before, m.Next, test.after)
+			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
 	}
 }

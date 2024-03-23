@@ -68,12 +68,13 @@ var gposReaders = map[uint16]func(p *parser.Parser, pos int64) (Subtable, error)
 	9_1: readExtensionSubtable,
 }
 
+// TODO(voss): remove once all GPOS subtables are implemented.
 type notImplementedGposSubtable struct {
 	lookupType, lookupFormat uint16
 }
 
-func (st notImplementedGposSubtable) Apply(_ *KeepFunc, _ []glyph.Info, _, _ int) *Match {
-	return nil
+func (st notImplementedGposSubtable) Apply(_ *Context, _, _ int) int {
+	return -1
 }
 
 func (st notImplementedGposSubtable) EncodeLen() int {
@@ -120,18 +121,16 @@ func readGpos1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos1_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
-	g := seq[a]
-	_, ok := l.Cov[g.GID]
+func (l *Gpos1_1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+
+	_, ok := l.Cov[seq[a].GID]
 	if !ok {
-		return nil
+		return -1
 	}
-	l.Adjust.Apply(&g)
-	return &Match{
-		InputPos: []int{a},
-		Replace:  []glyph.Info{g},
-		Next:     a + 1,
-	}
+
+	l.Adjust.Apply(&seq[a])
+	return a + 1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -198,18 +197,14 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos1_2) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
-	g := seq[a]
-	idx, ok := l.Cov[g.GID]
+func (l *Gpos1_2) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	idx, ok := l.Cov[seq[a].GID]
 	if !ok {
-		return nil
+		return -1
 	}
-	l.Adjust[idx].Apply(&g)
-	return &Match{
-		InputPos: []int{a},
-		Replace:  []glyph.Info{g},
-		Next:     a + 1,
-	}
+	l.Adjust[idx].Apply(&seq[a])
+	return a + 1
 }
 
 // EncodeLen implements the Subtable interface.
@@ -264,36 +259,31 @@ type PairAdjust struct {
 }
 
 // Apply implements the Subtable interface.
-func (l Gpos2_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l Gpos2_1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	p := a + 1
 	for p < b && !keep.Keep(seq[p].GID) {
 		p++
 	}
 	if p >= b {
-		return nil
+		return -1
 	}
 
 	g1 := seq[a]
 	g2 := seq[p]
 	adj, ok := l[glyph.Pair{Left: g1.GID, Right: g2.GID}]
 	if !ok {
-		return nil
+		return -1
 	}
 
-	adj.First.Apply(&g1)
+	adj.First.Apply(&seq[a])
 	if adj.Second == nil {
-		return &Match{
-			InputPos: []int{a},
-			Replace:  []glyph.Info{g1},
-			Next:     p,
-		}
+		return p
 	}
-	adj.Second.Apply(&g2)
-	return &Match{
-		InputPos: []int{a, p},
-		Replace:  []glyph.Info{g1, g2},
-		Next:     p + 1,
-	}
+	adj.Second.Apply(&seq[p])
+	return p + 1
 }
 
 func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -476,11 +466,14 @@ type Gpos2_2 struct {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos2_2) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *Gpos2_2) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	keep := ctx.keep
+
 	g1 := seq[a]
 	_, ok := l.Cov[g1.GID]
 	if !ok {
-		return nil
+		return -1
 	}
 
 	p := a + 1
@@ -488,37 +481,27 @@ func (l *Gpos2_2) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
 		p++
 	}
 	if p >= b {
-		return nil
+		return -1
 	}
 	g2 := seq[p]
 
 	class1 := l.Class1[g1.GID]
 	if int(class1) >= len(l.Adjust) {
-		return nil
+		return -1
 	}
 	row := l.Adjust[class1]
 	class2 := l.Class2[g2.GID]
 	if int(class2) >= len(row) {
-		return nil
+		return -1
 	}
 	adj := row[class2]
 
-	// TODO(voss): use p instead of a+1?
-
-	adj.First.Apply(&g1)
+	adj.First.Apply(&seq[a])
 	if adj.Second == nil {
-		return &Match{
-			InputPos: []int{a},
-			Replace:  []glyph.Info{g1},
-			Next:     a + 1,
-		}
+		return p
 	}
-	adj.Second.Apply(&g2)
-	return &Match{
-		InputPos: []int{a, a + 1},
-		Replace:  []glyph.Info{g1, g2},
-		Next:     a + 2,
-	}
+	adj.Second.Apply(&seq[p])
+	return p + 1
 }
 
 func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -677,37 +660,34 @@ type EntryExitRecord struct {
 }
 
 // Apply implements the Subtable interface.
-func (l *Gpos3_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
+func (l *Gpos3_1) Apply(ctx *Context, a, b int) int {
 	// TODO(voss): this is only correct if the RIGHT_TO_LEFT flag is not set.
 
-	g := seq[a]
-	idx, ok := l.Cov[g.GID]
+	seq := ctx.seq
+
+	idx, ok := l.Cov[seq[a].GID]
 	if !ok {
-		return nil
+		return -1
 	}
 	rec := l.Records[idx]
 	if a > 0 {
-		prevGlyph := seq[a-1]
+		prevGlyph := seq[a-1] // TODO(voss): use ctx.Keep?
 		prev, ok := l.Cov[prevGlyph.GID]
 		if ok {
 			prevRec := l.Records[prev]
-			g.YOffset = prevGlyph.YOffset + prevRec.Exit.Y - rec.Entry.Y
+			seq[a].YOffset = prevGlyph.YOffset + prevRec.Exit.Y - rec.Entry.Y
 		}
 	}
 	if a < b-1 {
-		nextGlyph := seq[a+1]
+		nextGlyph := seq[a+1] // TODO(voss): use ctx.Keep?
 		next, ok := l.Cov[nextGlyph.GID]
 		if ok {
 			nextRec := l.Records[next]
-			g.Advance = g.XOffset + rec.Exit.X - nextGlyph.XOffset - nextRec.Entry.X
+			seq[a].Advance = seq[a].XOffset + rec.Exit.X - nextGlyph.XOffset - nextRec.Entry.X
 		}
 	}
 
-	return &Match{
-		InputPos: []int{a},
-		Replace:  []glyph.Info{g},
-		Next:     a + 1,
-	}
+	return a + 1
 }
 
 func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {

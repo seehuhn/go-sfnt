@@ -17,7 +17,6 @@
 package gtab
 
 import (
-	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/markarray"
@@ -31,51 +30,6 @@ type Gpos6_1 struct {
 	Mark2Cov   coverage.Table
 	Mark1Array []markarray.Record // indexed by mark1 coverage index
 	Mark2Array [][]anchor.Table   // indexed by mark2 coverage index, then by mark class
-}
-
-// Apply implements the Subtable interface.
-func (l *Gpos6_1) Apply(keep *KeepFunc, seq []glyph.Info, a, b int) *Match {
-	mark1Idx, ok := l.Mark1Cov[seq[a].GID]
-	if !ok {
-		return nil
-	}
-	mark1Record := l.Mark1Array[mark1Idx]
-
-	if a == 0 {
-		return nil
-	}
-	p := a - 1
-	var mark2Idx int
-	for p >= 0 {
-		mark2Idx, ok = l.Mark2Cov[seq[p].GID]
-		if ok {
-			break
-		}
-		p--
-	}
-	if p < 0 {
-		return nil
-	}
-	mark2Record := l.Mark2Array[mark2Idx][mark1Record.Class]
-	if mark2Record.IsEmpty() {
-		// TODO(voss): verify that this is what others do, too.
-		return nil
-	}
-
-	dx := mark2Record.X - mark1Record.X
-	dy := mark2Record.Y - mark1Record.Y
-	for i := p; i < a; i++ {
-		dx -= seq[i].Advance
-	}
-	g := seq[a]
-	g.XOffset = dx
-	g.YOffset = dy
-	_ = dy
-	return &Match{
-		InputPos: []int{a},
-		Replace:  []glyph.Info{g},
-		Next:     a + 1,
-	}
 }
 
 func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -162,6 +116,46 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		Mark1Array: mark1Array,
 		Mark2Array: mark2Array,
 	}, nil
+}
+
+// Apply implements the Subtable interface.
+func (l *Gpos6_1) Apply(ctx *Context, a, b int) int {
+	seq := ctx.seq
+	mark1Idx, ok := l.Mark1Cov[seq[a].GID]
+	if !ok {
+		return -1
+	}
+	mark1Record := l.Mark1Array[mark1Idx]
+
+	if a == 0 {
+		return -1
+	}
+	p := a - 1
+	var mark2Idx int
+	for p >= 0 {
+		mark2Idx, ok = l.Mark2Cov[seq[p].GID]
+		if ok {
+			break
+		}
+		p--
+	}
+	if p < 0 {
+		return -1
+	}
+	mark2Record := l.Mark2Array[mark2Idx][mark1Record.Class]
+	if mark2Record.IsEmpty() {
+		// TODO(voss): verify that this is what others do, too.
+		return -1
+	}
+
+	dx := mark2Record.X - mark1Record.X
+	dy := mark2Record.Y - mark1Record.Y
+	for i := p; i < a; i++ {
+		dx -= seq[i].Advance
+	}
+	seq[a].XOffset = dx
+	seq[a].YOffset = dy
+	return a + 1
 }
 
 func (l *Gpos6_1) countMarkClasses() int {
