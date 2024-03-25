@@ -810,9 +810,9 @@ gsubLoop:
 			maps.Clear(inputClassIdx)
 
 		case next.typ == itemSquareBracketOpen: // format 3
-			var input []coverage.Table
+			var input []coverage.Set
 			for {
-				input = append(input, makeCoverageTable(p.readGlyphSet()))
+				input = append(input, makeCoverageSet(p.readGlyphSet()))
 				if p.optional(itemArrow) {
 					break
 				}

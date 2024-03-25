@@ -608,7 +608,7 @@ func (ee *explainer) explainSeqContext3(l *gtab.SeqContext3) {
 		if i > 0 {
 			ee.w.WriteRune(' ')
 		}
-		ee.writeCoveredSet(cov)
+		ee.writeCoveredSet(cov.ToTable())
 	}
 	ee.w.WriteString(" -> ")
 	ee.explainNested(l.Actions)

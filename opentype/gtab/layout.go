@@ -197,8 +197,7 @@ func (ctx *Context) fixStackInsert(pos, num int) {
 }
 
 // fixStackMerge adjusts the stack of nested actions after merging the glyphs
-// in `pos` into a single glyph at `pos[0]`.  If any of the glyphs in `pos` is part of an
-// input sequence, the new glyph is inserted into the input sequence.
+// in `pos` into a single glyph at `pos[0]`.
 func (ctx *Context) fixStackMerge(pos []int) {
 	for _, action := range ctx.stack {
 		if action.EndPos <= pos[0] {

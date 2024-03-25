@@ -150,7 +150,7 @@ func (l *SeqContext1) Apply(ctx *Context, a, b int) int {
 	}
 	rules := l.Rules[rulesIdx]
 
-	var matchPos []int
+	matchPos := ctx.scratch
 ruleLoop:
 	for _, rule := range rules {
 		p := a
@@ -173,6 +173,7 @@ ruleLoop:
 			p++
 		}
 
+		ctx.scratch = nil // claim the scratch space as our own
 		ctx.stack = append(ctx.stack, &nested{
 			InputPos: matchPos,
 			Actions:  rule.Actions,
@@ -181,6 +182,7 @@ ruleLoop:
 		return p
 	}
 
+	ctx.scratch = matchPos // release the scratch space
 	return -1
 }
 
@@ -392,7 +394,7 @@ func (l *SeqContext2) Apply(ctx *Context, a, b int) int {
 	ruleIdx := l.Input[gid]
 	rules := l.Rules[ruleIdx]
 
-	var matchPos []int
+	matchPos := ctx.scratch
 ruleLoop:
 	for _, rule := range rules {
 		p := a
@@ -415,6 +417,7 @@ ruleLoop:
 			p++
 		}
 
+		ctx.scratch = nil // claim the scratch space as our own
 		ctx.stack = append(ctx.stack, &nested{
 			InputPos: matchPos,
 			Actions:  rule.Actions,
@@ -423,6 +426,7 @@ ruleLoop:
 		return p
 	}
 
+	ctx.scratch = matchPos // release the scratch space
 	return -1
 }
 
@@ -519,7 +523,7 @@ func (l *SeqContext2) encode() []byte {
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-3-coverage-based-glyph-contexts
 type SeqContext3 struct {
-	Input   []coverage.Table
+	Input   []coverage.Set
 	Actions []SeqLookup
 }
 
@@ -549,9 +553,9 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	cov := make([]coverage.Table, glyphCount)
+	cov := make([]coverage.Set, glyphCount)
 	for i, offset := range coverageOffsets {
-		cov[i], err = coverage.Read(p, subtablePos+int64(offset))
+		cov[i], err = coverage.ReadSet(p, subtablePos+int64(offset))
 		if err != nil {
 			return nil, err
 		}
@@ -570,12 +574,12 @@ func (l *SeqContext3) Apply(ctx *Context, a, b int) int {
 	keep := ctx.keep
 
 	gid := seq[a].GID
-	if !l.Input[0].Contains(gid) {
+	if !l.Input[0][gid] {
 		return -1
 	}
 
 	p := a
-	matchPos := []int{p}
+	matchPos := append(ctx.scratch[:0], p)
 	glyphsNeeded := len(l.Input) - 1
 	for _, cov := range l.Input[1:] {
 		glyphsNeeded--
@@ -583,7 +587,8 @@ func (l *SeqContext3) Apply(ctx *Context, a, b int) int {
 		for p+glyphsNeeded < b && !keep.Keep(seq[p].GID) {
 			p++
 		}
-		if p+glyphsNeeded >= b || !cov.Contains(seq[p].GID) {
+		if p+glyphsNeeded >= b || !cov[seq[p].GID] {
+			ctx.scratch = matchPos // release the scratch space
 			return -1
 		}
 		matchPos = append(matchPos, p)
@@ -594,6 +599,7 @@ func (l *SeqContext3) Apply(ctx *Context, a, b int) int {
 		p++
 	}
 
+	ctx.scratch = nil // claim the scratch space
 	ctx.stack = append(ctx.stack, &nested{
 		InputPos: matchPos,
 		Actions:  l.Actions,
@@ -606,7 +612,7 @@ func (l *SeqContext3) Apply(ctx *Context, a, b int) int {
 func (l *SeqContext3) encodeLen() int {
 	total := 6 + 2*len(l.Input) + 4*len(l.Actions)
 	for _, cov := range l.Input {
-		total += cov.EncodeLen()
+		total += cov.ToTable().EncodeLen()
 	}
 	return total
 }
@@ -620,7 +626,7 @@ func (l *SeqContext3) encode() []byte {
 	coverageOffsets := make([]uint16, glyphCount)
 	for i, cov := range l.Input {
 		coverageOffsets[i] = uint16(total)
-		total += cov.EncodeLen()
+		total += cov.ToTable().EncodeLen()
 	}
 
 	buf := make([]byte, 0, total)
@@ -639,7 +645,7 @@ func (l *SeqContext3) encode() []byte {
 		)
 	}
 	for _, cov := range l.Input {
-		buf = append(buf, cov.Encode()...)
+		buf = append(buf, cov.ToTable().Encode()...)
 	}
 	return buf
 }
@@ -785,7 +791,7 @@ func (l *ChainedSeqContext1) Apply(ctx *Context, a, b int) int {
 	}
 	rules := l.Rules[rulesIdx]
 
-	var matchPos []int
+	matchPos := ctx.scratch
 ruleLoop:
 	for _, rule := range rules {
 		p := a
@@ -834,6 +840,7 @@ ruleLoop:
 			next++
 		}
 
+		ctx.scratch = nil // claim the scratch space
 		ctx.stack = append(ctx.stack, &nested{
 			InputPos: matchPos,
 			Actions:  rule.Actions,
@@ -842,6 +849,7 @@ ruleLoop:
 		return next
 	}
 
+	ctx.scratch = matchPos // release the scratch space
 	return -1
 }
 
@@ -1134,7 +1142,7 @@ func (l *ChainedSeqContext2) Apply(ctx *Context, a, b int) int {
 	}
 	rules := l.Rules[rulesIdx]
 
-	var matchPos []int
+	matchPos := ctx.scratch
 ruleLoop:
 	for _, rule := range rules {
 		p := a
@@ -1183,6 +1191,7 @@ ruleLoop:
 			next++
 		}
 
+		ctx.scratch = nil // claim the scratch space
 		ctx.stack = append(ctx.stack, &nested{
 			InputPos: matchPos,
 			Actions:  rule.Actions,
@@ -1191,6 +1200,7 @@ ruleLoop:
 		return next
 	}
 
+	ctx.scratch = matchPos // release the scratch space
 	return -1
 }
 

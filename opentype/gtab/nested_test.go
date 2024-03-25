@@ -26,34 +26,6 @@ import (
 	"seehuhn.de/go/sfnt/opentype/gdef"
 )
 
-type debugNestedLookup struct {
-	matchPos []int
-	actions  []SeqLookup
-}
-
-func (l *debugNestedLookup) Apply(ctx *Context, a, b int) int {
-	if a != 0 {
-		ctx.seq[a].GID = 3
-		return a + 1
-	}
-
-	next := l.matchPos[len(l.matchPos)-1] + 1
-	ctx.stack = append(ctx.stack, &nested{
-		InputPos: l.matchPos,
-		Actions:  l.actions,
-		EndPos:   next,
-	})
-	return next
-}
-
-func (l *debugNestedLookup) encodeLen() int {
-	panic("unreachable")
-}
-
-func (l *debugNestedLookup) encode() []byte {
-	panic("unreachable")
-}
-
 // TestNestedSimple tests that the nested lookup works as expected
 // when the nested lookups are single glyph substitutions.
 func TestNestedSimple(t *testing.T) {
@@ -116,31 +88,6 @@ func TestNestedSimple(t *testing.T) {
 	}
 }
 
-// makeDebugKeepFunc returns a KeepFunc which keeps glyphs with GID < 50,
-// and ignores all glyphs 50, ..., 255.
-func makeDebugKeepFunc() *keepFunc {
-	class := classdef.Table{}
-	for i := glyph.ID(0); i < 256; i++ {
-		if i < 50 {
-			class[i] = gdef.GlyphClassBase
-		} else {
-			class[i] = gdef.GlyphClassMark
-		}
-	}
-	gdef := &gdef.Table{GlyphClass: class}
-	meta := &LookupMetaInfo{LookupFlags: IgnoreMarks}
-	return &keepFunc{Gdef: gdef, Meta: meta}
-}
-
-func TestDebugKeepFunc(t *testing.T) {
-	k := makeDebugKeepFunc()
-	for i := glyph.ID(0); i < 256; i++ {
-		if k.Keep(i) != (i < 50) {
-			t.Errorf("Keep(%d) = %v, want %v", i, k.Keep(i), i < 50)
-		}
-	}
-}
-
 func TestSeqContext1(t *testing.T) {
 	in := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5}}
 	l := &SeqContext1{
@@ -185,6 +132,103 @@ func TestSeqContext1(t *testing.T) {
 	}
 }
 
+func BenchmarkSeqContext1(b *testing.B) {
+	l0 := &Gsub1_1{
+		Cov:   coverage.Set{1: true, 2: true},
+		Delta: 1,
+	}
+	l1 := &SeqContext1{
+		Cov: map[glyph.ID]int{1: 0, 2: 1},
+		Rules: [][]*SeqRule{
+			{ // seq = 1, ...
+				{
+					Input:   []glyph.ID{1, 2, 2},
+					Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+				{
+					Input:   []glyph.ID{2, 2, 1},
+					Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+			},
+			{ // seq = 2, ...
+				{
+					Input:   []glyph.ID{2, 1, 1},
+					Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+				{
+					Input:   []glyph.ID{1, 1, 2},
+					Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+			},
+		},
+	}
+	ll := []*LookupTable{
+		{
+			Meta:      &LookupMetaInfo{LookupType: 1},
+			Subtables: []Subtable{l0},
+		},
+		{
+			Meta:      &LookupMetaInfo{LookupType: 5},
+			Subtables: []Subtable{l1},
+		},
+	}
+	var seq []glyph.Info
+	ctx := NewContext(ll, nil, []LookupIndex{1})
+
+	for _, gid := range []glyph.ID{1, 2, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2} {
+		seq = append(seq, glyph.Info{GID: gid})
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx.Apply(seq)
+	}
+}
+
+func FuzzSeqContext1(f *testing.F) {
+	sub := &SeqContext1{}
+	f.Add(sub.encode())
+	sub.Cov = coverage.Table{3: 0, 5: 1}
+	sub.Rules = [][]*SeqRule{
+		{},
+		{},
+	}
+	f.Add(sub.encode())
+	sub.Rules = [][]*SeqRule{
+		{
+			{
+				Input: []glyph.ID{4},
+				Actions: []SeqLookup{
+					{SequenceIndex: 0, LookupListIndex: 1},
+					{SequenceIndex: 1, LookupListIndex: 5},
+					{SequenceIndex: 0, LookupListIndex: 4},
+				},
+			},
+		},
+		{
+			{
+				Input: []glyph.ID{6, 7},
+				Actions: []SeqLookup{
+					{SequenceIndex: 0, LookupListIndex: 2},
+				},
+			},
+			{
+				Input: []glyph.ID{6},
+				Actions: []SeqLookup{
+					{SequenceIndex: 2, LookupListIndex: 1},
+					{SequenceIndex: 1, LookupListIndex: 2},
+					{SequenceIndex: 0, LookupListIndex: 3},
+				},
+			},
+		},
+	}
+	f.Add(sub.encode())
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		doFuzz(t, 1, 1, readSeqContext1, data)
+	})
+}
+
 func TestSeqContext2(t *testing.T) {
 	in := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5}}
 	l := &SeqContext2{
@@ -221,13 +265,111 @@ func TestSeqContext2(t *testing.T) {
 	}
 }
 
+func BenchmarkSeqContext2(b *testing.B) {
+	l0 := &Gsub1_1{
+		Cov:   coverage.Set{1: true, 2: true},
+		Delta: 1,
+	}
+	l1 := &SeqContext2{
+		Cov:   map[glyph.ID]int{1: 0, 2: 1},
+		Input: classdef.Table{1: 1, 2: 1},
+		Rules: [][]*ClassSeqRule{
+			{ // seq = 1, ...
+				{
+					Input:   []uint16{1, 2, 2},
+					Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+				{
+					Input:   []uint16{2, 2, 1},
+					Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+			},
+			{ // seq = 2, ...
+				{
+					Input:   []uint16{2, 1, 1},
+					Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+				{
+					Input:   []uint16{1, 1, 2},
+					Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+			},
+		},
+	}
+	ll := []*LookupTable{
+		{
+			Meta:      &LookupMetaInfo{LookupType: 1},
+			Subtables: []Subtable{l0},
+		},
+		{
+			Meta:      &LookupMetaInfo{LookupType: 5},
+			Subtables: []Subtable{l1},
+		},
+	}
+	var seq []glyph.Info
+	ctx := NewContext(ll, nil, []LookupIndex{1})
+
+	for _, gid := range []glyph.ID{1, 2, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2} {
+		seq = append(seq, glyph.Info{GID: gid})
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx.Apply(seq)
+	}
+}
+
+func FuzzSeqContext2(f *testing.F) {
+	sub := &SeqContext2{}
+	f.Add(sub.encode())
+	sub.Cov = coverage.Table{3: 0, 5: 1}
+	sub.Rules = [][]*ClassSeqRule{
+		{},
+		{},
+	}
+	f.Add(sub.encode())
+	sub.Rules = [][]*ClassSeqRule{
+		{
+			{
+				Input: []uint16{4},
+				Actions: []SeqLookup{
+					{SequenceIndex: 0, LookupListIndex: 1},
+					{SequenceIndex: 1, LookupListIndex: 5},
+					{SequenceIndex: 0, LookupListIndex: 4},
+				},
+			},
+		},
+		{
+			{
+				Input: []uint16{6, 7},
+				Actions: []SeqLookup{
+					{SequenceIndex: 0, LookupListIndex: 2},
+				},
+			},
+			{
+				Input: []uint16{6},
+				Actions: []SeqLookup{
+					{SequenceIndex: 2, LookupListIndex: 1},
+					{SequenceIndex: 1, LookupListIndex: 2},
+					{SequenceIndex: 0, LookupListIndex: 3},
+				},
+			},
+		},
+	}
+	f.Add(sub.encode())
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		doFuzz(t, 1, 2, readSeqContext2, data)
+	})
+}
+
 func TestSeqContext3(t *testing.T) {
 	in := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5}}
 	l := &SeqContext3{
-		Input: []coverage.Table{
-			{1: 0, 3: 1, 4: 2},
-			{2: 0, 4: 1, 5: 2},
-			{3: 0, 5: 1},
+		Input: []coverage.Set{
+			{1: true, 3: true, 4: true},
+			{2: true, 4: true, 5: true},
+			{3: true, 5: true},
 		},
 	}
 	keep := makeDebugKeepFunc()
@@ -249,6 +391,59 @@ func TestSeqContext3(t *testing.T) {
 			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
 	}
+}
+
+func BenchmarkSeqContext3(b *testing.B) {
+	l0 := &Gsub1_1{
+		Cov:   coverage.Set{1: true, 2: true},
+		Delta: 1,
+	}
+	l1 := &SeqContext3{
+		Input: []coverage.Set{
+			{1: true},
+			{2: true},
+		},
+		Actions: []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+	}
+	ll := []*LookupTable{
+		{
+			Meta:      &LookupMetaInfo{LookupType: 1},
+			Subtables: []Subtable{l0},
+		},
+		{
+			Meta:      &LookupMetaInfo{LookupType: 5},
+			Subtables: []Subtable{l1},
+		},
+	}
+	var seq []glyph.Info
+	ctx := NewContext(ll, nil, []LookupIndex{1})
+
+	for _, gid := range []glyph.ID{1, 2, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2} {
+		seq = append(seq, glyph.Info{GID: gid})
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx.Apply(seq)
+	}
+}
+
+func FuzzSeqContext3(f *testing.F) {
+	sub := &SeqContext3{}
+	f.Add(sub.encode())
+	sub.Input = append(sub.Input, coverage.Set{3: true, 4: true})
+	sub.Actions = []SeqLookup{
+		{SequenceIndex: 0, LookupListIndex: 1},
+		{SequenceIndex: 1, LookupListIndex: 5},
+		{SequenceIndex: 0, LookupListIndex: 4},
+	}
+	f.Add(sub.encode())
+	sub.Input = append(sub.Input, coverage.Set{1: true, 3: true, 5: true})
+	f.Add(sub.encode())
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		doFuzz(t, 1, 3, readSeqContext3, data)
+	})
 }
 
 func TestChainedSeqContext1(t *testing.T) {
@@ -302,110 +497,61 @@ func TestChainedSeqContext1(t *testing.T) {
 	}
 }
 
-func FuzzSeqContext1(f *testing.F) {
-	sub := &SeqContext1{}
-	f.Add(sub.encode())
-	sub.Cov = coverage.Table{3: 0, 5: 1}
-	sub.Rules = [][]*SeqRule{
-		{},
-		{},
+func BenchmarkChainedSeqContext1(b *testing.B) {
+	l0 := &Gsub1_1{
+		Cov:   coverage.Set{1: true, 2: true},
+		Delta: 1,
 	}
-	f.Add(sub.encode())
-	sub.Rules = [][]*SeqRule{
-		{
-			{
-				Input: []glyph.ID{4},
-				Actions: []SeqLookup{
-					{SequenceIndex: 0, LookupListIndex: 1},
-					{SequenceIndex: 1, LookupListIndex: 5},
-					{SequenceIndex: 0, LookupListIndex: 4},
+	l1 := &ChainedSeqContext1{
+		Cov: map[glyph.ID]int{1: 0, 2: 1},
+		Rules: [][]*ChainedSeqRule{
+			{ // seq = 1, ...
+				{
+					Input:     []glyph.ID{1, 2},
+					Lookahead: []glyph.ID{2},
+					Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+				{
+					Backtrack: []glyph.ID{1},
+					Input:     []glyph.ID{2, 2},
+					Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
 				},
 			},
-		},
-		{
-			{
-				Input: []glyph.ID{6, 7},
-				Actions: []SeqLookup{
-					{SequenceIndex: 0, LookupListIndex: 2},
+			{ // seq = 2, ...
+				{
+					Backtrack: []glyph.ID{1},
+					Input:     []glyph.ID{2, 1},
+					Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
 				},
-			},
-			{
-				Input: []glyph.ID{6},
-				Actions: []SeqLookup{
-					{SequenceIndex: 2, LookupListIndex: 1},
-					{SequenceIndex: 1, LookupListIndex: 2},
-					{SequenceIndex: 0, LookupListIndex: 3},
+				{
+					Input:     []glyph.ID{1, 1},
+					Lookahead: []glyph.ID{2},
+					Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
 				},
 			},
 		},
 	}
-	f.Add(sub.encode())
-
-	f.Fuzz(func(t *testing.T, data []byte) {
-		doFuzz(t, 1, 1, readSeqContext1, data)
-	})
-}
-
-func FuzzSeqContext2(f *testing.F) {
-	sub := &SeqContext2{}
-	f.Add(sub.encode())
-	sub.Cov = coverage.Table{3: 0, 5: 1}
-	sub.Rules = [][]*ClassSeqRule{
-		{},
-		{},
-	}
-	f.Add(sub.encode())
-	sub.Rules = [][]*ClassSeqRule{
+	ll := []*LookupTable{
 		{
-			{
-				Input: []uint16{4},
-				Actions: []SeqLookup{
-					{SequenceIndex: 0, LookupListIndex: 1},
-					{SequenceIndex: 1, LookupListIndex: 5},
-					{SequenceIndex: 0, LookupListIndex: 4},
-				},
-			},
+			Meta:      &LookupMetaInfo{LookupType: 1},
+			Subtables: []Subtable{l0},
 		},
 		{
-			{
-				Input: []uint16{6, 7},
-				Actions: []SeqLookup{
-					{SequenceIndex: 0, LookupListIndex: 2},
-				},
-			},
-			{
-				Input: []uint16{6},
-				Actions: []SeqLookup{
-					{SequenceIndex: 2, LookupListIndex: 1},
-					{SequenceIndex: 1, LookupListIndex: 2},
-					{SequenceIndex: 0, LookupListIndex: 3},
-				},
-			},
+			Meta:      &LookupMetaInfo{LookupType: 5},
+			Subtables: []Subtable{l1},
 		},
 	}
-	f.Add(sub.encode())
+	var seq []glyph.Info
+	ctx := NewContext(ll, nil, []LookupIndex{1})
 
-	f.Fuzz(func(t *testing.T, data []byte) {
-		doFuzz(t, 1, 2, readSeqContext2, data)
-	})
-}
-
-func FuzzSeqContext3(f *testing.F) {
-	sub := &SeqContext3{}
-	f.Add(sub.encode())
-	sub.Input = append(sub.Input, coverage.Table{3: 0, 4: 1})
-	sub.Actions = []SeqLookup{
-		{SequenceIndex: 0, LookupListIndex: 1},
-		{SequenceIndex: 1, LookupListIndex: 5},
-		{SequenceIndex: 0, LookupListIndex: 4},
+	for _, gid := range []glyph.ID{1, 2, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2} {
+		seq = append(seq, glyph.Info{GID: gid})
 	}
-	f.Add(sub.encode())
-	sub.Input = append(sub.Input, coverage.Table{1: 0, 3: 1, 5: 2})
-	f.Add(sub.encode())
 
-	f.Fuzz(func(t *testing.T, data []byte) {
-		doFuzz(t, 1, 3, readSeqContext3, data)
-	})
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx.Apply(seq)
+	}
 }
 
 func FuzzChainedSeqContext1(f *testing.F) {
@@ -458,6 +604,66 @@ func FuzzChainedSeqContext1(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 1, readChainedSeqContext1, data)
 	})
+}
+
+func BenchmarkChainedSeqContext2(b *testing.B) {
+	l0 := &Gsub1_1{
+		Cov:   coverage.Set{1: true, 2: true},
+		Delta: 1,
+	}
+	l1 := &ChainedSeqContext2{
+		Cov:       map[glyph.ID]int{1: 0, 2: 1},
+		Backtrack: classdef.Table{1: 1, 2: 2},
+		Input:     classdef.Table{1: 1, 2: 1},
+		Lookahead: classdef.Table{1: 1, 2: 1},
+		Rules: [][]*ChainedClassSeqRule{
+			{ // seq = 1, ...
+				{
+					Input:     []uint16{1, 2},
+					Lookahead: []uint16{2},
+					Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+				{
+					Backtrack: []uint16{1},
+					Input:     []uint16{2, 2},
+					Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+			},
+			{ // seq = 2, ...
+				{
+					Backtrack: []uint16{1},
+					Input:     []uint16{2, 1},
+					Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+				{
+					Input:     []uint16{1, 1},
+					Lookahead: []uint16{2},
+					Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+				},
+			},
+		},
+	}
+	ll := []*LookupTable{
+		{
+			Meta:      &LookupMetaInfo{LookupType: 1},
+			Subtables: []Subtable{l0},
+		},
+		{
+			Meta:      &LookupMetaInfo{LookupType: 5},
+			Subtables: []Subtable{l1},
+		},
+	}
+	var seq []glyph.Info
+	ctx := NewContext(ll, nil, []LookupIndex{1})
+
+	for _, gid := range []glyph.ID{1, 2, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2} {
+		seq = append(seq, glyph.Info{GID: gid})
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx.Apply(seq)
+	}
 }
 
 func FuzzChainedSeqContext2(f *testing.F) {
@@ -515,6 +721,40 @@ func FuzzChainedSeqContext2(f *testing.F) {
 	})
 }
 
+func BenchmarkChainedSeqContext3(b *testing.B) {
+	l0 := &Gsub1_1{
+		Cov:   coverage.Set{1: true, 2: true},
+		Delta: 1,
+	}
+	l1 := &ChainedSeqContext3{
+		Backtrack: []coverage.Set{{1: true}},
+		Input:     []coverage.Set{{1: true}, {2: true}},
+		Lookahead: []coverage.Set{{2: true}},
+		Actions:   []SeqLookup{{SequenceIndex: 1, LookupListIndex: 0}},
+	}
+	ll := []*LookupTable{
+		{
+			Meta:      &LookupMetaInfo{LookupType: 1},
+			Subtables: []Subtable{l0},
+		},
+		{
+			Meta:      &LookupMetaInfo{LookupType: 5},
+			Subtables: []Subtable{l1},
+		},
+	}
+	var seq []glyph.Info
+	ctx := NewContext(ll, nil, []LookupIndex{1})
+
+	for _, gid := range []glyph.ID{1, 2, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2} {
+		seq = append(seq, glyph.Info{GID: gid})
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ctx.Apply(seq)
+	}
+}
+
 func FuzzChainedSeqContext3(f *testing.F) {
 	sub := &ChainedSeqContext3{}
 	f.Add(sub.encode())
@@ -537,4 +777,57 @@ func FuzzChainedSeqContext3(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 3, readChainedSeqContext3, data)
 	})
+}
+
+// makeDebugKeepFunc returns a KeepFunc which keeps glyphs with GID < 50,
+// and ignores all glyphs 50, ..., 255.
+func makeDebugKeepFunc() *keepFunc {
+	class := classdef.Table{}
+	for i := glyph.ID(0); i < 256; i++ {
+		if i < 50 {
+			class[i] = gdef.GlyphClassBase
+		} else {
+			class[i] = gdef.GlyphClassMark
+		}
+	}
+	gdef := &gdef.Table{GlyphClass: class}
+	meta := &LookupMetaInfo{LookupFlags: IgnoreMarks}
+	return &keepFunc{Gdef: gdef, Meta: meta}
+}
+
+func TestDebugKeepFunc(t *testing.T) {
+	k := makeDebugKeepFunc()
+	for i := glyph.ID(0); i < 256; i++ {
+		if k.Keep(i) != (i < 50) {
+			t.Errorf("Keep(%d) = %v, want %v", i, k.Keep(i), i < 50)
+		}
+	}
+}
+
+type debugNestedLookup struct {
+	matchPos []int
+	actions  []SeqLookup
+}
+
+func (l *debugNestedLookup) Apply(ctx *Context, a, b int) int {
+	if a != 0 {
+		ctx.seq[a].GID = 3
+		return a + 1
+	}
+
+	next := l.matchPos[len(l.matchPos)-1] + 1
+	ctx.stack = append(ctx.stack, &nested{
+		InputPos: l.matchPos,
+		Actions:  l.actions,
+		EndPos:   next,
+	})
+	return next
+}
+
+func (l *debugNestedLookup) encodeLen() int {
+	panic("unreachable")
+}
+
+func (l *debugNestedLookup) encode() []byte {
+	panic("unreachable")
 }
