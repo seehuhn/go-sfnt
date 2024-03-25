@@ -44,13 +44,14 @@ func readNested(p *parser.Parser, seqLookupCount int) ([]SeqLookup, error) {
 }
 
 // SeqContext1 is used for GSUB type 5 format 1 subtables and GPOS type 7 format 1 subtables.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-1-simple-glyph-contexts
 type SeqContext1 struct {
 	Cov   coverage.Table
 	Rules [][]*SeqRule // indexed by coverage index
 }
 
-// SeqRule describes a rule in a SeqContext1 subtable.
+// SeqRule describes a rule in a [SeqContext1] subtable.
 type SeqRule struct {
 	Input   []glyph.ID // excludes the first input glyph, since this is in Cov
 	Actions []SeqLookup
@@ -137,7 +138,7 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *SeqContext1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -183,8 +184,8 @@ ruleLoop:
 	return -1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *SeqContext1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *SeqContext1) encodeLen() int {
 	total := 6 + 2*len(l.Rules)
 	for _, rules := range l.Rules {
 		if rules == nil {
@@ -199,8 +200,8 @@ func (l *SeqContext1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *SeqContext1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *SeqContext1) encode() []byte {
 	seqRuleSetCount := len(l.Rules)
 
 	total := 6 + 2*seqRuleSetCount
@@ -265,6 +266,7 @@ func (l *SeqContext1) Encode() []byte {
 }
 
 // SeqContext2 is used for GSUB type 5 format 2 subtables and GPOS type 7 format 2 subtables.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-2-class-based-glyph-contexts
 type SeqContext2 struct {
 	Cov   coverage.Table
@@ -377,7 +379,7 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *SeqContext2) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -424,8 +426,8 @@ ruleLoop:
 	return -1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *SeqContext2) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *SeqContext2) encodeLen() int {
 	total := 8 + 2*len(l.Rules)
 	total += l.Cov.EncodeLen()
 	total += l.Input.AppendLen()
@@ -441,8 +443,8 @@ func (l *SeqContext2) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *SeqContext2) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *SeqContext2) encode() []byte {
 	seqRuleSetCount := len(l.Rules)
 	total := 8 + 2*seqRuleSetCount
 	seqRuleSetOffsets := make([]uint16, seqRuleSetCount)
@@ -514,6 +516,7 @@ func (l *SeqContext2) Encode() []byte {
 }
 
 // SeqContext3 is used for GSUB type 5 format 3 and GPOS type 7 format 3 subtables.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-3-coverage-based-glyph-contexts
 type SeqContext3 struct {
 	Input   []coverage.Table
@@ -561,7 +564,7 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *SeqContext3) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -599,8 +602,8 @@ func (l *SeqContext3) Apply(ctx *Context, a, b int) int {
 	return p
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *SeqContext3) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *SeqContext3) encodeLen() int {
 	total := 6 + 2*len(l.Input) + 4*len(l.Actions)
 	for _, cov := range l.Input {
 		total += cov.EncodeLen()
@@ -608,8 +611,8 @@ func (l *SeqContext3) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *SeqContext3) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *SeqContext3) encode() []byte {
 	glyphCount := len(l.Input)
 	seqLookupCount := len(l.Actions)
 
@@ -642,7 +645,8 @@ func (l *SeqContext3) Encode() []byte {
 }
 
 // ChainedSeqContext1 is used for GSUB type 6 format 1 and GPOS type 8 format 1 subtables.
-// https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chained-sequence-context-format-1-simple-glyph-contexts
+//
+// https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chseqctxt1
 type ChainedSeqContext1 struct {
 	Cov   coverage.Table
 	Rules [][]*ChainedSeqRule // indexed by coverage index
@@ -769,7 +773,7 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *ChainedSeqContext1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -841,8 +845,8 @@ ruleLoop:
 	return -1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *ChainedSeqContext1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *ChainedSeqContext1) encodeLen() int {
 	total := 6 + 2*len(l.Rules)
 	total += l.Cov.EncodeLen()
 	for _, rules := range l.Rules {
@@ -860,8 +864,8 @@ func (l *ChainedSeqContext1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *ChainedSeqContext1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *ChainedSeqContext1) encode() []byte {
 	chainedSeqRuleSetCount := len(l.Rules)
 	total := 6 + 2*len(l.Rules)
 	coverageOffset := total
@@ -950,7 +954,8 @@ func (l *ChainedSeqContext1) Encode() []byte {
 }
 
 // ChainedSeqContext2 is used for GSUB type 6 format 2 and GPOS type 8 format 2 subtables.
-// https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chained-sequence-context-format-2-class-based-glyph-contexts
+//
+// https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chseqctxt2
 type ChainedSeqContext2 struct {
 	Cov       coverage.Table
 	Backtrack classdef.Table
@@ -959,11 +964,13 @@ type ChainedSeqContext2 struct {
 	Rules     [][]*ChainedClassSeqRule // indexed by input glyph class
 }
 
-// ChainedClassSeqRule is used to represent the rules in a ChainedSeqContext2.
+// ChainedClassSeqRule is used to represent the rules in a [ChainedSeqContext2].
 // It describes a sequence of nested lookups together with the context where
 // they apply.  The Backtrack, Input and Lookahead sequences are given
 // as lists of glyph classes, as defined by the corresponding class definition
 // tables in the ChainedSeqContext2 structure.
+//
+// https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chseqctxt2
 type ChainedClassSeqRule struct {
 	Backtrack []uint16
 	Input     []uint16 // excludes the first input glyph, since this is in Cov
@@ -1111,7 +1118,7 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *ChainedSeqContext2) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -1187,8 +1194,8 @@ ruleLoop:
 	return -1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *ChainedSeqContext2) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *ChainedSeqContext2) encodeLen() int {
 	total := 12 + 2*len(l.Rules)
 	total += l.Cov.EncodeLen()
 	total += l.Backtrack.AppendLen()
@@ -1209,8 +1216,8 @@ func (l *ChainedSeqContext2) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *ChainedSeqContext2) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *ChainedSeqContext2) encode() []byte {
 	chainedSeqRuleSetCount := len(l.Rules)
 	total := 12 + 2*len(l.Rules)
 	coverageOffset := total
@@ -1317,6 +1324,7 @@ func (l *ChainedSeqContext2) Encode() []byte {
 }
 
 // ChainedSeqContext3 is used for GSUB type 6 and GPOS type 8 format 3 subtables
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chained-sequence-context-format-3-coverage-based-glyph-contexts
 type ChainedSeqContext3 struct {
 	Backtrack []coverage.Set
@@ -1387,7 +1395,7 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *ChainedSeqContext3) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -1444,8 +1452,8 @@ func (l *ChainedSeqContext3) Apply(ctx *Context, a, b int) int {
 	return next
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *ChainedSeqContext3) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *ChainedSeqContext3) encodeLen() int {
 	total := 10
 	total += 2 * len(l.Backtrack)
 	total += 2 * len(l.Input)
@@ -1466,8 +1474,8 @@ func (l *ChainedSeqContext3) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *ChainedSeqContext3) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *ChainedSeqContext3) encode() []byte {
 	backtrackGlyphCount := len(l.Backtrack)
 	inputGlyphCount := len(l.Input)
 	lookaheadGlyphCount := len(l.Lookahead)

@@ -46,11 +46,11 @@ func (l *debugNestedLookup) Apply(ctx *Context, a, b int) int {
 	return next
 }
 
-func (l *debugNestedLookup) EncodeLen() int {
+func (l *debugNestedLookup) encodeLen() int {
 	panic("unreachable")
 }
 
-func (l *debugNestedLookup) Encode() []byte {
+func (l *debugNestedLookup) encode() []byte {
 	panic("unreachable")
 }
 
@@ -104,8 +104,8 @@ func TestNestedSimple(t *testing.T) {
 		seq := []glyph.Info{
 			{GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1}, {GID: 1},
 		}
-		e := info.LookupList.NewContext([]LookupIndex{0}, nil)
-		seq = e.ApplyAll(seq)
+		e := NewContext(info.LookupList, nil, []LookupIndex{0})
+		seq = e.Apply(seq)
 		var out []glyph.ID
 		for _, g := range seq {
 			out = append(out, g.GID)
@@ -118,7 +118,7 @@ func TestNestedSimple(t *testing.T) {
 
 // makeDebugKeepFunc returns a KeepFunc which keeps glyphs with GID < 50,
 // and ignores all glyphs 50, ..., 255.
-func makeDebugKeepFunc() *KeepFunc {
+func makeDebugKeepFunc() *keepFunc {
 	class := classdef.Table{}
 	for i := glyph.ID(0); i < 256; i++ {
 		if i < 50 {
@@ -129,7 +129,7 @@ func makeDebugKeepFunc() *KeepFunc {
 	}
 	gdef := &gdef.Table{GlyphClass: class}
 	meta := &LookupMetaInfo{LookupFlags: IgnoreMarks}
-	return &KeepFunc{Gdef: gdef, Meta: meta}
+	return &keepFunc{Gdef: gdef, Meta: meta}
 }
 
 func TestDebugKeepFunc(t *testing.T) {
@@ -304,13 +304,13 @@ func TestChainedSeqContext1(t *testing.T) {
 
 func FuzzSeqContext1(f *testing.F) {
 	sub := &SeqContext1{}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Cov = coverage.Table{3: 0, 5: 1}
 	sub.Rules = [][]*SeqRule{
 		{},
 		{},
 	}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Rules = [][]*SeqRule{
 		{
 			{
@@ -339,7 +339,7 @@ func FuzzSeqContext1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 1, readSeqContext1, data)
@@ -348,13 +348,13 @@ func FuzzSeqContext1(f *testing.F) {
 
 func FuzzSeqContext2(f *testing.F) {
 	sub := &SeqContext2{}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Cov = coverage.Table{3: 0, 5: 1}
 	sub.Rules = [][]*ClassSeqRule{
 		{},
 		{},
 	}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Rules = [][]*ClassSeqRule{
 		{
 			{
@@ -383,7 +383,7 @@ func FuzzSeqContext2(f *testing.F) {
 			},
 		},
 	}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 2, readSeqContext2, data)
@@ -392,16 +392,16 @@ func FuzzSeqContext2(f *testing.F) {
 
 func FuzzSeqContext3(f *testing.F) {
 	sub := &SeqContext3{}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Input = append(sub.Input, coverage.Table{3: 0, 4: 1})
 	sub.Actions = []SeqLookup{
 		{SequenceIndex: 0, LookupListIndex: 1},
 		{SequenceIndex: 1, LookupListIndex: 5},
 		{SequenceIndex: 0, LookupListIndex: 4},
 	}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Input = append(sub.Input, coverage.Table{1: 0, 3: 1, 5: 2})
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 3, readSeqContext3, data)
@@ -410,7 +410,7 @@ func FuzzSeqContext3(f *testing.F) {
 
 func FuzzChainedSeqContext1(f *testing.F) {
 	sub := &ChainedSeqContext1{}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Cov = coverage.Table{1: 0, 3: 1}
 	sub.Rules = [][]*ChainedSeqRule{
 		{
@@ -453,7 +453,7 @@ func FuzzChainedSeqContext1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 1, readChainedSeqContext1, data)
@@ -462,7 +462,7 @@ func FuzzChainedSeqContext1(f *testing.F) {
 
 func FuzzChainedSeqContext2(f *testing.F) {
 	sub := &ChainedSeqContext2{}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Cov = coverage.Table{1: 0, 3: 1}
 	sub.Backtrack = classdef.Table{2: 1, 3: 1, 4: 2}
 	sub.Input = classdef.Table{3: 1, 4: 2}
@@ -508,7 +508,7 @@ func FuzzChainedSeqContext2(f *testing.F) {
 			},
 		},
 	}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 2, readChainedSeqContext2, data)
@@ -517,7 +517,7 @@ func FuzzChainedSeqContext2(f *testing.F) {
 
 func FuzzChainedSeqContext3(f *testing.F) {
 	sub := &ChainedSeqContext3{}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 	sub.Backtrack = []coverage.Set{
 		{1: true, 3: true},
 	}
@@ -532,7 +532,7 @@ func FuzzChainedSeqContext3(f *testing.F) {
 		{SequenceIndex: 0, LookupListIndex: 1},
 		{SequenceIndex: 0, LookupListIndex: 2},
 	}
-	f.Add(sub.Encode())
+	f.Add(sub.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 3, readChainedSeqContext3, data)

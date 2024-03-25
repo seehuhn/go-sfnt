@@ -81,7 +81,7 @@ func TestGpos2_2(t *testing.T) {
 			},
 		},
 	}
-	data := l1.Encode()
+	data := l1.encode()
 	p := parser.New(bytes.NewReader(data))
 	err := p.Discard(2)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestGpos4_1(t *testing.T) {
 			},
 		},
 	}
-	data := l1.Encode()
+	data := l1.encode()
 	p := parser.New(bytes.NewReader(data))
 	err := p.Discard(2)
 	if err != nil {
@@ -140,7 +140,7 @@ func FuzzGpos1_1(f *testing.F) {
 			XAdvance: 100,
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 1, readGpos1_1, data)
@@ -149,7 +149,7 @@ func FuzzGpos1_1(f *testing.F) {
 
 func FuzzGpos1_2(f *testing.F) {
 	l := &Gpos1_2{}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 	l = &Gpos1_2{
 		Cov: map[glyph.ID]int{8: 0, 9: 1},
 		Adjust: []*GposValueRecord{
@@ -157,7 +157,7 @@ func FuzzGpos1_2(f *testing.F) {
 			{XAdvance: 50, XPlacement: -50},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 2, readGpos1_2, data)
@@ -166,13 +166,13 @@ func FuzzGpos1_2(f *testing.F) {
 
 func FuzzGpos2_1(f *testing.F) {
 	l := Gpos2_1{}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 	l = Gpos2_1{
 		glyph.Pair{Left: 1, Right: 2}: &PairAdjust{
 			First: &GposValueRecord{XAdvance: -10},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 	l = Gpos2_1{
 		glyph.Pair{Left: 1, Right: 2}: &PairAdjust{
 			First: &GposValueRecord{XAdvance: -10},
@@ -197,7 +197,7 @@ func FuzzGpos2_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 1, readGpos2_1, data)
@@ -206,7 +206,7 @@ func FuzzGpos2_1(f *testing.F) {
 
 func FuzzGpos3_1(f *testing.F) {
 	l := &Gpos3_1{}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 	l = &Gpos3_1{
 		Cov: coverage.Table{
 			1: 0,
@@ -231,7 +231,7 @@ func FuzzGpos3_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 3, 1, readGpos3_1, data)
 	})
@@ -239,7 +239,7 @@ func FuzzGpos3_1(f *testing.F) {
 
 func FuzzGpos4_1(f *testing.F) {
 	l := &Gpos4_1{}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 	l = &Gpos4_1{
 		MarkCov: coverage.Table{
 			1: 0,
@@ -289,7 +289,7 @@ func FuzzGpos4_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 4, 1, readGpos4_1, data)
@@ -298,7 +298,7 @@ func FuzzGpos4_1(f *testing.F) {
 
 func FuzzGpos6_1(f *testing.F) {
 	l := &Gpos6_1{}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 	l = &Gpos6_1{
 		Mark1Cov: coverage.Table{
 			1: 0,
@@ -348,7 +348,7 @@ func FuzzGpos6_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 6, 1, readGpos6_1, data)

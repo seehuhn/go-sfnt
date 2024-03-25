@@ -467,7 +467,7 @@ func Read(r io.Reader) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		info.Gsub, err = gtab.ReadGSUB(gsubFd)
+		info.Gsub, err = gtab.Read(gsubFd, gtab.TypeGsub)
 		if err != nil {
 			return nil, fmt.Errorf("GSUB table: %w", err)
 		}
@@ -483,7 +483,7 @@ func Read(r io.Reader) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		info.Gpos, err = gtab.ReadGPOS(gposFd)
+		info.Gpos, err = gtab.Read(gposFd, gtab.TypeGpos)
 		if err != nil {
 			return nil, fmt.Errorf("GPOS table: %w", err)
 		}

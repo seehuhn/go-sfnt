@@ -44,12 +44,16 @@ func readGposSubtable(p *parser.Parser, pos int64, meta *LookupMetaInfo) (Subtab
 
 	reader, ok := gposReaders[10*meta.LookupType+format]
 	if !ok {
-		// fmt.Println("GPOS", meta.LookupType, format)
-		return notImplementedGposSubtable{meta.LookupType, format}, nil
+		return nil, &parser.InvalidFontError{
+			SubSystem: "sfnt/opentype/gtab",
+			Reason: fmt.Sprintf("unknown GPOS subtable format %d.%d",
+				meta.LookupType, format),
+		}
 	}
 	return reader(p, pos)
 }
 
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#gsubLookupTypeEnum
 var gposReaders = map[uint16]func(p *parser.Parser, pos int64) (Subtable, error){
 	1_1: readGpos1_1,
 	1_2: readGpos1_2,
@@ -57,7 +61,7 @@ var gposReaders = map[uint16]func(p *parser.Parser, pos int64) (Subtable, error)
 	2_2: readGpos2_2,
 	3_1: readGpos3_1,
 	4_1: readGpos4_1,
-	// 5_1: readGpos5_1, // TODO(voss): implement
+	5_1: readGpos5_1,
 	6_1: readGpos6_1,
 	7_1: readSeqContext1,
 	7_2: readSeqContext2,
@@ -68,30 +72,10 @@ var gposReaders = map[uint16]func(p *parser.Parser, pos int64) (Subtable, error)
 	9_1: readExtensionSubtable,
 }
 
-// TODO(voss): remove once all GPOS subtables are implemented.
-type notImplementedGposSubtable struct {
-	lookupType, lookupFormat uint16
-}
-
-func (st notImplementedGposSubtable) Apply(_ *Context, _, _ int) int {
-	return -1
-}
-
-func (st notImplementedGposSubtable) EncodeLen() int {
-	msg := fmt.Sprintf("GPOS lookup type %d, format %d not implemented",
-		st.lookupType, st.lookupFormat)
-	panic(msg)
-}
-
-func (st notImplementedGposSubtable) Encode() []byte {
-	msg := fmt.Sprintf("GPOS lookup type %d, format %d not implemented",
-		st.lookupType, st.lookupFormat)
-	panic(msg)
-}
-
 // Gpos1_1 is a Single Adjustment Positioning Subtable (GPOS type 1, format 1).
 // If specifies a single adjustment to be applied to all glyphs in the
 // coverage table.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#single-adjustment-positioning-format-1-single-positioning-value
 type Gpos1_1 struct {
 	Cov    coverage.Table
@@ -120,7 +104,7 @@ func readGpos1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gpos1_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 
@@ -133,14 +117,14 @@ func (l *Gpos1_1) Apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gpos1_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gpos1_1) encodeLen() int {
 	format := l.Adjust.getFormat()
 	return 6 + l.Adjust.encodeLen(format) + l.Cov.EncodeLen()
 }
 
-// Encode implements the Subtable interface.
-func (l *Gpos1_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gpos1_1) encode() []byte {
 	format := l.Adjust.getFormat()
 	vrLen := l.Adjust.encodeLen(format)
 	coverageOffs := 6 + vrLen
@@ -196,7 +180,7 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gpos1_2) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	idx, ok := l.Cov[seq[a].GID]
@@ -207,8 +191,8 @@ func (l *Gpos1_2) Apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gpos1_2) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gpos1_2) encodeLen() int {
 	var valueFormat uint16
 	for _, adj := range l.Adjust {
 		valueFormat |= adj.getFormat()
@@ -221,8 +205,8 @@ func (l *Gpos1_2) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gpos1_2) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gpos1_2) encode() []byte {
 	var valueFormat uint16
 	for _, adj := range l.Adjust {
 		valueFormat |= adj.getFormat()
@@ -254,11 +238,13 @@ func (l *Gpos1_2) Encode() []byte {
 type Gpos2_1 map[glyph.Pair]*PairAdjust
 
 // PairAdjust represents information from a PairValueRecord table.
+//
+// This is used in [Gpos2_1] and [Gpos2_2] subtables.
 type PairAdjust struct {
 	First, Second *GposValueRecord
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l Gpos2_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -379,8 +365,8 @@ func (l Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
 	return cov, adjust
 }
 
-// EncodeLen implements the Subtable interface.
-func (l Gpos2_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l Gpos2_1) encodeLen() int {
 	cov, adjust := l.CovAndAdjust()
 
 	total := 10 + 2*len(adjust)
@@ -402,8 +388,8 @@ func (l Gpos2_1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l Gpos2_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l Gpos2_1) encode() []byte {
 	cov, adjust := l.CovAndAdjust()
 
 	pairSetCount := len(adjust)
@@ -465,7 +451,7 @@ type Gpos2_2 struct {
 	Adjust         [][]*PairAdjust // indexed by class1 index, then class2 index
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gpos2_2) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -567,8 +553,8 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gpos2_2) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gpos2_2) encodeLen() int {
 	var valueFormat1, valueFormat2 uint16
 	for _, adj := range l.Adjust {
 		for _, v := range adj {
@@ -593,8 +579,8 @@ func (l *Gpos2_2) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gpos2_2) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gpos2_2) encode() []byte {
 	var valueFormat1, valueFormat2 uint16
 	for _, adj := range l.Adjust {
 		for _, v := range adj {
@@ -645,21 +631,22 @@ func (l *Gpos2_2) Encode() []byte {
 }
 
 // Gpos3_1 is a Cursive Attachment Positioning subtable (format 1).
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#cursive-attachment-positioning-format1-cursive-attachment
 type Gpos3_1 struct {
 	Cov     coverage.Table
 	Records []EntryExitRecord // indexed by coverage index
 }
 
-// EntryExitRecord is an OpenType EntryExitRecord table.
-// The Exit anchor point of a glyph is aligned with the Entry anchor point of
-// the following glyph.
+// EntryExitRecord is an OpenType EntryExitRecord table, for use in [Gpos3_1]
+// subtables.  The Exit anchor point of a glyph is aligned with the Entry anchor
+// point of the following glyph.
 type EntryExitRecord struct {
 	Entry anchor.Table
 	Exit  anchor.Table
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gpos3_1) Apply(ctx *Context, a, b int) int {
 	// TODO(voss): this is only correct if the RIGHT_TO_LEFT flag is not set.
 
@@ -739,8 +726,8 @@ func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gpos3_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gpos3_1) encodeLen() int {
 	total := 6
 	total += 4 * len(l.Records)
 	for _, rec := range l.Records {
@@ -755,8 +742,8 @@ func (l *Gpos3_1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gpos3_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gpos3_1) encode() []byte {
 	total := 6
 	entryExitCount := len(l.Records)
 	total += 4 * entryExitCount

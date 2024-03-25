@@ -28,7 +28,7 @@ func FuzzGsub1_1(f *testing.F) {
 		Cov:   map[glyph.ID]bool{3: true},
 		Delta: 26,
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 1, readGsub1_1, data)
@@ -40,7 +40,7 @@ func FuzzGsub1_2(f *testing.F) {
 		Cov:                map[glyph.ID]int{2: 0, 3: 1},
 		SubstituteGlyphIDs: []glyph.ID{6, 7},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 2, readGsub1_2, data)
@@ -55,7 +55,7 @@ func FuzzGsub2_1(f *testing.F) {
 			{1, 2, 3},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 1, readGsub2_1, data)
@@ -70,7 +70,7 @@ func FuzzGsub3_1(f *testing.F) {
 			{5, 6, 7},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 3, 1, readGsub3_1, data)
@@ -92,7 +92,7 @@ func FuzzGsub4_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 4, 1, readGsub4_1, data)
@@ -104,7 +104,7 @@ func FuzzGsub8_1(f *testing.F) {
 		Input:              coverage.Table{1: 0},
 		SubstituteGlyphIDs: []glyph.ID{2},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 	l = &Gsub8_1{
 		Input: coverage.Table{1: 0},
 		Backtrack: []coverage.Table{
@@ -118,7 +118,7 @@ func FuzzGsub8_1(f *testing.F) {
 		},
 		SubstituteGlyphIDs: []glyph.ID{2},
 	}
-	f.Add(l.Encode())
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 8, 1, readGsub8_1, data)

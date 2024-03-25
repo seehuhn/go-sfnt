@@ -24,6 +24,7 @@ import (
 )
 
 // Gpos6_1 is a Mark-to-Mark Attachment Positioning Subtable (format 1)
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-6-mark-to-mark-attachment-positioning-subtable
 type Gpos6_1 struct {
 	Mark1Cov   coverage.Table
@@ -118,7 +119,7 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gpos6_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	mark1Idx, ok := l.Mark1Cov[seq[a].GID]
@@ -172,8 +173,8 @@ func (l *Gpos6_1) countMarkClasses() int {
 	return int(maxClass) + 1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gpos6_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gpos6_1) encodeLen() int {
 	total := 12
 	total += l.Mark1Cov.EncodeLen()
 	total += l.Mark2Cov.EncodeLen()
@@ -191,8 +192,8 @@ func (l *Gpos6_1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gpos6_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gpos6_1) encode() []byte {
 	mark1Count := len(l.Mark1Array)
 	markClassCount := l.countMarkClasses()
 	mark2Count := len(l.Mark2Array)

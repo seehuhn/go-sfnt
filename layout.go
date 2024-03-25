@@ -46,7 +46,7 @@ func (f *Font) NewLayouter(lang language.Tag, gsubFeatures, gposFeatures map[str
 			gsubFeatures = gtab.GsubDefaultFeatures
 		}
 		gsubLookups := f.Gsub.FindLookups(lang, gsubFeatures)
-		gsub = f.Gsub.LookupList.NewContext(gsubLookups, f.Gdef)
+		gsub = gtab.NewContext(f.Gsub.LookupList, f.Gdef, gsubLookups)
 	}
 
 	if f.Gpos != nil {
@@ -54,7 +54,7 @@ func (f *Font) NewLayouter(lang language.Tag, gsubFeatures, gposFeatures map[str
 			gposFeatures = gtab.GposDefaultFeatures
 		}
 		gposLookups := f.Gpos.FindLookups(lang, gposFeatures)
-		gpos = f.Gpos.LookupList.NewContext(gposLookups, f.Gdef)
+		gpos = gtab.NewContext(f.Gpos.LookupList, f.Gdef, gposLookups)
 	}
 
 	return &Layouter{
@@ -80,7 +80,7 @@ func (l *Layouter) Layout(s string) []glyph.Info {
 	}
 
 	if l.gsub != nil {
-		seq = l.gsub.ApplyAll(seq)
+		seq = l.gsub.Apply(seq)
 	}
 
 	font := l.font
@@ -92,7 +92,7 @@ func (l *Layouter) Layout(s string) []glyph.Info {
 	}
 
 	if l.gpos != nil {
-		seq = l.gpos.ApplyAll(seq)
+		seq = l.gpos.Apply(seq)
 	}
 
 	l.buf = seq

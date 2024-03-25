@@ -32,8 +32,7 @@ type FeatureIndex uint16
 // FeatureListInfo contains the contents of an OpenType "Feature List" table.
 type FeatureListInfo []*Feature
 
-// Feature describes an OpenType feature, used either in a "GPOS" or "GSUB"
-// table.
+// Feature describes an OpenType font feature.
 type Feature struct {
 	// Tag describes the function of this feature.
 	// https://docs.microsoft.com/en-us/typography/opentype/spec/featuretags
@@ -157,9 +156,9 @@ func (info FeatureListInfo) encode() []byte {
 	return buf
 }
 
+// Default features for use with the [Info.FindLookups] method.
 var (
-	// GsubDefaultFeatures can be used as an argument for the Info.FindLookups()
-	// method.
+	// GsubDefaultFeatures lists a set of default features for "GSUB" tables.
 	GsubDefaultFeatures = map[string]bool{
 		"calt": true, // Contextual Alternates
 		"ccmp": true, // Glyph Composition / Decomposition
@@ -168,8 +167,7 @@ var (
 		"locl": true, // Localized Forms
 	}
 
-	// GposDefaultFeatures can be used as an argument for the Info.FindLookups()
-	// method.
+	// GposDefaultFeatures lists a set of default features for "GPOS" tables.
 	GposDefaultFeatures = map[string]bool{
 		"kern": true, // Kerning
 		"mark": true, // Mark Positioning

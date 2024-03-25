@@ -32,7 +32,6 @@ import (
 	"seehuhn.de/go/sfnt/hmtx"
 	"seehuhn.de/go/sfnt/maxp"
 	"seehuhn.de/go/sfnt/name"
-	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/post"
 )
@@ -90,10 +89,10 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 		tableData["GDEF"] = f.Gdef.Encode()
 	}
 	if f.Gsub != nil {
-		tableData["GSUB"] = f.Gsub.Encode(gtab.GsubExtensionLookupType)
+		tableData["GSUB"] = f.Gsub.Encode()
 	}
 	if f.Gpos != nil {
-		tableData["GPOS"] = f.Gpos.Encode(gtab.GposExtensionLookupType)
+		tableData["GPOS"] = f.Gpos.Encode()
 	}
 
 	return header.Write(w, scalerType, tableData)

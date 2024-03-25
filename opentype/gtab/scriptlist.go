@@ -23,8 +23,10 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// ScriptListInfo contains the information of a ScriptList table.
+// ScriptListInfo contains the information of an OpenType "ScriptList table".
 // It maps BCP 47 tags to OpenType font features.
+//
+// https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#scriptList
 type ScriptListInfo map[language.Tag]*Features
 
 // Features describes the mandatory and optional features for a script/language.

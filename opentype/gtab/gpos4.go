@@ -24,6 +24,7 @@ import (
 )
 
 // Gpos4_1 is a Mark-to-Base Attachment Positioning Subtable (format 1)
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#mark-to-base-attachment-positioning-format-1-mark-to-base-attachment-point
 type Gpos4_1 struct {
 	MarkCov   coverage.Table
@@ -118,7 +119,7 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gpos4_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 
@@ -174,8 +175,8 @@ func (l *Gpos4_1) countMarkClasses() int {
 	return int(maxClass) + 1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gpos4_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gpos4_1) encodeLen() int {
 	total := 12
 	total += l.MarkCov.EncodeLen()
 	total += l.BaseCov.EncodeLen()
@@ -193,8 +194,8 @@ func (l *Gpos4_1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gpos4_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gpos4_1) encode() []byte {
 	markCount := len(l.MarkArray)
 	markClassCount := l.countMarkClasses()
 	baseCount := len(l.BaseArray)

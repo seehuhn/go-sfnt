@@ -40,21 +40,21 @@ import (
 //      6  |    .      .      X      .      X
 //      4  |    X      X      .      X      .
 
-// A KeepFunc decised which glyphs to consider in a lookup.
-// Glyphs where the KeepFunc returns false are ignored.
+// A keepFunc decised which glyphs to consider in a lookup.
+// Glyphs where the keepFunc returns false are ignored.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#lookupFlags
-type KeepFunc struct {
+type keepFunc struct {
 	Gdef *gdef.Table
 	Meta *LookupMetaInfo
 }
 
-func newKeepFunc(meta *LookupMetaInfo, gdef *gdef.Table) *KeepFunc {
+func newKeepFunc(meta *LookupMetaInfo, gdef *gdef.Table) *keepFunc {
 	if gdef == nil || gdef.GlyphClass == nil || meta.LookupFlags == 0 {
 		return nil
 	}
 
-	return &KeepFunc{
+	return &keepFunc{
 		Gdef: gdef,
 		Meta: meta,
 	}
@@ -62,7 +62,7 @@ func newKeepFunc(meta *LookupMetaInfo, gdef *gdef.Table) *KeepFunc {
 
 // Keep returns true, if the glyph with the given ID should be considered in
 // the lookup.
-func (k *KeepFunc) Keep(gid glyph.ID) bool {
+func (k *keepFunc) Keep(gid glyph.ID) bool {
 	if k == nil {
 		return true
 	}

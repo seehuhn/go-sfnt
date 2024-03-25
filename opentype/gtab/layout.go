@@ -34,7 +34,7 @@ type Context struct {
 
 	// keep represents the lookup flags.  Glyphs for which keep returns false
 	// must be skipped when constructing the input sequence.
-	keep *KeepFunc
+	keep *keepFunc
 
 	stack []*nested
 
@@ -54,17 +54,17 @@ type nested struct {
 	EndPos int
 }
 
-// NewContext creates a new layout engine.
-// The engine applies the given lookups in the given order.
-// The gdef parameter, if non-nil, is used to resolve glyph classes.
-func (ll LookupList) NewContext(lookups []LookupIndex, gdef *gdef.Table) *Context {
+// NewContext creates a new context, which can be used to apply the given
+// lookups in the given order.  The gdef parameter, if non-nil, is used to
+// resolve glyph classes.
+func NewContext(ll LookupList, gdef *gdef.Table, lookups []LookupIndex) *Context {
 	return &Context{lookups: lookups, ll: ll, gdef: gdef}
 }
 
-// ApplyAll applies the lookups to the given sequence of glyphs.
+// Apply applies the lookups to the given sequence of glyphs.
 //
 // This is the main entry-point for external users of GSUB and GPOS tables.
-func (ctx *Context) ApplyAll(seq []glyph.Info) []glyph.Info {
+func (ctx *Context) Apply(seq []glyph.Info) []glyph.Info {
 	for _, lookupIndex := range ctx.lookups {
 		if int(lookupIndex) >= len(ctx.ll) {
 			continue
@@ -78,7 +78,7 @@ func (ctx *Context) ApplyAll(seq []glyph.Info) []glyph.Info {
 		// TODO(voss): GSUB 8.1 subtables are applied in reverse order.
 		for pos < len(ctx.seq) {
 			oldTodo := len(ctx.seq) - pos
-			pos = ctx.ApplyAtRecursively(pos)
+			pos = ctx.applyAtRecursively(pos)
 
 			// Make sure that every step makes some progress.
 			// TODO(voss): Is this needed?
@@ -93,14 +93,14 @@ func (ctx *Context) ApplyAll(seq []glyph.Info) []glyph.Info {
 	return seq
 }
 
-// ApplyAtRecursively applies a single lookup to the given glyphs at position
+// applyAtRecursively applies a single lookup to the given glyphs at position
 // pos.  It returns the new glyph sequence and position for the next lookup.
-func (ctx *Context) ApplyAtRecursively(pos int) int {
+func (ctx *Context) applyAtRecursively(pos int) int {
 	// Check if the lookup applies to the input sequence.
 	if !ctx.keep.Keep(ctx.seq[pos].GID) {
 		return pos + 1
 	}
-	next := ctx.ApplyAt(ctx.lookup.Subtables, pos, len(ctx.seq))
+	next := ctx.applyAt(ctx.lookup.Subtables, pos, len(ctx.seq))
 	if next < 0 {
 		return pos + 1
 	}
@@ -140,7 +140,7 @@ func (ctx *Context) ApplyAtRecursively(pos int) int {
 			ctx.lookup = lookup
 			oldKeep := ctx.keep
 			ctx.keep = keep
-			ctx.ApplyAt(lookup.Subtables, pos, end)
+			ctx.applyAt(lookup.Subtables, pos, end)
 			ctx.lookup = oldLookup
 			ctx.keep = oldKeep
 		}
@@ -149,9 +149,9 @@ func (ctx *Context) ApplyAtRecursively(pos int) int {
 	return next
 }
 
-// ApplyAt tries the subtables one by one and applies the first one that
+// applyAt tries the subtables one by one and applies the first one that
 // matches.  If no subtable matches, a -1 is returned.
-func (ctx *Context) ApplyAt(ss []Subtable, pos, b int) int {
+func (ctx *Context) applyAt(ss []Subtable, pos, b int) int {
 	for _, subtable := range ss {
 		next := subtable.Apply(ctx, pos, b)
 		if next >= 0 {
@@ -161,10 +161,10 @@ func (ctx *Context) ApplyAt(ss []Subtable, pos, b int) int {
 	return -1
 }
 
-// FixStackInsert adjusts the stack of nested actions after replacing the glyph
+// fixStackInsert adjusts the stack of nested actions after replacing the glyph
 // at `pos` with a sequence of `num` glyphs.  If the glyph at `pos` is part of
 // an input sequence, the new glyphs are inserted into the input sequence.
-func (ctx *Context) FixStackInsert(pos, num int) {
+func (ctx *Context) fixStackInsert(pos, num int) {
 	for _, action := range ctx.stack {
 		if action.EndPos <= pos {
 			continue
@@ -196,10 +196,10 @@ func (ctx *Context) FixStackInsert(pos, num int) {
 	}
 }
 
-// FixStackMerge adjusts the stack of nested actions after merging the glyphs
+// fixStackMerge adjusts the stack of nested actions after merging the glyphs
 // in `pos` into a single glyph at `pos[0]`.  If any of the glyphs in `pos` is part of an
 // input sequence, the new glyph is inserted into the input sequence.
-func (ctx *Context) FixStackMerge(pos []int) {
+func (ctx *Context) fixStackMerge(pos []int) {
 	for _, action := range ctx.stack {
 		if action.EndPos <= pos[0] {
 			continue
@@ -245,7 +245,7 @@ func (ctx *Context) FixStackMerge(pos []int) {
 		// glyph sequence of this action.  The behaviour is not specified in
 		// the OpenType spec, so we try to imitate the behavior of the Windows
 		// layout engine.  The rules seem very complicated, and I failed to
-		// reverse engineer the rules completely.  The rule we are using here
+		// reverse engineer them completely.  The rule we are using here
 		// is that we include the new glyphs, if and only if one of the
 		// endpoints of the match was included in the original action input
 		// sequence.

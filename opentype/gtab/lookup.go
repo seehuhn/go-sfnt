@@ -24,10 +24,11 @@ import (
 )
 
 // LookupIndex enumerates lookups.
-// It is used as an index into a LookupList.
+// It is used as an index into a [LookupList].
 type LookupIndex uint16
 
-// LookupList contains the information from a Lookup List Table.
+// LookupList contains the information from an OpenType "Lookup List Table".
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#lookup-list-table
 type LookupList []*LookupTable
 
@@ -128,9 +129,9 @@ type Subtable interface {
 	// callers responsibility to ensure this.
 	Apply(ctx *Context, a, b int) int
 
-	EncodeLen() int
+	encodeLen() int
 
-	Encode() []byte
+	encode() []byte
 }
 
 // subtableReader is a function that can decode a subtable.
@@ -266,9 +267,29 @@ const (
 	chunkSubtableMask chunkCode = 0b0000_00000000000000_11111111111111
 )
 
-func (ll LookupList) encode(extLookupType uint16) []byte {
+// Lookup types for extension lookup records.
+const (
+	gposExtensionLookupType uint16 = 9
+	gsubExtensionLookupType uint16 = 7
+)
+
+func (ll LookupList) encode() []byte {
 	if ll == nil {
 		return nil
+	}
+
+	var extLookupType uint16
+	for _, l := range ll {
+		for _, subtable := range l.Subtables {
+			switch subtable.(type) {
+			case *Gsub1_1, *Gsub1_2, *Gsub2_1, *Gsub3_1, *Gsub4_1, *Gsub8_1:
+				extLookupType = gsubExtensionLookupType
+				break
+			case *Gpos1_1, *Gpos1_2, *Gpos2_1, *Gpos2_2, *Gpos3_1, *Gpos4_1, *Gpos5_1, *Gpos6_1:
+				extLookupType = gposExtensionLookupType
+				break
+			}
+		}
 	}
 
 	lookupCount := len(ll)
@@ -299,7 +320,7 @@ func (ll LookupList) encode(extLookupType uint16) []byte {
 			sCode := chunkCode(j)
 			chunks = append(chunks, layoutChunk{
 				code: chunkSubtable | tCode | sCode,
-				size: uint32(subtable.EncodeLen()),
+				size: uint32(subtable.encodeLen()),
 			})
 		}
 	}
@@ -380,12 +401,12 @@ func (ll LookupList) encode(extLookupType uint16) []byte {
 				ExtensionLookupType: lookup.Meta.LookupType,
 				ExtensionOffset:     int64(extPos - pos),
 			}
-			buf = append(buf, subtable.Encode()...)
+			buf = append(buf, subtable.encode()...)
 		case chunkSubtable:
 			i := code & chunkTableMask >> 14
 			j := code & chunkSubtableMask
 			subtable := ll[i].Subtables[j]
-			buf = append(buf, subtable.Encode()...)
+			buf = append(buf, subtable.encode()...)
 		}
 	}
 	return buf
@@ -507,11 +528,11 @@ func (l *extensionSubtable) Apply(*Context, int, int) int {
 	panic("unreachable")
 }
 
-func (l *extensionSubtable) EncodeLen() int {
+func (l *extensionSubtable) encodeLen() int {
 	return 8
 }
 
-func (l *extensionSubtable) Encode() []byte {
+func (l *extensionSubtable) encode() []byte {
 	return []byte{
 		0, 1, // format
 		byte(l.ExtensionLookupType >> 8), byte(l.ExtensionLookupType),
@@ -575,10 +596,3 @@ func (info *Info) FindLookups(lang language.Tag, includeFeature map[string]bool)
 	})
 	return ll
 }
-
-// Lookup types for extension lookup records.
-// This can be used as an argument for the [Info.Encode] method.
-const (
-	GposExtensionLookupType uint16 = 9
-	GsubExtensionLookupType uint16 = 7
-)

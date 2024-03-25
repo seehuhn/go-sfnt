@@ -23,26 +23,66 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// Info contains the information from a "GSUB" or "GPOS" table.
+// Info contains the information from an OpenType "GSUB" or "GPOS" table.
 type Info struct {
-	ScriptList  ScriptListInfo
+	// The ScriptList lists the font features available for each natural
+	// language.  Features are given as indices into the FeatureList.
+	ScriptList ScriptListInfo
+
+	// The FeatureList enumerates all font features available in the font.
+	// Features are implemented by lookups from the LookupList.
 	FeatureList FeatureListInfo
-	LookupList  LookupList
+
+	// The LookupList enumerates all the OpenType lookups used to implement
+	// the font features.
+	LookupList LookupList
 }
 
-// ReadGSUB reads and decodes an OpenType "GSUB" table from r.
-// https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#gsub-header
-func ReadGSUB(r parser.ReadSeekSizer) (*Info, error) {
-	return readGtab(r, "GSUB", readGsubSubtable)
+// Type chooses between "GSUB" and "GPOS" tables.
+// The possible values are [TypeGsub] and [TypeGpos].
+type Type byte
+
+func (tp Type) String() string {
+	switch tp {
+	case TypeGsub:
+		return "GSUB"
+	case TypeGpos:
+		return "GPOS"
+	default:
+		return fmt.Sprintf("Type(%d)", tp)
+	}
+
 }
 
-// ReadGPOS reads and decodes an OpenType "GPOS" table from r.
-// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#gpos-header
-func ReadGPOS(r parser.ReadSeekSizer) (*Info, error) {
-	return readGtab(r, "GPOS", readGposSubtable)
+// These are the allowed types for use in the [Read] function.
+const (
+	// TypeGsub is an OpenType "GSUB" table.
+	TypeGsub = iota + 1
+
+	// TypeGpos is an OpenType "GPOS" table.
+	TypeGpos
+)
+
+// Read reads and decodes an OpenType "GSUB" or "GPOS" table from r.
+// The tp argument must be one of [TypeGsub] or [TypeGpos].
+//
+// The format of the data read is defined here:
+//   - https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#gsub-header
+//   - https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#gpos-header
+func Read(r parser.ReadSeekSizer, tp Type) (*Info, error) {
+	var sr subtableReader
+	switch tp {
+	case TypeGsub:
+		sr = readGsubSubtable
+	case TypeGpos:
+		sr = readGposSubtable
+	default:
+		return nil, fmt.Errorf("unsupported Gtab table type %d", tp)
+	}
+	return readGtab(r, tp, sr)
 }
 
-func readGtab(r parser.ReadSeekSizer, tableName string, sr subtableReader) (*Info, error) {
+func readGtab(r parser.ReadSeekSizer, tp Type, sr subtableReader) (*Info, error) {
 	p := parser.New(r)
 
 	var header struct {
@@ -62,7 +102,7 @@ func readGtab(r parser.ReadSeekSizer, tableName string, sr subtableReader) (*Inf
 		return nil, &parser.NotSupportedError{
 			SubSystem: "sfnt/opentype/gtab",
 			Feature: fmt.Sprintf("%s table version %d.%d",
-				tableName, header.MajorVersion, header.MinorVersion),
+				tp, header.MajorVersion, header.MinorVersion),
 		}
 	}
 	endOfHeader := uint32(10)
@@ -90,7 +130,7 @@ func readGtab(r parser.ReadSeekSizer, tableName string, sr subtableReader) (*Inf
 			return nil, &parser.InvalidFontError{
 				SubSystem: "sfnt/opentype/gtab",
 				Reason: fmt.Sprintf("%s header has invalid offset %d",
-					tableName, offset),
+					tp, offset),
 			}
 		}
 	}
@@ -98,7 +138,7 @@ func readGtab(r parser.ReadSeekSizer, tableName string, sr subtableReader) (*Inf
 		int64(FeatureVariationsOffset) >= fileSize {
 		return nil, &parser.InvalidFontError{
 			SubSystem: "sfnt/opentype/gtab",
-			Reason:    fmt.Sprintf("%s header has invalid FeatureVariationsOffset", tableName),
+			Reason:    fmt.Sprintf("%s header has invalid FeatureVariationsOffset", tp),
 		}
 	}
 
@@ -122,10 +162,10 @@ func readGtab(r parser.ReadSeekSizer, tableName string, sr subtableReader) (*Inf
 }
 
 // Encode returns the binary representation of a "GSUB" or "GPOS" table.
-func (info *Info) Encode(extLookupType uint16) []byte {
+func (info *Info) Encode() []byte {
 	scriptList := info.ScriptList.encode()
 	featureList := info.FeatureList.encode()
-	lookupList := info.LookupList.encode(extLookupType)
+	lookupList := info.LookupList.encode()
 
 	total := 10
 	var scriptListOffset int

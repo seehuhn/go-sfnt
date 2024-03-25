@@ -239,7 +239,8 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// Check that the end position of the parent match is correctly
 	// adjusted, if a child-lookup inserts new glyphs between trailing
 	// ignore glyphs.
-	{
+	{ // harfbuzz: X, Mac: X
+		Name: "2_09",
 		Desc: `GSUB5: -marks "A" -> 1@0 3@0
 				GSUB5: "AMM" -> 2@2
 				GSUB2: "M" -> "MAAM"
@@ -250,7 +251,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 
 	// Child lookups can be of any type:
 	{ // harfbuzz: YA, Mac: YA
-		Name: "2_09",
+		Name: "2_10",
 		Desc: `GSUB5: "AA" -> 1@0 2@0
 				GSUB1: "A" -> "B"
 				GSUB1: "A" -> "X", "B" -> "Y"`,
@@ -258,7 +259,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "YA",
 	},
 	{ // harfbuzz: YA, Mac: YA
-		Name: "2_10",
+		Name: "2_11",
 		Desc: `GSUB5: "AA" -> 1@0 2@0
 				GSUB2: "A" -> "B"
 				GSUB1: "A" -> "X", "B" -> "Y"`,
@@ -266,7 +267,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "YA",
 	},
 	{ // harfbuzz: YA, Mac: YA
-		Name: "2_11",
+		Name: "2_12",
 		Desc: `GSUB5: "AA" -> 1@0 2@0
 				GSUB4: "A" -> "B"
 				GSUB1: "A" -> "X", "B" -> "Y"`,
@@ -276,7 +277,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	//
 	// The same, but with one more level of nesting.
 	{ // harfbuzz: YA, Mac: YA
-		Name: "2_12",
+		Name: "2_13",
 		Desc: `GSUB5: "AA" -> 1@0 3@0
 				GSUB5: "A" -> 2@0
 				GSUB1: "A" -> "B"
@@ -285,7 +286,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "YA",
 	},
 	{ // harfbuzz: YA, Mac: YA
-		Name: "2_13",
+		Name: "2_14",
 		Desc: `GSUB5: "AA" -> 1@0 3@0
 				GSUB5: "A" -> 2@0
 				GSUB2: "A" -> "B"
@@ -294,7 +295,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "YA",
 	},
 	{ // harfbuzz: YA, Mac: YA
-		Name: "2_14",
+		Name: "2_15",
 		Desc: `GSUB5: "AA" -> 1@0 3@0
 				GSUB5: "A" -> 2@0
 				GSUB4: "A" -> "B"
@@ -305,7 +306,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	//
 	// ... and with ligatures ignored
 	{ // harfbuzz: YLA, Mac: YLA
-		Name: "2_15",
+		Name: "2_16",
 		Desc: `GSUB5: -ligs "AA" -> 1@0 3@0
 				GSUB5: "A" -> 2@0
 				GSUB1: "A" -> "B"
@@ -314,7 +315,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "YLA",
 	},
 	{ // harfbuzz: YLA, Mac: YLA
-		Name: "2_16",
+		Name: "2_17",
 		Desc: `GSUB5: -ligs "AA" -> 1@0 3@0
 				GSUB5: "A" -> 2@0
 				GSUB2: "A" -> "B"
@@ -323,7 +324,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "YLA",
 	},
 	{ // harfbuzz: YLA, Mac: YLA
-		Name: "2_17",
+		Name: "2_18",
 		Desc: `GSUB5: -ligs "AA" -> 1@0 3@0
 				GSUB5: "A" -> 2@0
 				GSUB4: "A" -> "B"
@@ -335,7 +336,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// Glyphs which are ignored in the parent lookup may be matched in the
 	// child lookup:
 	{ // harfbuzz: AXA, Mac: AXA
-		Name: "2_18",
+		Name: "2_19",
 		Desc: `GSUB5: -marks "AA" -> 1@0
 				GSUB5: "AMA" -> 2@1
 				GSUB1: "M" -> "X"`,

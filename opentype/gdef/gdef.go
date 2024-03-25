@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// Package gdef reads and writes "GDEF" tables.
+// Package gdef reads and writes OpenType "GDEF" tables.
 package gdef
 
 import (

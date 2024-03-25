@@ -93,7 +93,7 @@ func readGsub1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gsub1_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	gid := seq[a].GID
@@ -105,13 +105,13 @@ func (l *Gsub1_1) Apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gsub1_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gsub1_1) encodeLen() int {
 	return 6 + l.Cov.ToTable().EncodeLen()
 }
 
-// Encode implements the Subtable interface.
-func (l *Gsub1_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gsub1_1) encode() []byte {
 	cov := l.Cov.ToTable()
 	buf := make([]byte, 6+cov.EncodeLen())
 	// buf[0] = 0
@@ -163,7 +163,7 @@ func readGsub1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gsub1_2) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	gid := seq[a].GID
@@ -176,13 +176,13 @@ func (l *Gsub1_2) Apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gsub1_2) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gsub1_2) encodeLen() int {
 	return 6 + 2*len(l.SubstituteGlyphIDs) + l.Cov.EncodeLen()
 }
 
-// Encode implements the Subtable interface.
-func (l *Gsub1_2) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gsub1_2) encode() []byte {
 	n := len(l.SubstituteGlyphIDs)
 	covOffs := 6 + 2*n
 
@@ -254,7 +254,7 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gsub2_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	gid := seq[a].GID
@@ -277,14 +277,14 @@ func (l *Gsub2_1) Apply(ctx *Context, a, b int) int {
 		ctx.seq = seq
 
 		// Fix up input sequences and positions in parent lookups.
-		ctx.FixStackInsert(a, k)
+		ctx.fixStackInsert(a, k)
 	}
 
 	return a + k
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gsub2_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gsub2_1) encodeLen() int {
 	total := 6 + 2*len(l.Repl)
 	for _, repl := range l.Repl {
 		total += 2 + 2*len(repl)
@@ -293,8 +293,8 @@ func (l *Gsub2_1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gsub2_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gsub2_1) encode() []byte {
 	sequenceCount := len(l.Repl)
 	covOffs := 6 + 2*sequenceCount
 
@@ -387,7 +387,7 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gsub3_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	gid := seq[a].GID
@@ -406,8 +406,8 @@ func (l *Gsub3_1) Apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gsub3_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gsub3_1) encodeLen() int {
 	total := 6 + 2*len(l.Alternates)
 	for _, repl := range l.Alternates {
 		total += 2 + 2*len(repl)
@@ -416,8 +416,8 @@ func (l *Gsub3_1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gsub3_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gsub3_1) encode() []byte {
 	alternateSetCount := len(l.Alternates)
 	covOffs := 6 + 2*alternateSetCount
 
@@ -456,6 +456,10 @@ func (l *Gsub3_1) Encode() []byte {
 
 // Gsub4_1 is a Ligature Substitution GSUB subtable (type 4, format 1).
 // Lookups of this type replace a sequence of glyphs with a single glyph.
+//
+// The order of entries in Repl defines the preference for using the ligatures,
+// for example "ffl" is only applied if it comes before "ff".
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#41-ligature-substitution-format-1
 type Gsub4_1 struct {
 	Cov  coverage.Table
@@ -463,15 +467,13 @@ type Gsub4_1 struct {
 }
 
 // Ligature represents a substitution of a sequence of glyphs into a single glyph
-// in a Gsub4_1 subtable.
+// in a [Gsub4_1] subtable.
 type Ligature struct {
 	// In is the sequence of input glyphs that is replaced by Out, excluding
 	// the first glyph in the sequence (since this is in Cov).
-	//
-	// The order in the Ligature offset array defines the preference for using
-	// the ligatures, for example "ffl" is only applied if it comes before "ff".
 	In []glyph.ID
 
+	// Out is the glyph that replaces the input sequence.
 	Out glyph.ID
 }
 
@@ -558,7 +560,7 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gsub4_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 
@@ -611,7 +613,7 @@ ligLoop:
 		// Move the tail to the correct position.
 		ctx.seq = slices.Delete(seq, a+1+len(skipPos), a+len(lig.In)+1+len(skipPos))
 
-		ctx.FixStackMerge(matchPos)
+		ctx.fixStackMerge(matchPos)
 
 		return a + 1 + len(skipPos)
 	}
@@ -619,8 +621,8 @@ ligLoop:
 	return -1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gsub4_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gsub4_1) encodeLen() int {
 	total := 6 + 2*len(l.Repl)
 	for _, repl := range l.Repl {
 		total += 2 + 2*len(repl)
@@ -632,8 +634,8 @@ func (l *Gsub4_1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gsub4_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gsub4_1) encode() []byte {
 	ligatureSetCount := len(l.Repl)
 	total := 6 + 2*ligatureSetCount
 	ligatureSetOffsets := make([]uint16, ligatureSetCount)
@@ -747,7 +749,7 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the Subtable interface.
+// Apply implements the [Subtable] interface.
 func (l *Gsub8_1) Apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
@@ -788,8 +790,8 @@ func (l *Gsub8_1) Apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// EncodeLen implements the Subtable interface.
-func (l *Gsub8_1) EncodeLen() int {
+// encodeLen implements the [Subtable] interface.
+func (l *Gsub8_1) encodeLen() int {
 	total := 10
 	total += 2 * len(l.Backtrack)
 	total += 2 * len(l.Lookahead)
@@ -804,8 +806,8 @@ func (l *Gsub8_1) EncodeLen() int {
 	return total
 }
 
-// Encode implements the Subtable interface.
-func (l *Gsub8_1) Encode() []byte {
+// encode implements the [Subtable] interface.
+func (l *Gsub8_1) encode() []byte {
 	backtrackGlyphCount := len(l.Backtrack)
 	lookaheadGlyphCount := len(l.Lookahead)
 	glyphCount := len(l.SubstituteGlyphIDs)

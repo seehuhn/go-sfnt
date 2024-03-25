@@ -45,7 +45,7 @@ var (
 	_ Subtable = (*Gpos2_2)(nil)
 	_ Subtable = (*Gpos3_1)(nil)
 	_ Subtable = (*Gpos4_1)(nil)
-	// _ Subtable = (*Gpos5_1)(nil) // TODO(voss): implement this
+	_ Subtable = (*Gpos5_1)(nil)
 	_ Subtable = (*Gpos6_1)(nil)
 
 	_ Subtable = (*SeqContext1)(nil)
@@ -55,9 +55,8 @@ var (
 	_ Subtable = (*ChainedSeqContext2)(nil)
 	_ Subtable = (*ChainedSeqContext3)(nil)
 
-	_ Subtable = notImplementedGposSubtable{}
 	_ Subtable = (*debugNestedLookup)(nil)
-	_ Subtable = (*dummySubTable)(nil)
+	_ Subtable = (*dummySubtable)(nil)
 )
 
 // TestLookupFlags tests that the lookup flags cause the correct glyphs to be
@@ -198,8 +197,8 @@ func TestLookupFlags(t *testing.T) {
 			for i, g := range c.in {
 				seq[i].GID = g
 			}
-			e := lookupList.NewContext([]LookupIndex{0}, gdefTable)
-			seq = e.ApplyAll(seq)
+			e := NewContext(lookupList, gdefTable, []LookupIndex{0})
+			seq = e.Apply(seq)
 
 			hasMerged := seq[0].GID == repl
 			if hasMerged && !c.shouldMerge {
@@ -218,11 +217,11 @@ func FuzzLookupList(f *testing.F) {
 		&LookupTable{
 			Meta: &LookupMetaInfo{},
 			Subtables: []Subtable{
-				dummySubTable{},
+				dummySubtable{},
 			},
 		},
 	}
-	f.Add(l.encode(999))
+	f.Add(l.encode())
 
 	l = LookupList{
 		&LookupTable{
@@ -231,11 +230,11 @@ func FuzzLookupList(f *testing.F) {
 				LookupFlags: UseMarkFilteringSet,
 			},
 			Subtables: []Subtable{
-				dummySubTable{1, 2, 3, 4},
+				dummySubtable{1, 2, 3, 4},
 			},
 		},
 	}
-	f.Add(l.encode(999))
+	f.Add(l.encode())
 
 	l = LookupList{
 		&LookupTable{
@@ -243,9 +242,9 @@ func FuzzLookupList(f *testing.F) {
 				LookupType: 1,
 			},
 			Subtables: []Subtable{
-				dummySubTable{0},
-				dummySubTable{1},
-				dummySubTable{2},
+				dummySubtable{0},
+				dummySubtable{1},
+				dummySubtable{2},
 			},
 		},
 		&LookupTable{
@@ -255,8 +254,8 @@ func FuzzLookupList(f *testing.F) {
 				MarkFilteringSet: 7,
 			},
 			Subtables: []Subtable{
-				dummySubTable{3, 4},
-				dummySubTable{5, 6},
+				dummySubtable{3, 4},
+				dummySubtable{5, 6},
 			},
 		},
 		&LookupTable{
@@ -264,11 +263,11 @@ func FuzzLookupList(f *testing.F) {
 				LookupType: 3,
 			},
 			Subtables: []Subtable{
-				dummySubTable{7, 8, 9},
+				dummySubtable{7, 8, 9},
 			},
 		},
 	}
-	f.Add(l.encode(999))
+	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data1 []byte) {
 		p := parser.New(bytes.NewReader(data1))
@@ -277,7 +276,7 @@ func FuzzLookupList(f *testing.F) {
 			return
 		}
 
-		data2 := l1.encode(999)
+		data2 := l1.encode()
 
 		p = parser.New(bytes.NewReader(data2))
 		l2, err := readLookupList(p, 0, readDummySubtable)
@@ -303,7 +302,7 @@ func readDummySubtable(p *parser.Parser, pos int64, info *LookupMetaInfo) (Subta
 	if err != nil {
 		return nil, err
 	}
-	res := make(dummySubTable, info.LookupType)
+	res := make(dummySubtable, info.LookupType)
 	_, err = p.Read(res)
 	if err != nil {
 		return nil, err
@@ -311,16 +310,16 @@ func readDummySubtable(p *parser.Parser, pos int64, info *LookupMetaInfo) (Subta
 	return res, nil
 }
 
-type dummySubTable []byte
+type dummySubtable []byte
 
-func (st dummySubTable) Apply(ctx *Context, a, b int) int {
+func (st dummySubtable) Apply(ctx *Context, a, b int) int {
 	return -1
 }
 
-func (st dummySubTable) EncodeLen() int {
+func (st dummySubtable) encodeLen() int {
 	return len(st)
 }
 
-func (st dummySubTable) Encode() []byte {
+func (st dummySubtable) encode() []byte {
 	return []byte(st)
 }

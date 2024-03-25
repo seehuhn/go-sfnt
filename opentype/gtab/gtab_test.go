@@ -70,7 +70,7 @@ func TestGetLookups(t *testing.T) {
 
 func FuzzGtab(f *testing.F) {
 	info := &Info{}
-	f.Add(info.Encode(999))
+	f.Add(info.Encode())
 
 	info.ScriptList = ScriptListInfo{
 		language.MustParse("und-Zzzz"): {
@@ -98,84 +98,84 @@ func FuzzGtab(f *testing.F) {
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 1},
 			Subtables: []Subtable{
-				dummySubTable{0},
-				dummySubTable{1},
-				dummySubTable{2},
+				dummySubtable{0},
+				dummySubtable{1},
+				dummySubtable{2},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 2, LookupFlags: UseMarkFilteringSet, MarkFilteringSet: 7},
 			Subtables: []Subtable{
-				dummySubTable{3, 4},
-				dummySubTable{5, 6},
+				dummySubtable{3, 4},
+				dummySubtable{5, 6},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 3},
 			Subtables: []Subtable{
-				dummySubTable{7, 8, 9},
+				dummySubtable{7, 8, 9},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 1},
 			Subtables: []Subtable{
-				dummySubTable{0},
-				dummySubTable{1},
-				dummySubTable{2},
+				dummySubtable{0},
+				dummySubtable{1},
+				dummySubtable{2},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 2, LookupFlags: UseMarkFilteringSet, MarkFilteringSet: 7},
 			Subtables: []Subtable{
-				dummySubTable{3, 4},
-				dummySubTable{5, 6},
+				dummySubtable{3, 4},
+				dummySubtable{5, 6},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 3},
 			Subtables: []Subtable{
-				dummySubTable{7, 8, 9},
+				dummySubtable{7, 8, 9},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 1},
 			Subtables: []Subtable{
-				dummySubTable{0},
-				dummySubTable{1},
-				dummySubTable{2},
+				dummySubtable{0},
+				dummySubtable{1},
+				dummySubtable{2},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 2, LookupFlags: UseMarkFilteringSet, MarkFilteringSet: 7},
 			Subtables: []Subtable{
-				dummySubTable{3, 4},
-				dummySubTable{5, 6},
+				dummySubtable{3, 4},
+				dummySubtable{5, 6},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 3},
 			Subtables: []Subtable{
-				dummySubTable{7, 8, 9},
+				dummySubtable{7, 8, 9},
 			},
 		},
 		&LookupTable{
 			Meta: &LookupMetaInfo{LookupType: 5},
 			Subtables: []Subtable{
-				dummySubTable{10, 11, 12, 13, 14},
+				dummySubtable{10, 11, 12, 13, 14},
 			},
 		},
 	}
-	f.Add(info.Encode(999))
+	f.Add(info.Encode())
 
 	f.Fuzz(func(t *testing.T, data1 []byte) {
-		info1, err := readGtab(bytes.NewReader(data1), "test", readDummySubtable)
+		info1, err := readGtab(bytes.NewReader(data1), 0, readDummySubtable)
 		if err != nil {
 			return
 		}
 
-		data2 := info1.Encode(999)
+		data2 := info1.Encode()
 
-		info2, err := readGtab(bytes.NewReader(data2), "test", readDummySubtable)
+		info2, err := readGtab(bytes.NewReader(data2), 0, readDummySubtable)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -203,9 +203,9 @@ func doFuzz(t *testing.T, lookupType, lookupFormat uint16,
 		return
 	}
 
-	data2 := l1.Encode()
-	if len(data2) != l1.EncodeLen() {
-		t.Errorf("encodeLen mismatch: %d != %d", len(data2), l1.EncodeLen())
+	data2 := l1.encode()
+	if len(data2) != l1.encodeLen() {
+		t.Errorf("encodeLen mismatch: %d != %d", len(data2), l1.encodeLen())
 	}
 
 	p = parser.New(bytes.NewReader(data2))
