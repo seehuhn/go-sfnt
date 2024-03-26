@@ -114,8 +114,36 @@ const (
 )
 
 // Subtable represents a subtable of a "GSUB" or "GPOS" lookup table.
+//
+// The following types are GSUB subtables:
+//
+//   - [*Gsub1_1]
+//   - [*Gsub1_2]
+//   - [*Gsub2_1]
+//   - [*Gsub3_1]
+//   - [*Gsub4_1]
+//   - [*Gsub8_1]
+//
+// The following types are GPOS subtables:
+//   - [*Gpos1_1]
+//   - [*Gpos1_2]
+//   - [*Gpos2_1]
+//   - [*Gpos2_2]
+//   - [*Gpos3_1]
+//   - [*Gpos4_1]
+//   - [*Gpos5_1]
+//   - [*Gpos6_1]
+//
+// The following types can be used both in GSUB and GPOS tables:
+//
+//   - [*SeqContext1]
+//   - [*SeqContext2]
+//   - [*SeqContext3]
+//   - [*ChainedSeqContext1]
+//   - [*ChainedSeqContext2]
+//   - [*ChainedSeqContext3]
 type Subtable interface {
-	// Apply attempts to apply the subtable at position a.  The function
+	// apply attempts to apply the subtable at position a.  The function
 	// returns the new position.  If the subtable cannot be applied, a negative
 	// position is returned.  Matching the input sequence is restricted to
 	// positions a to b-1.
@@ -127,7 +155,7 @@ type Subtable interface {
 	//
 	// The method can assume that ctx.Keep(seq[a].Gid) is true.  It is the
 	// callers responsibility to ensure this.
-	Apply(ctx *Context, a, b int) int
+	apply(ctx *Context, a, b int) int
 
 	encodeLen() int
 
@@ -524,7 +552,7 @@ func readExtensionSubtable(p *parser.Parser, _ int64) (Subtable, error) {
 	return res, nil
 }
 
-func (l *extensionSubtable) Apply(*Context, int, int) int {
+func (l *extensionSubtable) apply(*Context, int, int) int {
 	panic("unreachable")
 }
 

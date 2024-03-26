@@ -125,7 +125,7 @@ func TestSeqContext1(t *testing.T) {
 	}
 	ctx := &Context{seq: in, keep: keep}
 	for _, test := range cases {
-		next := l.Apply(ctx, test.before, len(in))
+		next := l.apply(ctx, test.before, len(in))
 		if next != test.after {
 			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
@@ -258,7 +258,7 @@ func TestSeqContext2(t *testing.T) {
 	}
 	ctx := &Context{seq: in, keep: keep}
 	for _, test := range cases {
-		next := l.Apply(ctx, test.before, len(in))
+		next := l.apply(ctx, test.before, len(in))
 		if next != test.after {
 			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
@@ -386,7 +386,7 @@ func TestSeqContext3(t *testing.T) {
 	}
 	ctx := &Context{seq: in, keep: keep}
 	for _, test := range cases {
-		next := l.Apply(ctx, test.before, len(in))
+		next := l.apply(ctx, test.before, len(in))
 		if next != test.after {
 			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
@@ -490,7 +490,7 @@ func TestChainedSeqContext1(t *testing.T) {
 	}
 	ctx := &Context{seq: in, keep: keep}
 	for _, test := range cases {
-		next := l.Apply(ctx, test.before, len(in))
+		next := l.apply(ctx, test.before, len(in))
 		if next != test.after {
 			t.Errorf("Apply(%d) = %d, want %d", test.before, next, test.after)
 		}
@@ -809,7 +809,7 @@ type debugNestedLookup struct {
 	actions  []SeqLookup
 }
 
-func (l *debugNestedLookup) Apply(ctx *Context, a, b int) int {
+func (l *debugNestedLookup) apply(ctx *Context, a, b int) int {
 	if a != 0 {
 		ctx.seq[a].GID = 3
 		return a + 1

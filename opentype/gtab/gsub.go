@@ -69,6 +69,7 @@ var gsubReaders = map[uint16]func(p *parser.Parser, pos int64) (Subtable, error)
 // Lookups of this type allow to replace a single glyph with another glyph.
 // The original glyph must be contained in the coverage table.
 // The new glyph is determined by adding `delta` to the original glyph's GID.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#11-single-substitution-format-1
 type Gsub1_1 struct {
 	Cov   coverage.Set
@@ -93,8 +94,8 @@ func readGsub1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gsub1_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gsub1_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	gid := seq[a].GID
 	if _, ok := l.Cov[gid]; !ok {
@@ -129,6 +130,7 @@ func (l *Gsub1_1) encode() []byte {
 // The original glyph must be contained in the coverage table.
 // The new glyph is found by looking up the replacement GID in the
 // SubstituteGlyphIDs table (indexed by the coverage index of the original GID).
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#12-single-substitution-format-2
 type Gsub1_2 struct {
 	Cov                coverage.Table
@@ -163,8 +165,8 @@ func readGsub1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gsub1_2) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gsub1_2) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
@@ -207,6 +209,7 @@ func (l *Gsub1_2) encode() []byte {
 // The new glyphs are found by looking up the replacement GIDs in the
 // `Repl` table (indexed by the coverage index of the original GID).
 // Replacement sequences must have at least one glyph.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#21-multiple-substitution-format-1
 type Gsub2_1 struct {
 	Cov  coverage.Table
@@ -254,8 +257,8 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gsub2_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gsub2_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
@@ -332,6 +335,7 @@ func (l *Gsub2_1) encode() []byte {
 }
 
 // Gsub3_1 is an Alternate Substitution GSUB subtable (type 3, format 1).
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#31-alternate-substitution-format-1
 type Gsub3_1 struct {
 	Cov        coverage.Table
@@ -387,8 +391,8 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gsub3_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gsub3_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	gid := seq[a].GID
 	idx, ok := l.Cov[gid]
@@ -560,8 +564,8 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gsub4_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gsub4_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 
 	gid := seq[a].GID
@@ -688,6 +692,7 @@ func (l *Gsub4_1) encode() []byte {
 
 // Gsub8_1 is a Reverse Chaining Contextual Single Substitution GSUB subtable
 // (type 8, format 1).
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#81-reverse-chaining-contextual-single-substitution-format-1-coverage-based-glyph-contexts
 type Gsub8_1 struct {
 	Input              coverage.Table
@@ -749,8 +754,8 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gsub8_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gsub8_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 

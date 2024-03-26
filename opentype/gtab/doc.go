@@ -15,6 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Package gtab reads and writes OpenType "GSUB" and "GPOS" tables.
-// The main entry point is the [Info] type, which represents a parsed OpenType
-// "GSUB" or "GPOS" table.
+//
+// There are two main entry points:
+//
+//   - The [Info] type represents a parsed OpenType "GSUB" or "GPOS" table.
+//   - The [Context] type allows to apply a "GSUB" or "GPOS" table to a sequence
+//     of glyphs.
 package gtab

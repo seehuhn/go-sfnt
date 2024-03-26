@@ -153,7 +153,7 @@ func (ctx *Context) applyAtRecursively(pos int) int {
 // matches.  If no subtable matches, a -1 is returned.
 func (ctx *Context) applyAt(ss []Subtable, pos, b int) int {
 	for _, subtable := range ss {
-		next := subtable.Apply(ctx, pos, b)
+		next := subtable.apply(ctx, pos, b)
 		if next >= 0 {
 			return next
 		}

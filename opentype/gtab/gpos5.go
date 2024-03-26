@@ -23,7 +23,7 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// Gpos5_1 is a Mark-to-Ligature Attachment Positioning Subtable (format 1)
+// Gpos5_1 is a Mark-to-Ligature Attachment Positioning Subtable (format 1).
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-5-mark-to-ligature-attachment-positioning-subtable
 type Gpos5_1 struct {
@@ -128,8 +128,8 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gpos5_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gpos5_1) apply(ctx *Context, a, b int) int {
 	// TODO(voss): implement this
 	return -1
 }

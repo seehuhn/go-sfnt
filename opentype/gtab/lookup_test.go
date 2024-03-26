@@ -312,7 +312,7 @@ func readDummySubtable(p *parser.Parser, pos int64, info *LookupMetaInfo) (Subta
 
 type dummySubtable []byte
 
-func (st dummySubtable) Apply(ctx *Context, a, b int) int {
+func (st dummySubtable) apply(ctx *Context, a, b int) int {
 	return -1
 }
 

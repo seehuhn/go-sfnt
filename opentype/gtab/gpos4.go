@@ -23,7 +23,7 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// Gpos4_1 is a Mark-to-Base Attachment Positioning Subtable (format 1)
+// Gpos4_1 is a Mark-to-Base Attachment Positioning Subtable (format 1).
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#mark-to-base-attachment-positioning-format-1-mark-to-base-attachment-point
 type Gpos4_1 struct {
@@ -119,8 +119,8 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gpos4_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gpos4_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 
 	// TODO(voss): does this apply to the base or the mark?

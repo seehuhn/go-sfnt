@@ -23,7 +23,7 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// Gpos6_1 is a Mark-to-Mark Attachment Positioning Subtable (format 1)
+// Gpos6_1 is a Mark-to-Mark Attachment Positioning Subtable (format 1).
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-6-mark-to-mark-attachment-positioning-subtable
 type Gpos6_1 struct {
@@ -119,8 +119,8 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gpos6_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gpos6_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	mark1Idx, ok := l.Mark1Cov[seq[a].GID]
 	if !ok {

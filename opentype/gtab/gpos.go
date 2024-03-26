@@ -104,8 +104,8 @@ func readGpos1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gpos1_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gpos1_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 
 	_, ok := l.Cov[seq[a].GID]
@@ -140,7 +140,8 @@ func (l *Gpos1_1) encode() []byte {
 	return buf
 }
 
-// Gpos1_2 is a Single Adjustment Positioning Subtable (GPOS type 1, format 2)
+// Gpos1_2 is a Single Adjustment Positioning Subtable (GPOS type 1, format 2).
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#single-adjustment-positioning-format-2-array-of-positioning-values
 type Gpos1_2 struct {
 	Cov    coverage.Table
@@ -180,8 +181,8 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gpos1_2) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gpos1_2) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	idx, ok := l.Cov[seq[a].GID]
 	if !ok {
@@ -233,7 +234,8 @@ func (l *Gpos1_2) encode() []byte {
 	return buf
 }
 
-// Gpos2_1 is a Pair Adjustment Positioning Subtable (format 1)
+// Gpos2_1 is a Pair Adjustment Positioning Subtable (format 1).
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#pair-adjustment-positioning-format-1-adjustments-for-glyph-pairs
 type Gpos2_1 map[glyph.Pair]*PairAdjust
 
@@ -244,8 +246,8 @@ type PairAdjust struct {
 	First, Second *GposValueRecord
 }
 
-// Apply implements the [Subtable] interface.
-func (l Gpos2_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l Gpos2_1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 
@@ -342,7 +344,8 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// CovAndAdjust returns the coverage table and the adjustments.
+// CovAndAdjust is a convenience function which returns the coverage table and
+// the adjustments.
 func (l Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
 	seen := make(map[glyph.ID]bool)
 	for pair := range l {
@@ -443,7 +446,8 @@ func (l Gpos2_1) encode() []byte {
 	return buf
 }
 
-// Gpos2_2 is a Pair Adjustment Positioning Subtable (format 2)
+// Gpos2_2 is a Pair Adjustment Positioning Subtable (format 2).
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#pair-adjustment-positioning-format-2-class-pair-adjustment
 type Gpos2_2 struct {
 	Cov            coverage.Set
@@ -451,8 +455,8 @@ type Gpos2_2 struct {
 	Adjust         [][]*PairAdjust // indexed by class1 index, then class2 index
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gpos2_2) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gpos2_2) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 
@@ -646,8 +650,8 @@ type EntryExitRecord struct {
 	Exit  anchor.Table
 }
 
-// Apply implements the [Subtable] interface.
-func (l *Gpos3_1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *Gpos3_1) apply(ctx *Context, a, b int) int {
 	// TODO(voss): this is only correct if the RIGHT_TO_LEFT flag is not set.
 
 	seq := ctx.seq

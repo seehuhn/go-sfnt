@@ -43,7 +43,7 @@ func readNested(p *parser.Parser, seqLookupCount int) ([]SeqLookup, error) {
 	return res, nil
 }
 
-// SeqContext1 is used for GSUB type 5 format 1 subtables and GPOS type 7 format 1 subtables.
+// SeqContext1 is used for GSUB type 5 format 1 subtables and for GPOS type 7 format 1 subtables.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-1-simple-glyph-contexts
 type SeqContext1 struct {
@@ -138,8 +138,8 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *SeqContext1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *SeqContext1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 
@@ -267,7 +267,7 @@ func (l *SeqContext1) encode() []byte {
 	return buf
 }
 
-// SeqContext2 is used for GSUB type 5 format 2 subtables and GPOS type 7 format 2 subtables.
+// SeqContext2 is used for GSUB type 5 format 2 subtables and for GPOS type 7 format 2 subtables.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-2-class-based-glyph-contexts
 type SeqContext2 struct {
@@ -381,8 +381,8 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *SeqContext2) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *SeqContext2) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 
@@ -519,7 +519,7 @@ func (l *SeqContext2) encode() []byte {
 	return buf
 }
 
-// SeqContext3 is used for GSUB type 5 format 3 and GPOS type 7 format 3 subtables.
+// SeqContext3 is used for GSUB type 5 format 3 and for GPOS type 7 format 3 subtables.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-3-coverage-based-glyph-contexts
 type SeqContext3 struct {
@@ -568,8 +568,8 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *SeqContext3) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *SeqContext3) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 
@@ -650,7 +650,7 @@ func (l *SeqContext3) encode() []byte {
 	return buf
 }
 
-// ChainedSeqContext1 is used for GSUB type 6 format 1 and GPOS type 8 format 1 subtables.
+// ChainedSeqContext1 is used for GSUB type 6 format 1 and for GPOS type 8 format 1 subtables.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chseqctxt1
 type ChainedSeqContext1 struct {
@@ -779,8 +779,8 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *ChainedSeqContext1) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *ChainedSeqContext1) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 
@@ -961,7 +961,7 @@ func (l *ChainedSeqContext1) encode() []byte {
 	return buf
 }
 
-// ChainedSeqContext2 is used for GSUB type 6 format 2 and GPOS type 8 format 2 subtables.
+// ChainedSeqContext2 is used for GSUB type 6 format 2 and for GPOS type 8 format 2 subtables.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chseqctxt2
 type ChainedSeqContext2 struct {
@@ -1126,8 +1126,8 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *ChainedSeqContext2) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *ChainedSeqContext2) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 
@@ -1333,7 +1333,7 @@ func (l *ChainedSeqContext2) encode() []byte {
 	return buf
 }
 
-// ChainedSeqContext3 is used for GSUB type 6 and GPOS type 8 format 3 subtables
+// ChainedSeqContext3 is used for GSUB type 6 and for GPOS type 8 format 3 subtables.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chained-sequence-context-format-3-coverage-based-glyph-contexts
 type ChainedSeqContext3 struct {
@@ -1405,8 +1405,8 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 	return res, nil
 }
 
-// Apply implements the [Subtable] interface.
-func (l *ChainedSeqContext3) Apply(ctx *Context, a, b int) int {
+// apply implements the [Subtable] interface.
+func (l *ChainedSeqContext3) apply(ctx *Context, a, b int) int {
 	seq := ctx.seq
 	keep := ctx.keep
 
