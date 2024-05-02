@@ -1132,7 +1132,7 @@ func (p *parser) readGlyphList() []glyph.ID {
 
 		case itemInteger:
 			x, err := strconv.Atoi(item.val)
-			if err != nil || x < 0 || x >= p.fontInfo.NumGlyphs() {
+			if err != nil || x < 0 || x >= 65536 || x >= p.fontInfo.NumGlyphs() {
 				p.fatal("invalid glyph id %q", item.val)
 			}
 			next = append(next, glyph.ID(x))
@@ -1207,7 +1207,7 @@ func (p *parser) readNestedLookups() []gtab.SeqLookup {
 			return res
 		}
 		lookupIndex, err := strconv.Atoi(item.val)
-		if err != nil {
+		if err != nil || lookupIndex < 0 || lookupIndex >= 65536 {
 			p.fatal("invalid lookup index: %q", item.val)
 		}
 		p.required(itemAt, "@")
@@ -1216,7 +1216,7 @@ func (p *parser) readNestedLookups() []gtab.SeqLookup {
 			p.fatal("invalid lookup position: %q", item.val)
 		}
 		lookupPos, err := strconv.Atoi(item.val)
-		if err != nil {
+		if err != nil || lookupPos < 0 || lookupPos >= 65536 {
 			p.fatal("invalid lookup position: %q", item.val)
 		}
 		res = append(res, gtab.SeqLookup{
@@ -1286,7 +1286,7 @@ func (p *parser) readInt16() funit.Int16 {
 
 func (p *parser) readUint16() uint16 {
 	x := p.readInteger()
-	if x < 0 || x > 65537 {
+	if x < 0 || x >= 65536 {
 		p.fatal("uint16 out of range: %d", x)
 	}
 	return uint16(x)
