@@ -43,7 +43,7 @@ var exportFonts = flag.Bool("export-fonts", false, "export fonts used in tests")
 //
 // I have used the following procedure on MacOS:
 //
-// 1. Run one of the tests, using commands like the folowing:
+// 1. Run one of the tests, using commands like the following:
 //
 //	go test -run TestGsub/63 -export-fonts
 //

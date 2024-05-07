@@ -91,7 +91,7 @@ func (w Weight) Rounded() Weight {
 	return (w + 50) / 100 * 100
 }
 
-// SimpleString converts the Weight to a string, prefering the nearest
+// SimpleString converts the Weight to a string, preferring the nearest
 // textual description over the precise numeric value where needed.
 func (w Weight) SimpleString() string {
 	return w.Rounded().String()
