@@ -8,5 +8,5 @@ require (
 	golang.org/x/image v0.15.0
 	golang.org/x/text v0.14.0
 	seehuhn.de/go/dijkstra v0.9.3
-	seehuhn.de/go/postscript v0.4.5
+	seehuhn.de/go/postscript v0.5.0
 )
