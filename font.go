@@ -149,7 +149,17 @@ func (f *Font) Subfamily() string {
 		words = append(words, f.Width.String())
 	}
 	if f.Weight != 0 && f.Weight != os2.WeightNormal {
-		words = append(words, f.Weight.SimpleString())
+		tag := f.Weight.SimpleString()
+		seen := strings.Contains(f.FamilyName, tag)
+		for _, w := range words {
+			if strings.Contains(w, tag) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			words = append(words, tag)
+		}
 	} else if f.IsBold {
 		words = append(words, "Bold")
 	}
