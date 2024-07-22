@@ -175,6 +175,8 @@ func (f *Font) Subfamily() string {
 }
 
 // PostScriptName returns the PostScript name of the font.
+//
+// TODO(voss): do a better job at preserving the original font name.
 func (f *Font) PostScriptName() string {
 	name := f.FamilyName + "-" + f.Subfamily()
 	re := regexp.MustCompile(`[^!-$&-'*-.0-;=?-Z\\^-z|~]+`)
@@ -259,7 +261,8 @@ func (f *Font) Widths() []funit.Int16 {
 	}
 }
 
-// WidthsPDF returns the advance widths of the glyphs in the font.
+// WidthsPDF returns the advance widths of the glyphs in the font,
+// in PDF text space units.
 func (f *Font) WidthsPDF() []float64 {
 	widths := make([]float64, f.NumGlyphs())
 	switch outlines := f.Outlines.(type) {

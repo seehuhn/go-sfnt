@@ -65,7 +65,17 @@ func (cff *Font) Widths() []funit.Int16 {
 }
 
 func (cff *Font) GlyphWidthPDF(gid glyph.ID) float64 {
-	return float64(cff.Glyphs[gid].Width) * cff.FontInfo.FontMatrix[0]
+	return float64(cff.Glyphs[gid].Width) * cff.FontMatrix[0]
+}
+
+// WidthsPDF returns the advance widths of the glyphs in the font,
+// in PDF text space units.
+func (cff *Font) WidthsPDF() []float64 {
+	widths := make([]float64, cff.NumGlyphs())
+	for gid, g := range cff.Glyphs {
+		widths[gid] = float64(g.Width) * cff.FontMatrix[0]
+	}
+	return widths
 }
 
 // Outlines stores the glyph data of a CFF font.
