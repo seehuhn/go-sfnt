@@ -142,7 +142,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if len(ROS) != 3 {
 			return nil, invalidSince("wrong number of ROS values")
 		}
-		ros := &cid.SystemInfo{}
+		ros := &CIDSystemInfo{}
 		if reg, ok := ROS[0].(string); ok {
 			ros.Registry = reg
 		} else {

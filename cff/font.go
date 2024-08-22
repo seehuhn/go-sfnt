@@ -78,6 +78,16 @@ func (cff *Font) WidthsPDF() []float64 {
 	return widths
 }
 
+// CIDSystemInfo describes a character collection covered by a font.
+// A character collection implies an encoding which maps Character IDs to glyphs.
+//
+// See section 5.11.2 of the PLRM.
+type CIDSystemInfo struct {
+	Registry   string
+	Ordering   string
+	Supplement int32
+}
+
 // Outlines stores the glyph data of a CFF font.
 type Outlines struct {
 	Glyphs []*Glyph
@@ -96,7 +106,7 @@ type Outlines struct {
 	// ROS specifies the character collection of the font, using Adobe's
 	// Registry, Ordering, Supplement system.  This must be non-nil
 	// if and only if the font is a CIDFont.
-	ROS *cid.SystemInfo
+	ROS *CIDSystemInfo
 
 	// GIDToCID lists the character identifiers corresponding to the glyphs.
 	// This is only present for CIDFonts, and encodes the information from the
