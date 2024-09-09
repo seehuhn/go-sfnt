@@ -154,7 +154,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 			return nil, invalidSince("wrong type for Ordering")
 		}
 		if sup, ok := ROS[2].(int32); ok {
-			ros.Supplement = int64(sup)
+			ros.Supplement = sup
 		} else {
 			return nil, invalidSince("wrong type for Supplement")
 		}

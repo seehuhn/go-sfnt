@@ -178,6 +178,8 @@ func (d cffDict) encode(ss *cffStrings) []byte {
 				buf := encodeFloat(a)
 				res.WriteByte(0x1e)
 				res.Write(buf)
+			default:
+				panic("unexpected type")
 			}
 		}
 		if op > 255 {

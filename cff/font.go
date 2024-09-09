@@ -86,7 +86,7 @@ func (cff *Font) WidthsPDF() []float64 {
 type CIDSystemInfo struct {
 	Registry   string
 	Ordering   string
-	Supplement int64
+	Supplement int32
 }
 
 // Outlines stores the glyph data of a CFF font.
