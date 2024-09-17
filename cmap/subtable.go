@@ -19,12 +19,13 @@ package cmap
 import "seehuhn.de/go/sfnt/glyph"
 
 // TODO(voss): add a way to iterate over CMap Subtables
-// TODO(voss): change lookup to map uint32 to glyph.ID?
 
 // Subtable represents a decoded cmap subtable.
 type Subtable interface {
 	// Lookup returns the glyph index for the given rune.
 	// If the rune is not found, Lookup returns 0 (corresponding to the ".notdef" glyph).
+	//
+	// TODO(voss): change lookup to map uint32 or int to glyph.ID
 	Lookup(r rune) glyph.ID
 
 	// Encode returns the binary form of the subtable.

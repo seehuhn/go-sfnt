@@ -21,11 +21,10 @@
 // https://en.wikipedia.org/wiki/Mac_OS_Roman
 package mac
 
-// TODO(voss): this seems to be duplicated at least three times:
-//    font/sfnt/mac/encoding.go
-//    font/encoding.go
-//    font/sfnt/post/names.go
-// There is also similar code in font/cff/charset.go.
+// TODO(voss): this seems to be duplicated at least two times:
+//    mac/encoding.go
+//    post/names.go
+// There is also similar code in cff/charset.go.
 
 // Decode decodes a string of MacRoman encoded bytes.
 func Decode(cc []byte) string {

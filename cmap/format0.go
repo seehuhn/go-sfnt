@@ -22,6 +22,8 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 )
 
+// decodeFormat0 decodes a format 0 cmap subtable.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-0-byte-encoding-table
 func decodeFormat0(data []byte, code2rune func(c int) rune) (Subtable, error) {
 	if code2rune == nil {
@@ -33,13 +35,39 @@ func decodeFormat0(data []byte, code2rune func(c int) rune) (Subtable, error) {
 		return nil, fmt.Errorf("cmap: format 0: expected 256 bytes, got %d", len(data))
 	}
 
-	res := make(Format4)
-	for code, gid := range data {
-		if gid == 0 {
-			continue
-		}
-		r := code2rune(code)
-		res[uint16(r)] = glyph.ID(gid)
-	}
+	res := &Format0{}
+	copy(res.Data[:], data)
+
 	return res, nil
+}
+
+type Format0 struct {
+	Data [256]byte
+}
+
+// Lookup returns the glyph index for the given rune.
+// If the rune is not found, Lookup returns 0 (corresponding to the ".notdef" glyph).
+func (cmap *Format0) Lookup(r rune) glyph.ID {
+	if r > 255 {
+		return 0
+	}
+	return glyph.ID(cmap.Data[r])
+}
+
+// Encode returns the binary form of the subtable.
+func (cmap *Format0) Encode(language uint16) []byte {
+	L := 2 + 2 + 2 + 256
+	buf := make([]byte, 0, L)
+	buf = append(buf,
+		0, 0, // format
+		byte(L>>8), byte(L), // length
+		byte(language>>8), byte(language), // language
+	)
+	buf = append(buf, cmap.Data[:]...)
+	return buf
+}
+
+// CodeRange returns the smallest and largest code point in the subtable.
+func (cmap *Format0) CodeRange() (low rune, high rune) {
+	return 0, 255
 }

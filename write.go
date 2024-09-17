@@ -102,7 +102,12 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 // writer.  Only the tables needed for PDF embedding are included.
 //
 // if the font does not use TrueType outlines, the function panics.
-func (f *Font) WriteTrueTypePDF(w io.Writer) (int64, error) {
+//
+// The optional arguments, if given, must be a sequence of pairs of strings and
+// byte slices.  Each pair is interpreted as the name of a table and the
+// corresponding data.  These tables are included in the output and override
+// the default tables, where applicable.
+func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) {
 	tableData := make(map[string][]byte)
 
 	if f.CMapTable != nil {
@@ -125,6 +130,10 @@ func (f *Font) WriteTrueTypePDF(w io.Writer) (int64, error) {
 	tableData["maxp"] = maxpInfo.Encode()
 
 	tableData["head"] = f.makeHead(enc.LocaFormat)
+
+	for i := 0; i+1 < len(extraTables); i += 2 {
+		tableData[extraTables[i].(string)] = extraTables[i+1].([]byte)
+	}
 
 	return header.Write(w, header.ScalerTypeTrueType, tableData)
 }

@@ -28,11 +28,10 @@ func isMacRoman(names []string) bool {
 	return true
 }
 
-// TODO(voss): this seems to be duplicated at least three times:
-//    font/sfnt/mac/encoding.go
-//    font/encoding.go
-//    font/sfnt/post/names.go
-// There is also similar code in font/cff/charset.go.
+// TODO(voss): this seems to be duplicated at least two times:
+//    mac/encoding.go
+//    post/names.go
+// There is also similar code in cff/charset.go.
 
 // https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6post.html
 var macRoman = []string{
