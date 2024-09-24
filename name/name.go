@@ -27,6 +27,13 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
+// TODO(voss):
+//
+// https://learn.microsoft.com/en-us/typography/opentype/spec/name#nid6
+// the name string must be no longer than 63 characters and restricted to the
+// printable ASCII subset, codes 33 to 126, except for the 10 characters '[',
+// ']', '(', ')', '{', '}', '<', '>', '/', '%'.
+
 // Info contains information from the "name" table.
 type Info struct {
 	Mac     Tables
