@@ -113,6 +113,9 @@ type Outlines struct {
 	// This is only present for CIDFonts, and encodes the information from the
 	// charset table in the CFF font.  When present, the first entry
 	// (corresponding to the .notdef glyph) must be 0.
+	//
+	// Since CID values are used to select glyphs in the font, the CID values
+	// in the slice should be distinct.
 	GIDToCID []cid.CID
 }
 
