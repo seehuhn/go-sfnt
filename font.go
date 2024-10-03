@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
@@ -65,8 +66,10 @@ type Font struct {
 	LicenseURL string
 	PermUse    os2.Permissions
 
+	// TODO(voss): remove this in favour of FontMatrix
 	UnitsPerEm uint16
-	FontMatrix [6]float64
+
+	FontMatrix matrix.Matrix
 
 	Ascent    funit.Int16
 	Descent   funit.Int16 // negative
