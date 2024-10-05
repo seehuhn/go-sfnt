@@ -236,7 +236,6 @@ func (f *Font) GlyphWidth(gid glyph.ID) funit.Int16 {
 func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		// TODO(voss): ... + f.FontMatrix[4] ???
 		return float64(o.Glyphs[gid].Width) * f.FontMatrix[0]
 	case *glyf.Outlines:
 		if o.Widths == nil {
