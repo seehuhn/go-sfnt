@@ -152,6 +152,7 @@ func (o *Outlines) BBox() (bbox funit.Rect16) {
 		}
 		if first {
 			bbox = glyphBox
+			first = false
 		} else {
 			bbox.Extend(glyphBox)
 		}
