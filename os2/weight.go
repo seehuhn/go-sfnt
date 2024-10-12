@@ -26,6 +26,7 @@ import (
 type Weight uint16
 
 // WeightFromString returns the weight class for the given string.
+// If the weight cannot be parsed, 0 is returned.
 // This is the converse of Weight.String().
 func WeightFromString(s string) Weight {
 	switch s {
