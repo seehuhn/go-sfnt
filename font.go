@@ -377,3 +377,12 @@ func (f *Font) IsFixedPitch() bool {
 
 	return true
 }
+
+func (f *Font) GetEncoding() []string {
+	switch f := f.Outlines.(type) {
+	case *cff.Outlines:
+		return f.GetEncoding()
+	default:
+		return nil
+	}
+}
