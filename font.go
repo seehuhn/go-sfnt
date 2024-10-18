@@ -178,9 +178,8 @@ func (f *Font) Subfamily() string {
 }
 
 // PostScriptName returns the PostScript name of the font.
-//
-// TODO(voss): do a better job at preserving the original font name.
 func (f *Font) PostScriptName() string {
+	// TODO(voss): do a better job at preserving the original font name.
 	name := f.FamilyName + "-" + f.Subfamily()
 	re := regexp.MustCompile(`[^!-$&-'*-.0-;=?-Z\\^-z|~]+`)
 	return re.ReplaceAllString(name, "")
