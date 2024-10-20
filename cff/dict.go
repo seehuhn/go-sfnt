@@ -513,8 +513,8 @@ func makeTopDict(info *type1.FontInfo) cffDict {
 type privateInfo struct {
 	private      *type1.PrivateDict
 	subrs        cffIndex
-	defaultWidth funit.Int16
-	nominalWidth funit.Int16
+	defaultWidth float64
+	nominalWidth float64
 }
 
 func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInfo, error) {
@@ -568,15 +568,15 @@ func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInf
 
 	info := &privateInfo{
 		private:      private,
-		defaultWidth: funit.Int16(privateDict.getInt(opDefaultWidthX, 0)),
-		nominalWidth: funit.Int16(privateDict.getInt(opNominalWidthX, 0)),
+		defaultWidth: privateDict.getFloat(opDefaultWidthX, 0),
+		nominalWidth: privateDict.getFloat(opNominalWidthX, 0),
 		subrs:        subrs,
 	}
 
 	return info, nil
 }
 
-func (cff *Font) makePrivateDict(idx int, defaultWidth, nominalWidth funit.Int16) cffDict {
+func (cff *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) cffDict {
 	private := cff.Private[idx]
 
 	privateDict := cffDict{}

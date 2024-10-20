@@ -17,6 +17,7 @@
 package sfnt
 
 import (
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -216,48 +217,30 @@ func (f *Font) NumGlyphs() int {
 	}
 }
 
-// GlyphWidth returns the advance width of the glyph with the given glyph ID,
-// in font design units.
-func (f *Font) GlyphWidth(gid glyph.ID) funit.Int16 {
+func (f *Font) GetEncoding() []string {
 	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
-		return f.Glyphs[gid].Width
-	case *glyf.Outlines:
-		if f.Widths == nil {
-			return 0
-		}
-		return f.Widths[gid]
+		return f.GetEncoding()
 	default:
-		panic("unexpected font type")
+		return nil
 	}
 }
 
-// GlyphWidthPDF returns the advance width in PDF text space units.
-func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
-	switch o := f.Outlines.(type) {
-	case *cff.Outlines:
-		return float64(o.Glyphs[gid].Width) * f.FontMatrix[0]
-	case *glyf.Outlines:
-		if o.Widths == nil {
-			return 0
-		}
-		return float64(o.Widths[gid]) / float64(f.UnitsPerEm)
-	default:
-		panic("unexpected font type")
-	}
-}
-
-// Widths returns the advance widths of the glyphs in the font.
-func (f *Font) Widths() []funit.Int16 {
+// Widths returns the advance widths of the glyphs in the font
+// in glyph design units.
+func (f *Font) Widths() []float64 {
+	widths := make([]float64, f.NumGlyphs())
 	switch outlines := f.Outlines.(type) {
 	case *cff.Outlines:
-		widths := make([]funit.Int16, f.NumGlyphs())
 		for gid, g := range outlines.Glyphs {
 			widths[gid] = g.Width
 		}
 		return widths
 	case *glyf.Outlines:
-		return outlines.Widths
+		for i := range widths {
+			widths[i] = float64(outlines.Widths[i])
+		}
+		return widths
 	default:
 		panic("unexpected font type")
 	}
@@ -286,6 +269,28 @@ func (f *Font) WidthsPDF() []float64 {
 	return widths
 }
 
+// WidthsMapPDF returns a map of glyph names to advance widths in PDF text space units.
+//
+// If the font does not contain CFF outlines or is CID-keyed, nil is returned.
+func (f *Font) WidthsMapPDF() map[string]float64 {
+	o, isCFF := f.Outlines.(*cff.Outlines)
+	if !isCFF || o.IsCIDKeyed() {
+		return nil
+	}
+
+	q := f.FontMatrix[0]
+	if math.Abs(f.FontMatrix[3]) > 1e-6 {
+		q -= f.FontMatrix[1] * f.FontMatrix[2] / f.FontMatrix[3]
+	}
+	q *= 1000
+
+	widths := make(map[string]float64)
+	for _, glyph := range o.Glyphs {
+		widths[glyph.Name] = float64(glyph.Width) * q
+	}
+	return widths
+}
+
 // GlyphBBoxes returns the glyph bounding boxes for the font.
 func (f *Font) GlyphBBoxes() []funit.Rect16 {
 	extents := make([]funit.Rect16, f.NumGlyphs())
@@ -305,6 +310,37 @@ func (f *Font) GlyphBBoxes() []funit.Rect16 {
 		panic("unexpected font type")
 	}
 	return extents
+}
+
+// GlyphWidth returns the advance width of the glyph with the given glyph ID,
+// in font design units.
+func (f *Font) GlyphWidth(gid glyph.ID) float64 {
+	switch f := f.Outlines.(type) {
+	case *cff.Outlines:
+		return f.Glyphs[gid].Width
+	case *glyf.Outlines:
+		if f.Widths == nil {
+			return 0
+		}
+		return float64(f.Widths[gid])
+	default:
+		panic("unexpected font type")
+	}
+}
+
+// GlyphWidthPDF returns the advance width in PDF text space units.
+func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
+	switch o := f.Outlines.(type) {
+	case *cff.Outlines:
+		return float64(o.Glyphs[gid].Width) * f.FontMatrix[0]
+	case *glyf.Outlines:
+		if o.Widths == nil {
+			return 0
+		}
+		return float64(o.Widths[gid]) / float64(f.UnitsPerEm)
+	default:
+		panic("unexpected font type")
+	}
 }
 
 // GlyphBBox returns the glyph bounding box for one glyph in font design
@@ -362,26 +398,17 @@ func (f *Font) IsFixedPitch() bool {
 		return false
 	}
 
-	var width funit.Int16
+	var width float64
 	for _, w := range ww {
 		if w == 0 {
 			continue
 		}
 		if width == 0 {
 			width = w
-		} else if width != w {
+		} else if math.Abs(width-w) >= 0.5 {
 			return false
 		}
 	}
 
 	return true
-}
-
-func (f *Font) GetEncoding() []string {
-	switch f := f.Outlines.(type) {
-	case *cff.Outlines:
-		return f.GetEncoding()
-	default:
-		return nil
-	}
 }

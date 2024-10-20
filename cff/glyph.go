@@ -28,13 +28,13 @@ import (
 type Glyph struct {
 	Name  string
 	Cmds  []GlyphOp
-	HStem []funit.Int16
-	VStem []funit.Int16
-	Width funit.Int16
+	HStem []funit.Int16 // TODO(voss): use rect.Rect
+	VStem []funit.Int16 // TODO(voss): use rect.Rect
+	Width float64
 }
 
 // NewGlyph allocates a new glyph.
-func NewGlyph(name string, width funit.Int16) *Glyph {
+func NewGlyph(name string, width float64) *Glyph {
 	return &Glyph{
 		Name:  name,
 		Width: width,
@@ -43,7 +43,7 @@ func NewGlyph(name string, width funit.Int16) *Glyph {
 
 func (g *Glyph) String() string {
 	b := &strings.Builder{}
-	fmt.Fprintf(b, "Glyph %q (width %d):\n", g.Name, g.Width)
+	fmt.Fprintf(b, "Glyph %q (width %v):\n", g.Name, g.Width)
 	fmt.Fprintf(b, "  HStem: %v\n", g.HStem)
 	fmt.Fprintf(b, "  HStem: %v\n", g.VStem)
 	for i, cmd := range g.Cmds {

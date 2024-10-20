@@ -28,11 +28,12 @@ import (
 
 // TODO(voss): use seehuhn.de/go/dag instead of seehuhn.de/go/dijkstra
 
-func (g *Glyph) encodeCharString(defaultWidth, nominalWidth funit.Int16) ([]byte, error) {
+func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, error) {
 	var header [][]byte
 	w := g.Width
 	if w != defaultWidth {
-		header = append(header, encodeInt(w-nominalWidth))
+		x := encodeNumber(w - nominalWidth)
+		header = append(header, x.Code)
 	}
 
 	hintMaskUsed := false

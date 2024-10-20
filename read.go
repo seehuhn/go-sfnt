@@ -221,7 +221,7 @@ func Read(r io.Reader) (*Font, error) {
 			return nil, errors.New("sfnt: cff glyph count mismatch")
 		} else if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
 			for i, w := range hmtxInfo.Widths {
-				cffInfo.Glyphs[i].Width = w
+				cffInfo.Glyphs[i].Width = float64(w)
 			}
 		}
 	case header.ScalerTypeTrueType, header.ScalerTypeApple:

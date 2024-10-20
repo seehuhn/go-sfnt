@@ -307,15 +307,16 @@ func (ll LookupList) encode() []byte {
 	}
 
 	var extLookupType uint16
+findTypeLoop:
 	for _, l := range ll {
 		for _, subtable := range l.Subtables {
 			switch subtable.(type) {
 			case *Gsub1_1, *Gsub1_2, *Gsub2_1, *Gsub3_1, *Gsub4_1, *Gsub8_1:
 				extLookupType = gsubExtensionLookupType
-				break
+				break findTypeLoop
 			case *Gpos1_1, *Gpos1_2, *Gpos2_1, *Gpos2_2, *Gpos3_1, *Gpos4_1, *Gpos5_1, *Gpos6_1:
 				extLookupType = gposExtensionLookupType
-				break
+				break findTypeLoop
 			}
 		}
 	}

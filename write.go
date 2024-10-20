@@ -176,8 +176,13 @@ func (f *Font) makeHead(locaFormat int16) []byte {
 }
 
 func (f *Font) makeHmtx() ([]byte, []byte) {
+	widths := make([]funit.Int16, f.NumGlyphs())
+	for i, w := range f.Widths() {
+		widths[i] = funit.Int16(w)
+	}
+
 	hmtxInfo := &hmtx.Info{
-		Widths:       f.Widths(),
+		Widths:       widths,
 		GlyphExtents: f.GlyphBBoxes(),
 		Ascent:       f.Ascent,
 		Descent:      f.Descent,

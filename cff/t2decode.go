@@ -27,8 +27,8 @@ import (
 type decodeInfo struct {
 	subr         cffIndex
 	gsubr        cffIndex
-	defaultWidth funit.Int16
-	nominalWidth funit.Int16
+	defaultWidth float64
+	nominalWidth float64
 }
 
 type ccStage int
@@ -56,7 +56,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			return
 		}
 		if isPresent {
-			res.Width = funit.Int16(math.Round(stack[0])) + info.nominalWidth
+			res.Width = stack[0] + info.nominalWidth
 			copy(stack, stack[1:])
 			stack = stack[:len(stack)-1]
 		}

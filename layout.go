@@ -18,6 +18,7 @@ package sfnt
 
 import (
 	"golang.org/x/text/language"
+	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/gtab"
@@ -87,7 +88,7 @@ func (l *Layouter) Layout(s string) []glyph.Info {
 	for i := range seq {
 		gid := seq[i].GID
 		if !font.Gdef.IsMark(gid) {
-			seq[i].Advance = font.GlyphWidth(gid)
+			seq[i].Advance = funit.Int16(font.GlyphWidth(gid)) // TODO(voss)
 		}
 	}
 

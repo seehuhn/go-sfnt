@@ -17,6 +17,8 @@
 package cff
 
 import (
+	"math"
+
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
@@ -52,25 +54,43 @@ func (cff *Font) NumGlyphs() int {
 }
 
 // Widths returns the widths of all glyphs.
-func (cff *Font) Widths() []funit.Int16 {
-	res := make([]funit.Int16, len(cff.Glyphs))
+func (cff *Font) Widths() []float64 {
+	res := make([]float64, len(cff.Glyphs))
 	for i, glyph := range cff.Glyphs {
 		res[i] = glyph.Width
 	}
 	return res
 }
 
-// GlyphWidthPDF returns the advance width of a glyph in PDF text space units.
-func (cff *Font) GlyphWidthPDF(gid glyph.ID) float64 {
-	return float64(cff.Glyphs[gid].Width) * cff.FontMatrix[0]
-}
-
 // WidthsPDF returns the advance widths of the glyphs in the font,
 // in PDF text space units.
 func (cff *Font) WidthsPDF() []float64 {
 	widths := make([]float64, cff.NumGlyphs())
-	for gid, g := range cff.Glyphs {
-		widths[gid] = float64(g.Width) * cff.FontMatrix[0]
+	for gid, glyph := range cff.Glyphs {
+		widths[gid] = float64(glyph.Width) * cff.FontMatrix[0]
+	}
+	return widths
+}
+
+// WidthsMapPDF returns a map from glyph names to advance widths in PDF text
+// space units.
+//
+// If the font uses CIDFont operators, nil is returned (because there are no
+// glyph names).
+func (cff *Font) WidthsMapPDF() map[string]float64 {
+	if cff.IsCIDKeyed() {
+		return nil
+	}
+
+	q := cff.FontMatrix[0]
+	if math.Abs(cff.FontMatrix[3]) > 1e-6 {
+		q -= cff.FontMatrix[1] * cff.FontMatrix[2] / cff.FontMatrix[3]
+	}
+	q *= 1000
+
+	widths := make(map[string]float64)
+	for _, glyph := range cff.Glyphs {
+		widths[glyph.Name] = float64(glyph.Width) * q
 	}
 	return widths
 }
@@ -169,4 +189,9 @@ func (o *Outlines) GetEncoding() []string {
 		}
 	}
 	return res
+}
+
+// GlyphWidthPDF returns the advance width of a glyph in PDF text space units.
+func (cff *Font) GlyphWidthPDF(gid glyph.ID) float64 {
+	return float64(cff.Glyphs[gid].Width) * cff.FontMatrix[0]
 }

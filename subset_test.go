@@ -18,10 +18,10 @@ package sfnt
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"seehuhn.de/go/postscript/cid"
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/glyph"
@@ -32,7 +32,7 @@ func TestFDSelect(t *testing.T) {
 	// Construct a CID-keyed CFF font with several FDs.
 	o1 := &cff.Outlines{}
 	for i := 0; i < 10; i++ {
-		g := cff.NewGlyph(fmt.Sprintf("orig%d", i), funit.Int16(100*i))
+		g := cff.NewGlyph(fmt.Sprintf("orig%d", i), 100*float64(i))
 		g.MoveTo(0, 0)
 		g.LineTo(100*float64(i), 0)
 		g.LineTo(100*float64(i), 500)
@@ -78,9 +78,9 @@ func TestFDSelect(t *testing.T) {
 		for gidInt, cid := range o.GIDToCID {
 			gid := glyph.ID(gidInt)
 			w := info.GlyphWidth(gid)
-			if w != funit.Int16(100*int(cid)) {
-				t.Errorf("%d: wrong glyph %s@%d, expected width %d, got %d",
-					i, o.Glyphs[gid].Name, gid, 100*int(cid), w)
+			if math.Abs(w-100*float64(cid)) > 0.5 {
+				t.Errorf("%d: wrong glyph %s@%d, expected width %v, got %v",
+					i, o.Glyphs[gid].Name, gid, 100*cid, w)
 				continue
 			}
 			fd := o.Private[o.FDSelect(gid)]

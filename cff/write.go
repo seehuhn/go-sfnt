@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-
-	"seehuhn.de/go/postscript/funit"
 )
 
 // Write writes the binary form of a CFF font.
@@ -240,7 +238,7 @@ func (cff *Font) Write(w io.Writer) error {
 	return nil
 }
 
-func (cff *Font) selectWidths() (funit.Int16, funit.Int16) {
+func (cff *Font) selectWidths() (float64, float64) {
 	numGlyphs := int32(len(cff.Glyphs))
 	if numGlyphs == 0 {
 		return 0, 0
@@ -248,9 +246,9 @@ func (cff *Font) selectWidths() (funit.Int16, funit.Int16) {
 		return cff.Glyphs[0].Width, cff.Glyphs[0].Width
 	}
 
-	widthHist := make(map[funit.Int16]int32)
+	widthHist := make(map[float64]int32)
 	var mostFrequentCount int32
-	var defaultWidth funit.Int16
+	var defaultWidth float64
 	for _, glyph := range cff.Glyphs {
 		w := glyph.Width
 		widthHist[w]++
@@ -261,15 +259,15 @@ func (cff *Font) selectWidths() (funit.Int16, funit.Int16) {
 	}
 
 	// TODO(voss): the choice of nominalWidth can be improved
-	var sum int32
-	var minWidth funit.Int16 = math.MaxInt16
-	var maxWidth funit.Int16 = math.MinInt16
+	var sum float64
+	var minWidth float64 = math.Inf(+1)
+	var maxWidth float64 = math.Inf(-1)
 	for _, glyph := range cff.Glyphs {
 		w := glyph.Width
 		if w == defaultWidth {
 			continue
 		}
-		sum += int32(w)
+		sum += w
 		if w < minWidth {
 			minWidth = w
 		}
@@ -277,7 +275,7 @@ func (cff *Font) selectWidths() (funit.Int16, funit.Int16) {
 			maxWidth = w
 		}
 	}
-	nominalWidth := funit.Int16((sum + numGlyphs/2) / (numGlyphs - 1))
+	nominalWidth := math.Round(sum / float64(numGlyphs))
 	if nominalWidth < minWidth+107 {
 		nominalWidth = minWidth + 107
 	} else if nominalWidth > maxWidth-107 {
@@ -286,7 +284,7 @@ func (cff *Font) selectWidths() (funit.Int16, funit.Int16) {
 	return defaultWidth, nominalWidth
 }
 
-func (cff *Font) encodeCharStrings() (cffIndex, funit.Int16, funit.Int16, error) {
+func (cff *Font) encodeCharStrings() (cffIndex, float64, float64, error) {
 	numGlyphs := len(cff.Glyphs)
 	if numGlyphs < 1 || (cff.ROS == nil && cff.Glyphs[0].Name != ".notdef") {
 		return nil, 0, 0, invalidSince("missing .notdef glyph")

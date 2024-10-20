@@ -126,7 +126,7 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 			return nil, fmt.Errorf("unsupported WidthY=%g for glyph %q",
 				t1.WidthY, name)
 		}
-		g := cff.NewGlyph(name, funit.Int16(t1.WidthX))
+		g := cff.NewGlyph(name, t1.WidthX)
 		for _, cmd := range t1.Cmds {
 			switch cmd.Op {
 			case type1.OpMoveTo:
@@ -175,7 +175,7 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 	isSerif := false  // TODO(voss)
 	isScript := false // TODO(voss)
 
-	cmap := makeCmap(t1Info, glyphNames)
+	cmap := makeCmap(glyphNames)
 
 	unitsPerEm := math.Round(1 / t1Info.FontMatrix[0])
 
@@ -269,7 +269,7 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 	return &otfInfo, nil
 }
 
-func makeCmap(t1Info *type1.Font, glyphNames []string) cmap.Subtable {
+func makeCmap(glyphNames []string) cmap.Subtable {
 	canUseFormat4 := true
 	codes := make([]rune, len(glyphNames))
 	for gid, name := range glyphNames {

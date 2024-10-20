@@ -18,6 +18,7 @@ package gtab_test
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -101,7 +102,7 @@ func TestGpos(t *testing.T) {
 				seq[i].GID = gid
 				seq[i].Text = []rune{r}
 				if gdefTable.GlyphClass[gid] != gdef.GlyphClassMark {
-					seq[i].Advance = fontInfo.GlyphWidth(gid)
+					seq[i].Advance = funit.Int16(fontInfo.GlyphWidth(gid)) // TODO(voss)
 				}
 			}
 			lookups := gpos.FindLookups(language.AmericanEnglish, nil)
@@ -127,9 +128,9 @@ func TestGpos(t *testing.T) {
 					}
 				case checkDXRel:
 					w := fontInfo.GlyphWidth(seq[check.idx].GID)
-					expected := check.val + w
+					expected := check.val + funit.Int16(math.Round(w))
 					if seq[check.idx].Advance != expected {
-						t.Errorf("%s[%d]: expected XAdvance == %d, got %d",
+						t.Errorf("%s[%d]: expected XAdvance == %v, got %v",
 							fontName, check.idx, expected, seq[check.idx].Advance)
 					}
 				default:
@@ -199,7 +200,7 @@ func FuzzGpos(f *testing.F) {
 			seq[i].GID = gid
 			seq[i].Text = []rune{r}
 			if gdefTable.GlyphClass[gid] != gdef.GlyphClassMark {
-				seq[i].Advance = fontInfo.GlyphWidth(gid)
+				seq[i].Advance = funit.Int16(math.Round(fontInfo.GlyphWidth(gid)))
 			}
 		}
 		lookups := gpos.FindLookups(language.AmericanEnglish, nil)

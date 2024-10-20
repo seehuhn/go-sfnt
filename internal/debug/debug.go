@@ -187,7 +187,7 @@ func MakeSimpleFont() *sfnt.Font {
 	yMid := math.Round(float64(ext.URy+ext.LLy) / 2)
 	a := math.Round(math.Min(xMid, yMid) * 0.8)
 
-	cffGlyph := cff.NewGlyph("marker.left", ext.URx)
+	cffGlyph := cff.NewGlyph("marker.left", float64(ext.URx))
 	cffGlyph.MoveTo(xMid, yMid)
 	cffGlyph.LineTo(xMid-a, yMid-a)
 	cffGlyph.LineTo(xMid-a, yMid+a)
@@ -195,7 +195,7 @@ func MakeSimpleFont() *sfnt.Font {
 	cmap[uint16('>')] = glyph.ID(len(newOutlines.Glyphs))
 	newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 
-	cffGlyph = cff.NewGlyph("marker.right", ext.URx)
+	cffGlyph = cff.NewGlyph("marker.right", float64(ext.URx))
 	cffGlyph.MoveTo(xMid, yMid)
 	cffGlyph.LineTo(xMid+a, yMid+a)
 	cffGlyph.LineTo(xMid+a, yMid-a)
@@ -203,7 +203,7 @@ func MakeSimpleFont() *sfnt.Font {
 	cmap[uint16('<')] = glyph.ID(len(newOutlines.Glyphs))
 	newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 
-	cffGlyph = cff.NewGlyph("marker", ext.URx)
+	cffGlyph = cff.NewGlyph("marker", float64(ext.URx))
 	cffGlyph.MoveTo(xMid, yMid)
 	cffGlyph.LineTo(xMid-a, yMid-a)
 	cffGlyph.LineTo(xMid-a, yMid+a)

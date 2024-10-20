@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"golang.org/x/text/language"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 )
@@ -38,18 +37,10 @@ func TestLigature(t *testing.T) {
 		Cov:  cov,
 		Repl: repl,
 	}
-	gsub := &Info{
-		ScriptList: map[language.Tag]*Features{
-			language.MustParse("und-Latn-x-latn"): {Optional: []FeatureIndex{0}},
-		},
-		FeatureList: []*Feature{
-			{Tag: "liga", Lookups: []LookupIndex{0}},
-		},
-		LookupList: []*LookupTable{
-			{
-				Meta:      &LookupMetaInfo{LookupType: 4},
-				Subtables: []Subtable{subst},
-			},
+	lookupList := []*LookupTable{
+		{
+			Meta:      &LookupMetaInfo{LookupType: 4},
+			Subtables: []Subtable{subst},
 		},
 	}
 
@@ -58,7 +49,7 @@ func TestLigature(t *testing.T) {
 		{GID: 2, Text: []rune("b")},
 		{GID: 3, Text: []rune("c")},
 	}
-	e := NewContext(gsub.LookupList, nil, []LookupIndex{0})
+	e := NewContext(lookupList, nil, []LookupIndex{0})
 	out := e.Apply(in)
 
 	expected := []glyph.Info{
