@@ -191,7 +191,12 @@ func (o *Outlines) GetEncoding() []string {
 	return res
 }
 
-// GlyphWidthPDF returns the advance width of a glyph in PDF text space units.
+// GlyphWidthPDF returns the advance width of a glyph in PDF glyph space units.
 func (cff *Font) GlyphWidthPDF(gid glyph.ID) float64 {
-	return float64(cff.Glyphs[gid].Width) * cff.FontMatrix[0]
+	q := cff.FontMatrix[0]
+	if math.Abs(cff.FontMatrix[3]) > 1e-6 {
+		q -= cff.FontMatrix[1] * cff.FontMatrix[2] / cff.FontMatrix[3]
+	}
+
+	return cff.Glyphs[gid].Width * (q * 1000)
 }
