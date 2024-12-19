@@ -217,10 +217,10 @@ func (f *Font) NumGlyphs() int {
 	}
 }
 
-func (f *Font) GetEncoding() []string {
+func (f *Font) BuiltinEncoding() []string {
 	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
-		return f.GetEncoding()
+		return f.BuiltinEncoding()
 	default:
 		return nil
 	}

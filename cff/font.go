@@ -29,9 +29,6 @@ import (
 // TODO(voss): implement support for font matrices
 
 // Font stores a CFF font.
-//
-// TODO(voss): make this more similar to type1.Font.  Maybe merge Outlines into
-// Font?
 type Font struct {
 	*type1.FontInfo
 	*Outlines
@@ -174,21 +171,6 @@ func (o *Outlines) BBox() (bbox funit.Rect16) {
 		}
 	}
 	return bbox
-}
-
-func (o *Outlines) GetEncoding() []string {
-	if len(o.Encoding) != 256 {
-		return nil
-	}
-	res := make([]string, 256)
-	for i, gid := range o.Encoding {
-		if gid == 0 || int(gid) >= len(o.Glyphs) {
-			res[i] = ".notdef"
-		} else {
-			res[i] = o.Glyphs[gid].Name
-		}
-	}
-	return res
 }
 
 // GlyphWidthPDF returns the advance width of a glyph in PDF glyph space units.
