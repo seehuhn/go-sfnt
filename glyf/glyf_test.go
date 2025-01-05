@@ -18,6 +18,7 @@ package glyf
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,8 +26,39 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/image/font/gofont/goregular"
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/header"
 )
+
+func TestGlyphBBoxPDF(t *testing.T) {
+	g := &Glyph{
+		Rect16: funit.Rect16{
+			LLx: -16,
+			LLy: -16,
+			URx: 128,
+			URy: 128,
+		},
+	}
+	O := &Outlines{
+		Glyphs: []*Glyph{g},
+	}
+	fontMatrix := matrix.Matrix{1 / 4.0, 0, 0, 1 / 8.0, 0, 0}
+	bbox := O.GlyphBBoxPDF(fontMatrix, 0)
+
+	if math.Abs(bbox.LLx-(-4_000)) > 1e-7 {
+		t.Errorf("bbox.LLx = %v, want -4", bbox.LLx)
+	}
+	if math.Abs(bbox.LLy-(-2_000)) > 1e-7 {
+		t.Errorf("bbox.LLy = %v, want -2", bbox.LLy)
+	}
+	if math.Abs(bbox.URx-32_000) > 1e-7 {
+		t.Errorf("bbox.URx = %v, want 32", bbox.URx)
+	}
+	if math.Abs(bbox.URy-16_000) > 1e-7 {
+		t.Errorf("bbox.URy = %v, want 16", bbox.URy)
+	}
+}
 
 func BenchmarkGlyph(b *testing.B) {
 	r := bytes.NewReader(goregular.TTF)

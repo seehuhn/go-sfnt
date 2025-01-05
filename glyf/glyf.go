@@ -20,7 +20,10 @@
 package glyf
 
 import (
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/maxp"
 )
 
@@ -41,6 +44,45 @@ type Outlines struct {
 
 	// Maxp contains information from the "maxp" table.
 	Maxp *maxp.TTFInfo
+}
+
+func (o *Outlines) NumGlyphs() int {
+	return len(o.Glyphs)
+}
+
+// GlyphBBoxPDF computes the bounding box of a glyph in PDF glyph space units
+// (1/1000th of a font unit).
+// The font matrix fm is applied to the glyph bounding box from the font data.
+//
+// If the glyph is blank, the zero rectangle is returned.
+func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
+	g := o.Glyphs[gid]
+	if g == nil {
+		return
+	}
+
+	M := fm.Mul(matrix.Scale(1000, 1000))
+	type p16 struct {
+		x, y funit.Int16
+	}
+	first := true
+	for _, p := range []p16{{g.LLx, g.LLy}, {g.URx, g.LLy}, {g.URx, g.URy}, {g.LLx, g.URy}} {
+		x, y := M.Apply(float64(p.x), float64(p.y))
+		if first || x < bbox.LLx {
+			bbox.LLx = x
+		}
+		if first || x > bbox.URx {
+			bbox.URx = x
+		}
+		if first || y < bbox.LLy {
+			bbox.LLy = y
+		}
+		if first || y > bbox.URy {
+			bbox.URy = y
+		}
+		first = false
+	}
+	return bbox
 }
 
 // Glyphs contains a slice of TrueType glyph outlines.

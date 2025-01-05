@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
@@ -38,6 +39,13 @@ import (
 
 // TODO(voss): read https://github.com/googlefonts/gf-docs/tree/main/VerticalMetrics
 
+// Outlines represents the glyph data of a TrueType or OpenType font.
+// This must be one of [*glyf.Outlines] or [*cff.Outlines].
+type Outlines interface {
+	NumGlyphs() int
+	GlyphBBoxPDF(m matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
+}
+
 // Font contains information about a TrueType or OpenType font.
 //
 // TODO(voss): clarify the relation between IsOblique, IsItalic, and
@@ -50,8 +58,8 @@ type Font struct {
 	IsBold     bool // glyphs are emboldened
 	IsItalic   bool // font contains italic or oblique glyphs
 	IsOblique  bool // font contains oblique glyphs
-	IsSerif    bool
-	IsScript   bool // Glyphs resemble cursive handwriting.
+	IsSerif    bool // glyph shapes have serifs
+	IsScript   bool // glyphs resemble cursive handwriting
 
 	CodePageRange os2.CodePageRange
 
@@ -82,7 +90,7 @@ type Font struct {
 	UnderlinePosition  funit.Float64 // Underline position (negative)
 	UnderlineThickness funit.Float64 // Underline thickness
 
-	Outlines interface{} // either *cff.Outlines or *glyf.Outlines
+	Outlines Outlines
 
 	CMapTable cmap.Table
 
@@ -186,20 +194,40 @@ func (f *Font) PostScriptName() string {
 	return re.ReplaceAllString(name, "")
 }
 
-// BBox returns the bounding box of the font.
-func (f *Font) BBox() (bbox funit.Rect16) {
+// FontBBox returns the bounding box of the font.
+func (f *Font) FontBBox() (bbox funit.Rect16) {
 	first := true
-	for i := 0; i < f.NumGlyphs(); i++ {
-		ext := f.GlyphBBox(glyph.ID(i))
-		if ext.IsZero() {
+	for i := range f.NumGlyphs() {
+		glyphBBox := f.GlyphBBox(glyph.ID(i))
+		if glyphBBox.IsZero() {
 			continue
 		}
 
 		if first {
-			bbox = ext
+			bbox = glyphBBox
 			first = false
 		} else {
-			bbox.Extend(ext)
+			bbox.Extend(glyphBBox)
+		}
+	}
+	return
+}
+
+// FontBBoxPDF returns the font bounding box in PDF glyph space units.
+// This is the smallest rectangle enclosing all individual glyphs bounding boxes.
+func (f *Font) FontBBoxPDF() (fontBBox rect.Rect) {
+	first := true
+	for i := range f.NumGlyphs() {
+		glyphBBox := f.Outlines.GlyphBBoxPDF(f.FontMatrix, glyph.ID(i))
+		if glyphBBox.IsZero() {
+			continue
+		}
+
+		if first {
+			fontBBox = glyphBBox
+			first = false
+		} else {
+			fontBBox.Extend(glyphBBox)
 		}
 	}
 	return
@@ -207,14 +235,7 @@ func (f *Font) BBox() (bbox funit.Rect16) {
 
 // NumGlyphs returns the number of glyphs in the font.
 func (f *Font) NumGlyphs() int {
-	switch outlines := f.Outlines.(type) {
-	case *cff.Outlines:
-		return len(outlines.Glyphs)
-	case *glyf.Outlines:
-		return len(outlines.Glyphs)
-	default:
-		panic("unexpected font type")
-	}
+	return f.Outlines.NumGlyphs()
 }
 
 func (f *Font) BuiltinEncoding() []string {

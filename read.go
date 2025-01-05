@@ -201,7 +201,7 @@ func Read(r io.Reader) (*Font, error) {
 	}
 
 	// Read the glyph data.
-	var Outlines interface{}
+	var Outlines Outlines
 	var fontInfo *type1.FontInfo
 	switch dir.ScalerType {
 	case header.ScalerTypeCFF:

@@ -19,6 +19,8 @@ package cff
 import (
 	"math"
 
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
@@ -45,11 +47,6 @@ func (cff *Font) Clone() *Font {
 	}
 }
 
-// NumGlyphs returns the number of glyphs in the font.
-func (cff *Font) NumGlyphs() int {
-	return len(cff.Glyphs)
-}
-
 // Widths returns the widths of all glyphs.
 func (cff *Font) Widths() []float64 {
 	res := make([]float64, len(cff.Glyphs))
@@ -60,11 +57,12 @@ func (cff *Font) Widths() []float64 {
 }
 
 // WidthsPDF returns the advance widths of the glyphs in the font,
-// in PDF text space units.
+// in PDF glyph space units (1/1000th of a text space unit).
 func (cff *Font) WidthsPDF() []float64 {
 	widths := make([]float64, cff.NumGlyphs())
+	q := cff.FontMatrix[0] * 1000
 	for gid, glyph := range cff.Glyphs {
-		widths[gid] = float64(glyph.Width) * cff.FontMatrix[0]
+		widths[gid] = float64(glyph.Width) * q
 	}
 	return widths
 }
@@ -90,6 +88,16 @@ func (cff *Font) WidthsMapPDF() map[string]float64 {
 		widths[glyph.Name] = float64(glyph.Width) * q
 	}
 	return widths
+}
+
+// GlyphWidthPDF returns the advance width of a glyph in PDF glyph space units.
+func (cff *Font) GlyphWidthPDF(gid glyph.ID) float64 {
+	q := cff.FontMatrix[0]
+	if math.Abs(cff.FontMatrix[3]) > 1e-6 {
+		q -= cff.FontMatrix[1] * cff.FontMatrix[2] / cff.FontMatrix[3]
+	}
+
+	return cff.Glyphs[gid].Width * (q * 1000)
 }
 
 // CIDSystemInfo describes a character collection covered by a font.
@@ -155,6 +163,11 @@ func (o *Outlines) BuiltinEncoding() []string {
 	return res
 }
 
+// NumGlyphs returns the number of glyphs in the font.
+func (o *Outlines) NumGlyphs() int {
+	return len(o.Glyphs)
+}
+
 // BBox returns the font bounding box.
 func (o *Outlines) BBox() (bbox funit.Rect16) {
 	first := true
@@ -173,12 +186,47 @@ func (o *Outlines) BBox() (bbox funit.Rect16) {
 	return bbox
 }
 
-// GlyphWidthPDF returns the advance width of a glyph in PDF glyph space units.
-func (cff *Font) GlyphWidthPDF(gid glyph.ID) float64 {
-	q := cff.FontMatrix[0]
-	if math.Abs(cff.FontMatrix[3]) > 1e-6 {
-		q -= cff.FontMatrix[1] * cff.FontMatrix[2] / cff.FontMatrix[3]
+// GlyphBBoxPDF computes the bounding box of a glyph in PDF glyph space units
+// (1/1000th of a text space unit).
+// The font matrix fm is applied to the glyph outline.
+//
+// If the glyph is blank, the zero rectangle is returned.
+func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
+	g := o.Glyphs[gid]
+
+	M := fm.Mul(matrix.Scale(1000, 1000))
+
+	first := true
+cmdLoop:
+	for _, cmd := range g.Cmds {
+		var x, y float64
+		switch cmd.Op {
+		case OpMoveTo, OpLineTo:
+			x = cmd.Args[0]
+			y = cmd.Args[1]
+		case OpCurveTo:
+			x = cmd.Args[4]
+			y = cmd.Args[5]
+		default:
+			continue cmdLoop
+		}
+
+		x, y = M.Apply(x, y)
+
+		if first || x < bbox.LLx {
+			bbox.LLx = x
+		}
+		if first || x > bbox.URx {
+			bbox.URx = x
+		}
+		if first || y < bbox.LLy {
+			bbox.LLy = y
+		}
+		if first || y > bbox.URy {
+			bbox.URy = y
+		}
+		first = false
 	}
 
-	return cff.Glyphs[gid].Width * (q * 1000)
+	return bbox
 }

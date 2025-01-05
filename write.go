@@ -166,7 +166,7 @@ func (f *Font) makeHead(locaFormat int16) []byte {
 		UnitsPerEm:    f.UnitsPerEm,
 		Created:       f.CreationTime,
 		Modified:      f.ModificationTime,
-		FontBBox:      f.BBox(),
+		FontBBox:      f.FontBBox(),
 		IsBold:        f.IsBold,
 		IsItalic:      f.ItalicAngle != 0,
 		LowestRecPPEM: 7, // TODO(voss)
@@ -227,7 +227,7 @@ func (f *Font) makeOS2() []byte {
 		}
 	}
 
-	bbox := f.BBox()
+	bbox := f.FontBBox()
 	winAscent := bbox.URy
 	winDescent := -bbox.LLy
 	// TODO(voss): larger values may be needed, if GPOS rules move some

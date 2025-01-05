@@ -9,5 +9,5 @@ require (
 	golang.org/x/text v0.16.0
 	seehuhn.de/go/dijkstra v0.9.3
 	seehuhn.de/go/geom v0.0.0-20241003112646-ac2039c5d52a
-	seehuhn.de/go/postscript v0.5.1-0.20240824115221-0d3d1d4bb61d
+	seehuhn.de/go/postscript v0.5.1-0.20250105173611-268a18474c41
 )
