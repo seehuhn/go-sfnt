@@ -28,8 +28,8 @@ import (
 type Glyph struct {
 	Name  string
 	Cmds  []GlyphOp
-	HStem []funit.Int16 // TODO(voss): use rect.Rect
-	VStem []funit.Int16 // TODO(voss): use rect.Rect
+	HStem []funit.Int16 // TODO(voss): float64
+	VStem []funit.Int16 // TODO(voss): float64
 	Width float64
 }
 

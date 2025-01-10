@@ -50,6 +50,8 @@ type Outlines interface {
 //
 // TODO(voss): clarify the relation between IsOblique, IsItalic, and
 // ItalicAngle != 0.
+//
+// TODO(voss): document which fields are mandatory/optional.
 type Font struct {
 	FamilyName string
 	Width      os2.Width
