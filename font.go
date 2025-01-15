@@ -92,6 +92,8 @@ type Font struct {
 	UnderlinePosition  funit.Float64 // Underline position (negative)
 	UnderlineThickness funit.Float64 // Underline thickness
 
+	// Outlines contains the glyph data of the font.
+	// This must be one of [*glyf.Outlines] or [*cff.Outlines].
 	Outlines Outlines
 
 	CMapTable cmap.Table
