@@ -47,7 +47,25 @@ func (cff *Font) Clone() *Font {
 	}
 }
 
-// Widths returns the widths of all glyphs.
+// FontBBoxPDF computes the bounding box of the font in PDF glyph space units
+// (1/1000th of a text space units).
+func (cff *Font) FontBBoxPDF() rect.Rect {
+	var bbox rect.Rect
+	for gid := range cff.Glyphs {
+		glyphBox := cff.Outlines.GlyphBBoxPDF(cff.FontInfo.FontMatrix, glyph.ID(gid))
+		if glyphBox.IsZero() {
+			continue
+		}
+		if bbox.IsZero() {
+			bbox = glyphBox
+		} else {
+			bbox.Extend(glyphBox)
+		}
+	}
+	return bbox
+}
+
+// Widths returns the widths of all glyphs in CFF glyph space units.
 func (cff *Font) Widths() []float64 {
 	res := make([]float64, len(cff.Glyphs))
 	for i, glyph := range cff.Glyphs {
@@ -92,9 +110,16 @@ func (cff *Font) WidthsMapPDF() map[string]float64 {
 
 // GlyphWidthPDF returns the advance width of a glyph in PDF glyph space units.
 func (cff *Font) GlyphWidthPDF(gid glyph.ID) float64 {
-	q := cff.FontMatrix[0]
-	if math.Abs(cff.FontMatrix[3]) > 1e-6 {
-		q -= cff.FontMatrix[1] * cff.FontMatrix[2] / cff.FontMatrix[3]
+	var fm matrix.Matrix
+	if cff.IsCIDKeyed() {
+		fm = cff.FontMatrices[cff.FDSelect(gid)].Mul(cff.FontInfo.FontMatrix)
+	} else {
+		fm = cff.FontInfo.FontMatrix
+	}
+
+	q := fm[0]
+	if math.Abs(fm[3]) > 1e-6 {
+		q -= fm[1] * fm[2] / fm[3]
 	}
 
 	return cff.Glyphs[gid].Width * (q * 1000)
@@ -111,33 +136,50 @@ type CIDSystemInfo struct {
 }
 
 // Outlines stores the glyph data of a CFF font.
+//
+// There are two cases:
+//   - For a simple font, Encoding is used, and ROS, GIDToCID, and FontMatrices
+//     must be nil.  In this case FDSelect always returns 0.
+//   - For CID-keyed fonts, ROS, GIDToCID, and FontMatrices are in used,
+//     and Encoding must be nil.
 type Outlines struct {
 	Glyphs []*Glyph
 
+	// Private stores the private dictionaries of the font.
+	// The length of this slice must be at least one.
+	// For a simple font the length is exactly one.
 	Private []*type1.PrivateDict
 
 	// FDSelect determines which private dictionary is used for each glyph.
+	// For a simple font, this function always returns 0.
 	FDSelect FDSelectFn
 
 	// Encoding lists the glyphs corresponding to the 256 one-byte character
-	// codes in a simple font. The length of this slice must be 256, entries
+	// codes.  If presnt, the length of this slice must be 256.  Entries
 	// for unused character codes must be set to 0.
-	// For CIDFonts (where ROS != nil), Encoding must be nil.
+	//
+	// This is only used for simple fonts.
 	Encoding []glyph.ID
 
 	// ROS specifies the character collection of the font, using Adobe's
-	// Registry, Ordering, Supplement system.  This must be non-nil
-	// if and only if the font is a CIDFont.
+	// Registry, Ordering, Supplement system.
+	//
+	// This is only used for CID-keyed fonts.
 	ROS *CIDSystemInfo
 
 	// GIDToCID lists the character identifiers corresponding to the glyphs.
-	// This is only present for CIDFonts, and encodes the information from the
-	// charset table in the CFF font.  When present, the first entry
-	// (corresponding to the .notdef glyph) must be 0.
+	// When present, the first entry (corresponding to the .notdef glyph) must
+	// be 0.
 	//
-	// Since CID values are used to select glyphs in the font, the CID values
-	// in the slice should be distinct.
+	// This is only used for CID-keyed fonts.
 	GIDToCID []cid.CID
+
+	// FontMatrices lists the font matrices corresponding to each private
+	// dictionary.  The matrices are applied before the font matrix from
+	// the Font.FontInfo structure.
+	//
+	// This is only used for CID-keyed fonts.
+	FontMatrices []matrix.Matrix
 }
 
 // IsCIDKeyed returns true if the font is a CID-keyed font.
@@ -169,6 +211,8 @@ func (o *Outlines) NumGlyphs() int {
 }
 
 // BBox returns the font bounding box.
+//
+// TODO(voss): remove
 func (o *Outlines) BBox() (bbox funit.Rect16) {
 	first := true
 	for _, glyph := range o.Glyphs {
@@ -194,7 +238,13 @@ func (o *Outlines) BBox() (bbox funit.Rect16) {
 func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	g := o.Glyphs[gid]
 
-	M := fm.Mul(matrix.Scale(1000, 1000))
+	var M matrix.Matrix
+	if o.IsCIDKeyed() {
+		M = o.FontMatrices[o.FDSelect(gid)].Mul(fm)
+	} else {
+		M = fm
+	}
+	M = M.Mul(matrix.Scale(1000, 1000))
 
 	first := true
 cmdLoop:

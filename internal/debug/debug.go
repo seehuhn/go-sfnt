@@ -96,6 +96,9 @@ func MakeSimpleFont() *sfnt.Font {
 				BlueValues: []funit.Int16{
 					bottomMin, bottomMax, topMin, topMax,
 				},
+				BlueScale: 0.039625,
+				BlueShift: 7,
+				BlueFuzz:  1,
 			},
 		},
 		FDSelect: func(glyph.ID) int {

@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strconv"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
@@ -39,7 +40,7 @@ func decodeDict(buf []byte, ss *cffStrings) (cffDict, error) {
 	flush := func(op dictOp) error {
 		if op.isString() {
 			l := len(stack)
-			if l > 2 { // special case for opROS
+			if op == opROS && l > 2 {
 				l = 2
 			}
 			for i := 0; i < l; i++ {
@@ -396,15 +397,21 @@ func (d cffDict) getPair(op dictOp) (int32, int32, bool) {
 	return x, y, true
 }
 
-func (d cffDict) getFontMatrix(op dictOp) (res [6]float64) {
+func (d cffDict) getFontMatrix(op dictOp, isCIDKeyed bool) (res matrix.Matrix) {
 	xx, ok := d[op]
 	if !ok || len(xx) != 6 {
+		if isCIDKeyed {
+			return matrix.Identity
+		}
 		return defaultFontMatrix
 	}
 
 	for i, x := range xx {
 		xi, ok := x.(float64)
 		if !ok {
+			if isCIDKeyed {
+				return matrix.Identity
+			}
 			return defaultFontMatrix
 		}
 		res[i] = xi
@@ -427,16 +434,16 @@ func (d cffDict) setDeltaF16(op dictOp, val []funit.Int16) {
 	d[op] = res
 }
 
-func (d cffDict) setFontMatrix(op dictOp, fm [6]float64) {
-	if len(fm) == 0 {
-		return
-	} else if len(fm) != 6 {
-		panic("bad font matrix")
-	}
-
+func (d cffDict) setFontMatrix(op dictOp, fm matrix.Matrix, isCIDKeyed bool) {
 	needed := false
 	for i, xi := range fm {
-		if math.Abs(xi-defaultFontMatrix[i]) > 1e-5 {
+		var def float64
+		if isCIDKeyed {
+			def = matrix.Identity[i]
+		} else {
+			def = defaultFontMatrix[i]
+		}
+		if math.Abs(xi-def) > 1e-5 {
 			needed = true
 			break
 		}
@@ -621,7 +628,7 @@ func clamp(x, min, max float64) float64 {
 	return x
 }
 
-var defaultFontMatrix = [6]float64{0.001, 0, 0, 0.001, 0, 0}
+var defaultFontMatrix = matrix.Matrix{0.001, 0, 0, 0.001, 0, 0}
 
 type dictOp uint16
 

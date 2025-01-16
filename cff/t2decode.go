@@ -20,8 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-
-	"seehuhn.de/go/postscript/funit"
 )
 
 type decodeInfo struct {
@@ -346,10 +344,10 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				}
 				stage = stageStems
 				setGlyphWidth(len(stack)%2 == 1)
-				var prev funit.Int16
+				var prev float64
 				for k := 0; k+1 < len(stack); k += 2 {
-					a := prev + funit.Int16(math.Round(stack[k]))
-					b := a + funit.Int16(math.Round(stack[k+1]))
+					a := prev + stack[k]
+					b := a + stack[k+1]
 					res.HStem = append(res.HStem, a, b)
 					prev = b
 				}
@@ -363,10 +361,10 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				}
 				stage = stageStems
 				setGlyphWidth(len(stack)%2 == 1)
-				var prev funit.Int16
+				var prev float64
 				for k := 0; k+1 < len(stack); k += 2 {
-					a := prev + funit.Int16(math.Round(stack[k]))
-					b := a + funit.Int16(math.Round(stack[k+1]))
+					a := prev + stack[k]
+					b := a + stack[k+1]
 					res.VStem = append(res.VStem, a, b)
 					prev = b
 				}
@@ -385,10 +383,10 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				// of a charstring, and this sequence is followed directly by
 				// the hintmask or cntrmask operators, the vstem hint operator
 				// need not be included."
-				var prev funit.Int16
+				var prev float64
 				for k := 0; k+1 < len(stack); k += 2 {
-					a := prev + funit.Int16(math.Round(stack[k]))
-					b := a + funit.Int16(math.Round(stack[k+1]))
+					a := prev + stack[k]
+					b := a + stack[k+1]
 					res.VStem = append(res.VStem, a, b)
 					prev = b
 				}

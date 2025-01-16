@@ -108,14 +108,13 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	cff.FontInfo.IsFixedPitch = isFixedPitch != 0
 	italicAngle := topDict.getFloat(opItalicAngle, 0)
 	cff.FontInfo.ItalicAngle = normaliseAngle(italicAngle)
-	// TODO(voss): change underline parameters to reals.
-	cff.FontInfo.UnderlinePosition = funit.Float64(topDict.getInt(opUnderlinePosition,
+	cff.FontInfo.UnderlinePosition = funit.Float64(topDict.getFloat(opUnderlinePosition,
 		defaultUnderlinePosition))
-	cff.FontInfo.UnderlineThickness = funit.Float64(topDict.getInt(opUnderlineThickness,
+	cff.FontInfo.UnderlineThickness = funit.Float64(topDict.getFloat(opUnderlineThickness,
 		defaultUnderlineThickness))
 
-	// TODO(voss): different default for CIDFonts?
-	cff.FontInfo.FontMatrix = topDict.getFontMatrix(opFontMatrix)
+	// We set the font matrix further down, once we know whether the font
+	// is simple or CID-keyed.
 
 	// section 4: global subr INDEX
 	gsubrs, err := readIndex(p)
@@ -136,9 +135,9 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		return nil, invalidSince("no charstrings")
 	}
 
-	ROS, isCIDFont := topDict[opROS]
+	ROS, isCIDKeyed := topDict[opROS]
 	var decoders []*decodeInfo
-	if isCIDFont {
+	if isCIDKeyed {
 		if len(ROS) != 3 {
 			return nil, invalidSince("wrong number of ROS values")
 		}
@@ -178,6 +177,10 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 			if err != nil {
 				return nil, err
 			}
+
+			fontMatrix := fontDict.getFontMatrix(opFontMatrix, false)
+			cff.FontMatrices = append(cff.FontMatrices, fontMatrix)
+
 			cff.Private = append(cff.Private, pInfo.private)
 			decoders = append(decoders, &decodeInfo{
 				subr:         pInfo.subrs,
@@ -200,13 +203,15 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 			return nil, err
 		}
 	} else {
-		cff.FDSelect = func(gid glyph.ID) int { return 0 }
+		cff.FDSelect = fdSelectSimple
 	}
+
+	cff.FontInfo.FontMatrix = topDict.getFontMatrix(opFontMatrix, isCIDKeyed)
 
 	// read the list of glyph names
 	charsetOffs := topDict.getInt(opCharset, 0)
 	var charset []int32
-	if isCIDFont {
+	if isCIDKeyed {
 		err = p.SeekPos(int64(charsetOffs))
 		if err != nil {
 			return nil, err
@@ -255,7 +260,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	}
 
 	// read the Private DICT
-	if !isCIDFont {
+	if !isCIDKeyed {
 		pInfo, err := topDict.readPrivate(p, strings)
 		if err != nil {
 			return nil, err
@@ -279,7 +284,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		if isCIDFont {
+		if isCIDKeyed {
 			if charset != nil {
 				cff.GIDToCID[gid] = cid.CID(charset[gid])
 			}
@@ -294,7 +299,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	}
 
 	// read the encoding
-	if !isCIDFont {
+	if !isCIDKeyed {
 		encodingOffs := topDict.getInt(opEncoding, 0)
 		var enc []glyph.ID
 		switch {
@@ -316,6 +321,10 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	}
 
 	return cff, nil
+}
+
+func fdSelectSimple(git glyph.ID) int {
+	return 0
 }
 
 func normaliseAngle(x float64) float64 {

@@ -137,8 +137,8 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 				g.CurveTo(cmd.Args[0], cmd.Args[1], cmd.Args[2], cmd.Args[3], cmd.Args[4], cmd.Args[5])
 			}
 		}
-		g.HStem = t1.HStem
-		g.VStem = t1.VStem
+		g.HStem = fixSlice(t1.HStem)
+		g.VStem = fixSlice(t1.VStem)
 		name2gid[name] = glyph.ID(len(glyphs))
 		glyphs = append(glyphs, g)
 	}
@@ -267,6 +267,14 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 	otfInfo.CodePageRange.Set(os2.CP1252) // Latin 1
 
 	return &otfInfo, nil
+}
+
+func fixSlice(v []funit.Int16) []float64 {
+	res := make([]float64, len(v))
+	for i, x := range v {
+		res[i] = float64(x)
+	}
+	return res
 }
 
 func makeCmap(glyphNames []string) cmap.Subtable {

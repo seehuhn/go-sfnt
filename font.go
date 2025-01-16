@@ -110,6 +110,7 @@ func (f *Font) Clone() *Font {
 }
 
 // GetFontInfo returns an Adobe FontInfo structure for the given font.
+// The result is a newly allocated structure and is not shared with the font.
 func (f *Font) GetFontInfo() *type1.FontInfo {
 	fontInfo := &type1.FontInfo{
 		FontName:   f.PostScriptName(),

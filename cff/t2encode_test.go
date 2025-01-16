@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
@@ -42,7 +43,7 @@ func TestRoundTrip(t *testing.T) {
 		IsFixedPitch:       true,
 		UnderlinePosition:  -80,
 		UnderlineThickness: 40,
-		FontMatrix:         [6]float64{1.0 / 1024, 0, 0, 1.0 / 1024, 0, 0},
+		FontMatrix:         matrix.Matrix{1.0 / 1024, 0, 0, 1.0 / 1024, 0, 0},
 	}
 	private := []*type1.PrivateDict{
 		{

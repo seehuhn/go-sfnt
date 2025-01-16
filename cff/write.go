@@ -51,8 +51,8 @@ func (cff *Font) Write(w io.Writer) error {
 	topDict := makeTopDict(cff.FontInfo)
 	// opCharset is updated below
 	// opCharStrings is updated below
-	if cff.ROS != nil {
-		// afdko/c/shared/source/cffwrite/cffwrite_dict.c:cfwDictFillTop
+	if cff.IsCIDKeyed() {
+		// see afdko/c/shared/source/cffwrite/cffwrite_dict.c:cfwDictFillTop
 		registrySID := strings.lookup(cff.ROS.Registry)
 		orderingSID := strings.lookup(cff.ROS.Ordering)
 		topDict[opROS] = []interface{}{
@@ -62,10 +62,10 @@ func (cff *Font) Write(w io.Writer) error {
 		// opFDArray is updated below
 		// opFDSelect is updated below
 	} else {
-		topDict.setFontMatrix(opFontMatrix, cff.FontInfo.FontMatrix)
 		// opEncoding is updated below
 		// opPrivate is updated below
 	}
+	topDict.setFontMatrix(opFontMatrix, cff.FontInfo.FontMatrix, cff.IsCIDKeyed())
 	secTopDictIndex := len(blobs)
 	blobs = append(blobs, nil)
 
@@ -139,7 +139,7 @@ func (cff *Font) Write(w io.Writer) error {
 		for i := range fontDicts {
 			// see afdko/c/shared/source/cffwrite/cffwrite_dict.c:cfwDictFillFont
 			fontDict := cffDict{}
-			fontDict.setFontMatrix(opFontMatrix, cff.FontInfo.FontMatrix)
+			fontDict.setFontMatrix(opFontMatrix, cff.FontMatrices[i], false)
 			// opPrivate is set below
 			fontDicts[i] = fontDict
 		}

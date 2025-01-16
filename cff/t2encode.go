@@ -45,7 +45,7 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 	}
 
 	type stemInfo struct {
-		stems []funit.Int16
+		stems []float64
 		op    t2op
 	}
 	allStems := []stemInfo{
@@ -70,9 +70,9 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 			}
 			chunk := stems[:2*k]
 			stems = stems[2*k:]
-			prev := funit.Int16(0)
+			prev := 0.0
 			for _, x := range chunk {
-				header = append(header, encodeInt(x-prev))
+				header = append(header, encodeNumber(x-prev).Code)
 				prev = x
 			}
 
