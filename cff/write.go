@@ -23,11 +23,11 @@ import (
 )
 
 // Write writes the binary form of a CFF font.
-func (cff *Font) Write(w io.Writer) error {
-	numGlyphs := uint16(len(cff.Glyphs))
+func (f *Font) Write(w io.Writer) error {
+	numGlyphs := uint16(len(f.Glyphs))
 
 	// TODO(voss): this should be done per private dict.
-	charStrings, defWidth, nomWidth, err := cff.encodeCharStrings()
+	charStrings, defWidth, nomWidth, err := f.encodeCharStrings()
 	if err != nil {
 		return err
 	}
@@ -45,18 +45,18 @@ func (cff *Font) Write(w io.Writer) error {
 	})
 
 	// section 1: Name INDEX
-	blobs = append(blobs, cffIndex{[]byte(cff.FontInfo.FontName)}.encode())
+	blobs = append(blobs, cffIndex{[]byte(f.FontInfo.FontName)}.encode())
 
 	// section 2: top dict INDEX
-	topDict := makeTopDict(cff.FontInfo)
+	topDict := makeTopDict(f.FontInfo)
 	// opCharset is updated below
 	// opCharStrings is updated below
-	if cff.IsCIDKeyed() {
+	if f.IsCIDKeyed() {
 		// see afdko/c/shared/source/cffwrite/cffwrite_dict.c:cfwDictFillTop
-		registrySID := strings.lookup(cff.ROS.Registry)
-		orderingSID := strings.lookup(cff.ROS.Ordering)
+		registrySID := strings.lookup(f.ROS.Registry)
+		orderingSID := strings.lookup(f.ROS.Ordering)
 		topDict[opROS] = []interface{}{
-			registrySID, orderingSID, cff.ROS.Supplement,
+			registrySID, orderingSID, f.ROS.Supplement,
 		}
 		topDict[opCIDCount] = []interface{}{int32(numGlyphs)}
 		// opFDArray is updated below
@@ -65,7 +65,7 @@ func (cff *Font) Write(w io.Writer) error {
 		// opEncoding is updated below
 		// opPrivate is updated below
 	}
-	topDict.setFontMatrix(opFontMatrix, cff.FontInfo.FontMatrix, cff.IsCIDKeyed())
+	topDict.setFontMatrix(opFontMatrix, f.FontInfo.FontMatrix, f.IsCIDKeyed())
 	secTopDictIndex := len(blobs)
 	blobs = append(blobs, nil)
 
@@ -81,18 +81,18 @@ func (cff *Font) Write(w io.Writer) error {
 	// section 5: encodings
 	secEncodings := -1
 	var glyphNames []int32
-	if cff.ROS == nil {
+	if f.ROS == nil {
 		glyphNames = make([]int32, numGlyphs)
 		for i := uint16(0); i < numGlyphs; i++ {
-			glyphNames[i] = strings.lookup(cff.Glyphs[i].Name)
+			glyphNames[i] = strings.lookup(f.Glyphs[i].Name)
 		}
 
-		if len(cff.Encoding) == 0 || isStandardEncoding(cff.Encoding, cff.Glyphs) {
+		if len(f.Encoding) == 0 || isStandardEncoding(f.Encoding, f.Glyphs) {
 			// topDict[opEncoding] = []interface{}{int32(0)}
-		} else if isExpertEncoding(cff.Encoding, cff.Glyphs) {
+		} else if isExpertEncoding(f.Encoding, f.Glyphs) {
 			topDict[opEncoding] = []interface{}{int32(1)}
 		} else {
-			encoding, err := encodeEncoding(cff.Encoding, glyphNames)
+			encoding, err := encodeEncoding(f.Encoding, glyphNames)
 			if err != nil {
 				return err
 			}
@@ -103,14 +103,14 @@ func (cff *Font) Write(w io.Writer) error {
 
 	// section 6: charsets
 	var charsets []byte
-	if cff.ROS == nil {
+	if f.ROS == nil {
 		charsets, err = encodeCharset(glyphNames)
 		if err != nil {
 			return fmt.Errorf("Glyph names: %w", err)
 		}
 	} else {
-		tmp := make([]int32, len(cff.GIDToCID))
-		for i, cid := range cff.GIDToCID {
+		tmp := make([]int32, len(f.GIDToCID))
+		for i, cid := range f.GIDToCID {
 			tmp[i] = int32(cid)
 		}
 		charsets, err = encodeCharset(tmp)
@@ -123,9 +123,9 @@ func (cff *Font) Write(w io.Writer) error {
 
 	// section 7: FDSelect
 	secFDSelect := -1
-	if cff.ROS != nil {
+	if f.ROS != nil {
 		secFDSelect = len(blobs)
-		blobs = append(blobs, cff.FDSelect.encode(int(numGlyphs)))
+		blobs = append(blobs, f.FDSelect.encode(int(numGlyphs)))
 	}
 
 	// section 8: charstrings INDEX
@@ -133,13 +133,13 @@ func (cff *Font) Write(w io.Writer) error {
 	blobs = append(blobs, charStrings.encode())
 
 	// section 9: font DICT INDEX
-	numFonts := len(cff.Private)
+	numFonts := len(f.Private)
 	fontDicts := make([]cffDict, numFonts)
-	if cff.ROS != nil {
+	if f.ROS != nil {
 		for i := range fontDicts {
 			// see afdko/c/shared/source/cffwrite/cffwrite_dict.c:cfwDictFillFont
 			fontDict := cffDict{}
-			fontDict.setFontMatrix(opFontMatrix, cff.FontMatrices[i], false)
+			fontDict.setFontMatrix(opFontMatrix, f.FontMatrices[i], false)
 			// opPrivate is set below
 			fontDicts[i] = fontDict
 		}
@@ -151,7 +151,7 @@ func (cff *Font) Write(w io.Writer) error {
 	privateDicts := make([]cffDict, numFonts)
 	secPrivateDicts := make([]int, numFonts)
 	for i := range privateDicts {
-		privateDicts[i] = cff.makePrivateDict(i, defWidth, nomWidth)
+		privateDicts[i] = f.makePrivateDict(i, defWidth, nomWidth)
 		// opSubrs is set below
 		secPrivateDicts[i] = len(blobs)
 		blobs = append(blobs, nil)
@@ -187,7 +187,7 @@ func (cff *Font) Write(w io.Writer) error {
 			blobs[secPrivateDict] = privateDicts[i].encode(strings)
 			pdSize := len(blobs[secPrivateDict])
 			pdDesc := []interface{}{int32(pdSize), offs[secPrivateDict]}
-			if cff.ROS != nil {
+			if f.ROS != nil {
 				fontDicts[i][opPrivate] = pdDesc
 				fontDictData := fontDicts[i].encode(strings)
 				fontDictIndex = append(fontDictIndex, fontDictData)
@@ -195,7 +195,7 @@ func (cff *Font) Write(w io.Writer) error {
 				topDict[opPrivate] = pdDesc
 			}
 		}
-		if cff.ROS != nil {
+		if f.ROS != nil {
 			blobs[secFontDictIndex] = fontDictIndex.encode()
 		}
 
@@ -238,18 +238,18 @@ func (cff *Font) Write(w io.Writer) error {
 	return nil
 }
 
-func (cff *Font) selectWidths() (float64, float64) {
-	numGlyphs := int32(len(cff.Glyphs))
+func (f *Font) selectWidths() (float64, float64) {
+	numGlyphs := int32(len(f.Glyphs))
 	if numGlyphs == 0 {
 		return 0, 0
 	} else if numGlyphs == 1 {
-		return cff.Glyphs[0].Width, cff.Glyphs[0].Width
+		return f.Glyphs[0].Width, f.Glyphs[0].Width
 	}
 
 	widthHist := make(map[float64]int32)
 	var mostFrequentCount int32
 	var defaultWidth float64
-	for _, glyph := range cff.Glyphs {
+	for _, glyph := range f.Glyphs {
 		w := glyph.Width
 		widthHist[w]++
 		if widthHist[w] > mostFrequentCount {
@@ -262,7 +262,7 @@ func (cff *Font) selectWidths() (float64, float64) {
 	var sum float64
 	var minWidth float64 = math.Inf(+1)
 	var maxWidth float64 = math.Inf(-1)
-	for _, glyph := range cff.Glyphs {
+	for _, glyph := range f.Glyphs {
 		w := glyph.Width
 		if w == defaultWidth {
 			continue
@@ -284,9 +284,9 @@ func (cff *Font) selectWidths() (float64, float64) {
 	return defaultWidth, nominalWidth
 }
 
-func (cff *Font) encodeCharStrings() (cffIndex, float64, float64, error) {
-	numGlyphs := len(cff.Glyphs)
-	if numGlyphs < 1 || (cff.ROS == nil && cff.Glyphs[0].Name != ".notdef") {
+func (f *Font) encodeCharStrings() (cffIndex, float64, float64, error) {
+	numGlyphs := len(f.Glyphs)
+	if numGlyphs < 1 || (f.ROS == nil && f.Glyphs[0].Name != ".notdef") {
 		return nil, 0, 0, invalidSince("missing .notdef glyph")
 	}
 
@@ -311,8 +311,8 @@ func (cff *Font) encodeCharStrings() (cffIndex, float64, float64, error) {
 	// https://stackoverflow.com/questions/9452701/ukkonens-suffix-tree-algorithm-in-plain-english
 
 	cc := make(cffIndex, numGlyphs)
-	defaultWidth, nominalWidth := cff.selectWidths()
-	for i, glyph := range cff.Glyphs {
+	defaultWidth, nominalWidth := f.selectWidths()
+	for i, glyph := range f.Glyphs {
 		code, err := glyph.encodeCharString(defaultWidth, nominalWidth)
 		if err != nil {
 			return nil, 0, 0, err

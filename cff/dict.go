@@ -583,42 +583,6 @@ func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInf
 	return info, nil
 }
 
-func (cff *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) cffDict {
-	private := cff.Private[idx]
-
-	privateDict := cffDict{}
-
-	privateDict.setDeltaF16(opBlueValues, private.BlueValues)
-	privateDict.setDeltaF16(opOtherBlues, private.OtherBlues)
-	if math.Abs(private.BlueScale-defaultBlueScale) > 1e-6 {
-		privateDict[opBlueScale] = []interface{}{private.BlueScale}
-	}
-	if private.BlueShift != defaultBlueShift {
-		privateDict[opBlueShift] = []interface{}{private.BlueShift}
-	}
-	if private.BlueFuzz != defaultBlueFuzz {
-		privateDict[opBlueFuzz] = []interface{}{private.BlueFuzz}
-	}
-	if private.StdHW != 0 {
-		privateDict[opStdHW] = []interface{}{private.StdHW}
-	}
-	if private.StdVW != 0 {
-		privateDict[opStdVW] = []interface{}{private.StdVW}
-	}
-	if private.ForceBold {
-		privateDict[opForceBold] = []interface{}{int32(1)}
-	}
-
-	if defaultWidth != 0 {
-		privateDict[opDefaultWidthX] = []interface{}{int32(defaultWidth)}
-	}
-	if nominalWidth != 0 {
-		privateDict[opNominalWidthX] = []interface{}{int32(nominalWidth)}
-	}
-
-	return privateDict
-}
-
 func clamp(x, min, max float64) float64 {
 	if x < min {
 		return min
