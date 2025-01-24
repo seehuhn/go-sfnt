@@ -45,7 +45,7 @@ func TestFDSelect(t *testing.T) {
 	o1.FDSelect = func(gid glyph.ID) int {
 		return int(gid) % 10
 	}
-	o1.ROS = &cff.CIDSystemInfo{
+	o1.ROS = &cid.SystemInfo{
 		Registry:   "Seehuhn",
 		Ordering:   "Sonderbar",
 		Supplement: 0,

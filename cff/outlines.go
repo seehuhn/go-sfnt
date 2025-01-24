@@ -19,21 +19,13 @@ package cff
 import (
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/rect"
+
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
+
 	"seehuhn.de/go/sfnt/glyph"
 )
-
-// CIDSystemInfo describes a character collection covered by a font.
-// A character collection implies an encoding which maps Character IDs to glyphs.
-//
-// See section 5.11.2 of the PLRM.
-type CIDSystemInfo struct {
-	Registry   string
-	Ordering   string
-	Supplement int32
-}
 
 // Outlines stores the glyph data of a CFF font.
 //
@@ -65,7 +57,7 @@ type Outlines struct {
 	// Registry, Ordering, Supplement system.
 	//
 	// This is only used for CID-keyed fonts.
-	ROS *CIDSystemInfo
+	ROS *cid.SystemInfo
 
 	// GIDToCID lists the character identifiers corresponding to the glyphs.
 	// When present, the first entry (corresponding to the .notdef glyph) must
