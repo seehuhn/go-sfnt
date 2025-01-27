@@ -264,6 +264,9 @@ func (s *subsetter) SubsetCFF(oldOutlines *cff.Outlines) *cff.Outlines {
 		if _, ok := pIdxMap[oldPIdx]; !ok {
 			newPIdx := len(newOutlines.Private)
 			newOutlines.Private = append(newOutlines.Private, oldOutlines.Private[oldPIdx])
+			if oldOutlines.IsCIDKeyed() {
+				newOutlines.FontMatrices = append(newOutlines.FontMatrices, oldOutlines.FontMatrices[oldPIdx])
+			}
 			pIdxMap[oldPIdx] = newPIdx
 		}
 	}

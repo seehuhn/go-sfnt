@@ -21,6 +21,7 @@ import (
 	"math"
 	"testing"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/cff"
@@ -41,6 +42,7 @@ func TestFDSelect(t *testing.T) {
 		o1.Private = append(o1.Private, &type1.PrivateDict{
 			StdHW: float64(10*i + 1),
 		})
+		o1.FontMatrices = append(o1.FontMatrices, matrix.Identity)
 	}
 	o1.FDSelect = func(gid glyph.ID) int {
 		return int(gid) % 10
