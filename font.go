@@ -354,18 +354,16 @@ func (f *Font) GlyphWidth(gid glyph.ID) float64 {
 	}
 }
 
-// GlyphWidthPDF returns the advance width in PDF text space units.
-//
-// TODO(voss): change this to return text space units.
+// GlyphWidthPDF returns the advance width in PDF glyph space units.
 func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		return float64(o.Glyphs[gid].Width) * f.FontMatrix[0]
+		return float64(o.Glyphs[gid].Width) * (f.FontMatrix[0] * 1000)
 	case *glyf.Outlines:
 		if o.Widths == nil {
 			return 0
 		}
-		return float64(o.Widths[gid]) / float64(f.UnitsPerEm)
+		return float64(o.Widths[gid]) / (float64(f.UnitsPerEm) / 1000)
 	default:
 		panic("unexpected font type")
 	}
