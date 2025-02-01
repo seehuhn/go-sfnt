@@ -358,12 +358,26 @@ func (f *Font) GlyphWidth(gid glyph.ID) float64 {
 func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		return float64(o.Glyphs[gid].Width) * (f.FontMatrix[0] * 1000)
+		var fm matrix.Matrix
+		if o.IsCIDKeyed() {
+			fm = o.FontMatrices[o.FDSelect(gid)].Mul(f.FontMatrix)
+		} else {
+			fm = f.FontMatrix
+		}
+
+		q := fm[0]
+		if math.Abs(fm[3]) > 1e-6 {
+			q -= fm[1] * fm[2] / fm[3]
+		}
+
+		return float64(o.Glyphs[gid].Width) * (q * 1000)
+
 	case *glyf.Outlines:
 		if o.Widths == nil {
 			return 0
 		}
 		return float64(o.Widths[gid]) / (float64(f.UnitsPerEm) / 1000)
+
 	default:
 		panic("unexpected font type")
 	}
