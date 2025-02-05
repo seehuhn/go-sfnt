@@ -47,7 +47,7 @@ type Outlines struct {
 	FDSelect FDSelectFn
 
 	// Encoding lists the glyphs corresponding to the 256 one-byte character
-	// codes.  If presnt, the length of this slice must be 256.  Entries
+	// codes.  If present, the length of this slice must be 256.  Entries
 	// for unused character codes must be set to 0.
 	//
 	// This is only used for simple fonts.
@@ -127,12 +127,12 @@ func (o *Outlines) BBox() (bbox funit.Rect16) {
 // The font matrix fm is applied to the glyph outline.
 //
 // If the glyph is blank, the zero rectangle is returned.
-func (f *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
-	g := f.Glyphs[gid]
+func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
+	g := o.Glyphs[gid]
 
 	var M matrix.Matrix
-	if f.IsCIDKeyed() {
-		M = f.FontMatrices[f.FDSelect(gid)].Mul(fm)
+	if o.IsCIDKeyed() {
+		M = o.FontMatrices[o.FDSelect(gid)].Mul(fm)
 	} else {
 		M = fm
 	}
