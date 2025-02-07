@@ -27,8 +27,8 @@ import (
 // The new subset contains only the given glyphs, in the order they are
 // specified in the glyphs slice.  The glyphs slice must start with GID 0.
 //
-// The returned font shares the private dictionaries and glyph data with the
-// original font.
+// The returned font shares the FontInfo, private dictionaries and glyph data
+// with the original font.
 func (o *Outlines) Subset(glyphs []glyph.ID) *Outlines {
 	subset := &Outlines{}
 
