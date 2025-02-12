@@ -20,12 +20,14 @@ import (
 	"errors"
 	"fmt"
 
+	"golang.org/x/exp/maps"
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 )
@@ -79,6 +81,11 @@ type subsetter struct {
 	newGid map[glyph.ID]glyph.ID
 }
 
+func (s *subsetter) hasOldGid(oldGid glyph.ID) bool {
+	_, ok := s.newGid[oldGid]
+	return ok
+}
+
 func (s *subsetter) getNewGid(oldGid glyph.ID) glyph.ID {
 	newGid, ok := s.newGid[oldGid]
 	if !ok {
@@ -120,47 +127,62 @@ func (s *subsetter) SubsetCMap(c cmap.Subtable) cmap.Subtable {
 	}
 }
 
+// TODO(voss): This is incomplete.  Finish this!
 func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 	if old == nil {
 		return nil
 	}
 
-	res := *old
-	res.LookupList = make(gtab.LookupList, len(old.LookupList))
-	// TODO(voss): if glyphs were added, we need to re-run this loop
-	for i, tOld := range old.LookupList {
-		tNew := &gtab.LookupTable{
-			Meta:      tOld.Meta,
-			Subtables: make([]gtab.Subtable, len(tOld.Subtables)),
-		}
-		for j, sOld := range tOld.Subtables {
+	// step 1: make a list of all GSUB rules
+	type rule struct {
+		nMissing int
+		in       []glyph.ID
+		out      []glyph.ID
+	}
+	var rules []rule
+	for _, tOld := range old.LookupList {
+		for _, sOld := range tOld.Subtables {
 			switch sOld := sOld.(type) {
 			case *gtab.Gsub1_1:
-				// It is difficult to produce a format 1 subtable for the subset
-				// (constant offset between original and subtitute), so we
-				// convert this to format 2 instead.
-				sNew := &gtab.Gsub1_2{
-					Cov: make(map[glyph.ID]int),
+				for gid := range sOld.Cov {
+					rules = append(rules, rule{
+						in:  []glyph.ID{gid},
+						out: []glyph.ID{gid + sOld.Delta},
+					})
 				}
-				for oldOrig := range sOld.Cov {
-					newOrig, ok := s.newGid[oldOrig]
-					if !ok {
-						continue
-					}
-					newSubst := oldOrig + sOld.Delta
-					// TODO(voss): keep the coverage table sorted
-					sNew.Cov[newOrig] = len(sNew.SubstituteGlyphIDs)
-					sNew.SubstituteGlyphIDs = append(sNew.SubstituteGlyphIDs, s.getNewGid(newSubst))
-				}
-				tNew.Subtables[j] = sNew
 			case *gtab.Gsub1_2:
-				panic("not implemented")
+				for gid, idx := range sOld.Cov {
+					rules = append(rules, rule{
+						in:  []glyph.ID{gid},
+						out: []glyph.ID{sOld.SubstituteGlyphIDs[idx]},
+					})
+				}
 			case *gtab.Gsub2_1:
-				panic("not implemented")
+				for gid, idx := range sOld.Cov {
+					rules = append(rules, rule{
+						in:  []glyph.ID{gid},
+						out: sOld.Repl[idx],
+					})
+				}
 			case *gtab.Gsub3_1:
-				panic("not implemented")
+				for gid, idx := range sOld.Cov {
+					rules = append(rules, rule{
+						in:  []glyph.ID{gid},
+						out: sOld.Alternates[idx],
+					})
+				}
 			case *gtab.Gsub4_1:
-				panic("not implemented")
+				for gid, idx := range sOld.Cov {
+					for _, lig := range sOld.Repl[idx] {
+						in := make([]glyph.ID, 0, len(lig.In)+1)
+						in = append(in, gid)
+						in = append(in, lig.In...)
+						rules = append(rules, rule{
+							in:  in,
+							out: []glyph.ID{lig.Out},
+						})
+					}
+				}
 			case *gtab.Gsub8_1:
 				panic("not implemented")
 			case *gtab.SeqContext1:
@@ -179,7 +201,140 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 				panic(fmt.Sprintf("sfnt: unsupported GSUB format %T", sOld))
 			}
 		}
-		res.LookupList[i] = tNew
+	}
+
+	// step 2: finalise the list of glyphs needed
+	for i, r := range rules {
+		nMissing := 0
+		for _, in := range r.in {
+			if _, ok := s.newGid[in]; !ok {
+				nMissing++
+			}
+		}
+		rules[i].nMissing = nMissing
+	}
+	added := make(map[glyph.ID]struct{})
+	needsRun := true
+	for needsRun {
+		maps.Clear(added)
+
+		pos := 0
+		for pos < len(rules) {
+			r := rules[pos]
+			if r.nMissing == 0 {
+				for _, gid := range r.out {
+					if !s.hasOldGid(gid) {
+						s.getNewGid(gid)
+						added[gid] = struct{}{}
+					}
+				}
+				rules = append(rules[:pos], rules[pos+1:]...)
+			} else {
+				pos++
+			}
+		}
+
+		needsRun = false
+		for i, r := range rules {
+			for _, in := range r.in {
+				if _, ok := added[in]; ok {
+					rules[i].nMissing--
+				}
+			}
+			if rules[i].nMissing == 0 {
+				needsRun = true
+			}
+		}
+	}
+
+	// step 3: create the new GSUB table
+	res := *old
+	res.LookupList = nil
+	for _, tOld := range old.LookupList {
+		tNew := &gtab.LookupTable{
+			Meta: tOld.Meta,
+		}
+		for _, sOld := range tOld.Subtables {
+			switch sOld := sOld.(type) {
+			case *gtab.Gsub1_1:
+				// It is difficult to produce a format 1 subtable for the subset
+				// (constant offset between original and subtitute), so we
+				// convert this to format 2 instead.
+				sNew := &gtab.Gsub1_2{
+					Cov: make(map[glyph.ID]int),
+				}
+				for oldOrig := range sOld.Cov {
+					newFrom, ok := s.newGid[oldOrig]
+					if !ok {
+						continue
+					}
+
+					newTo := oldOrig + sOld.Delta
+					sNew.Cov[newFrom] = len(sNew.SubstituteGlyphIDs)
+					sNew.SubstituteGlyphIDs = append(sNew.SubstituteGlyphIDs, s.getNewGid(newTo))
+				}
+				if len(sNew.Cov) > 0 {
+					tNew.Subtables = append(tNew.Subtables, sNew)
+				}
+			case *gtab.Gsub1_2:
+				panic("not implemented")
+			case *gtab.Gsub2_1:
+				panic("not implemented")
+			case *gtab.Gsub3_1:
+				panic("not implemented")
+			case *gtab.Gsub4_1:
+				sNew := gtab.Gsub4_1{
+					Cov: make(coverage.Table),
+				}
+				for oldFirst, idx := range sOld.Cov {
+					newFirst, ok := s.newGid[oldFirst]
+					if !ok {
+						continue
+					}
+					var ligs []gtab.Ligature
+				ligLoop:
+					for _, lig := range sOld.Repl[idx] {
+						for _, oldGID := range lig.In {
+							if _, ok := s.newGid[oldGID]; !ok {
+								continue ligLoop
+							}
+						}
+						newLig := gtab.Ligature{
+							In:  make([]glyph.ID, len(lig.In)),
+							Out: s.getNewGid(lig.Out),
+						}
+						for i, oldGID := range lig.In {
+							newLig.In[i] = s.getNewGid(oldGID)
+						}
+						ligs = append(ligs, newLig)
+					}
+					if len(ligs) > 0 {
+						sNew.Cov[newFirst] = len(sNew.Repl)
+						sNew.Repl = append(sNew.Repl, ligs)
+					}
+				}
+			case *gtab.Gsub8_1:
+				panic("not implemented")
+			case *gtab.SeqContext1:
+				panic("not implemented")
+			case *gtab.SeqContext2:
+				panic("not implemented")
+			case *gtab.SeqContext3:
+				panic("not implemented")
+			case *gtab.ChainedSeqContext1:
+				panic("not implemented")
+			case *gtab.ChainedSeqContext2:
+				panic("not implemented")
+			case *gtab.ChainedSeqContext3:
+				panic("not implemented")
+			default:
+				panic(fmt.Sprintf("sfnt: unsupported GSUB format %T", sOld))
+			}
+		}
+
+		if len(tNew.Subtables) > 0 {
+			res.LookupList = append(res.LookupList, tNew)
+		}
 	}
 
 	return &res

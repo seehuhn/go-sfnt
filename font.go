@@ -122,13 +122,13 @@ func (f *Font) GetFontInfo() *type1.FontInfo {
 		Copyright: strings.ReplaceAll(f.Copyright, "©", "(c)"),
 		Notice:    f.Trademark,
 
-		FontMatrix: f.FontMatrix,
-
 		ItalicAngle:  f.ItalicAngle,
 		IsFixedPitch: f.IsFixedPitch(),
 
 		UnderlinePosition:  f.UnderlinePosition,
 		UnderlineThickness: f.UnderlineThickness,
+
+		FontMatrix: f.FontMatrix,
 	}
 	return fontInfo
 }
