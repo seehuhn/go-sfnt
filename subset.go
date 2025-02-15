@@ -17,7 +17,6 @@
 package sfnt
 
 import (
-	"errors"
 	"fmt"
 
 	"golang.org/x/exp/maps"
@@ -35,11 +34,9 @@ import (
 // Subset returns a subset of the font containing containing the given
 // glyphs at the first positions.  More glyphs may be included in the
 // subset, if they occur as ligatures between the given glyphs.
-func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
-	if glyphs[0] != 0 {
-		return nil, errors.New("sfnt: subset must start with .notdef glyph")
-	}
-
+//
+// The slice glyphs must start with glyph ID 0 to represent the notdef glyph.
+func (f *Font) Subset(glyphs []glyph.ID) *Font {
 	res := f.Clone()
 
 	s := subsetter{
@@ -73,7 +70,7 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 		res.Outlines = s.SubsetGlyf(outlines)
 	}
 
-	return res, nil
+	return res
 }
 
 type subsetter struct {
