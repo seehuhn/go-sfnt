@@ -251,6 +251,9 @@ func (f *Font) selectWidths() (float64, float64) {
 	var defaultWidth float64
 	for _, glyph := range f.Glyphs {
 		w := glyph.Width
+		if math.Abs(w) > 32767 {
+			continue
+		}
 		widthHist[w]++
 		if widthHist[w] > mostFrequentCount {
 			defaultWidth = w
