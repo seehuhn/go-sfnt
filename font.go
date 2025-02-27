@@ -279,7 +279,7 @@ func (f *Font) WidthsPDF() []float64 {
 	switch outlines := f.Outlines.(type) {
 	case *cff.Outlines:
 		for gid, g := range outlines.Glyphs {
-			widths[gid] = float64(g.Width) * f.FontMatrix[0]
+			widths[gid] = g.Width * f.FontMatrix[0]
 		}
 		return widths
 	case *glyf.Outlines:
@@ -312,7 +312,7 @@ func (f *Font) WidthsMapPDF() map[string]float64 {
 
 	widths := make(map[string]float64)
 	for _, glyph := range o.Glyphs {
-		widths[glyph.Name] = float64(glyph.Width) * q
+		widths[glyph.Name] = glyph.Width * q
 	}
 	return widths
 }
@@ -370,7 +370,7 @@ func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 			q -= fm[1] * fm[2] / fm[3]
 		}
 
-		return float64(o.Glyphs[gid].Width) * (q * 1000)
+		return o.Glyphs[gid].Width * (q * 1000)
 
 	case *glyf.Outlines:
 		if o.Widths == nil {

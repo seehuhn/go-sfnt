@@ -78,7 +78,7 @@ func (f *Font) WidthsPDF() []float64 {
 	widths := make([]float64, f.NumGlyphs())
 	q := f.FontMatrix[0] * 1000
 	for gid, glyph := range f.Glyphs {
-		widths[gid] = float64(glyph.Width) * q
+		widths[gid] = glyph.Width * q
 	}
 	return widths
 }
@@ -101,7 +101,7 @@ func (f *Font) WidthsMapPDF() map[string]float64 {
 
 	widths := make(map[string]float64)
 	for _, glyph := range f.Glyphs {
-		widths[glyph.Name] = float64(glyph.Width) * q
+		widths[glyph.Name] = glyph.Width * q
 	}
 	return widths
 }

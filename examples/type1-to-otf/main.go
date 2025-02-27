@@ -223,7 +223,7 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 		}
 	}
 
-	minBaseLineSkip := math.Ceil(1.2 * float64(unitsPerEm))
+	minBaseLineSkip := math.Ceil(1.2 * unitsPerEm)
 	if d := minBaseLineSkip - (ascent - descent); d > 0 {
 		d1 := d / 3
 		d2 := d - d1
