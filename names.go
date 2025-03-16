@@ -100,7 +100,7 @@ func (f *Font) MakeGlyphNames() []string {
 				// This includes the case of unmapped runes (gid == 0).
 				continue
 			}
-			name := names.FromUnicode(r)
+			name := names.FromUnicode(string(r))
 			if !used[name] {
 				glyphNames[gid] = name
 				used[name] = true

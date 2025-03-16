@@ -281,7 +281,7 @@ func makeCmap(glyphNames []string) cmap.Subtable {
 	canUseFormat4 := true
 	codes := make([]rune, len(glyphNames))
 	for gid, name := range glyphNames {
-		rr := names.ToUnicode(name, false)
+		rr := []rune(names.ToUnicode(name, ""))
 		if len(rr) != 1 {
 			continue
 		}

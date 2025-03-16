@@ -196,7 +196,7 @@ func encodeArgs(cmds []GlyphOp) []enCmd {
 
 func encodeSubPath(cmds []enCmd) [][]byte {
 	g := encoder(cmds)
-	ee, err := dijkstra.ShortestPath[int, edge, int](g, 0, len(cmds))
+	ee, err := dijkstra.ShortestPath(g, 0, len(cmds))
 	if err != nil {
 		panic(err)
 	}

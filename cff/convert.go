@@ -18,7 +18,6 @@ package cff
 
 import (
 	"fmt"
-	"strings"
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/cid"
@@ -70,11 +69,7 @@ func (o *Outlines) makeNames(glyphText map[glyph.ID]string) {
 				continue
 			}
 
-			var parts []string
-			for _, r := range glyphText {
-				parts = append(parts, names.FromUnicode(r))
-			}
-			baseName := strings.Join(parts, "_")
+			baseName := names.FromUnicode(glyphText)
 
 			try := 0
 			for {
