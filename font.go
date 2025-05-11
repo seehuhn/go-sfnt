@@ -146,11 +146,15 @@ func (f *Font) IsCFF() bool {
 }
 
 // AsCFF returns the CFF font data for the given font.
-// Panics if the font does not contain CFF outlines.
+// Returns nil if the font does not contain CFF outlines.
 func (f *Font) AsCFF() *cff.Font {
+	outlines, ok := f.Outlines.(*cff.Outlines)
+	if !ok {
+		return nil
+	}
 	return &cff.Font{
 		FontInfo: f.GetFontInfo(),
-		Outlines: f.Outlines.(*cff.Outlines),
+		Outlines: outlines,
 	}
 }
 
