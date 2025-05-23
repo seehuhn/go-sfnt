@@ -122,21 +122,12 @@ func (o *Outlines) BBox() (bbox funit.Rect16) {
 	return bbox
 }
 
-// GlyphBBoxPDF computes the bounding box of a glyph in PDF glyph space units
-// (1/1000th of a text space unit).
-// The font matrix fm is applied to the glyph outline.
+// GlyphBBox computes the bounding box of a glyph, after the matrix fm has been
+// applied to the glyph outline.
 //
 // If the glyph is blank, the zero rectangle is returned.
-func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
+func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	g := o.Glyphs[gid]
-
-	var M matrix.Matrix
-	if o.IsCIDKeyed() {
-		M = o.FontMatrices[o.FDSelect(gid)].Mul(fm)
-	} else {
-		M = fm
-	}
-	M = M.Mul(matrix.Scale(1000, 1000))
 
 	first := true
 cmdLoop:
@@ -171,4 +162,21 @@ cmdLoop:
 	}
 
 	return bbox
+}
+
+// GlyphBBoxPDF computes the bounding box of a glyph in PDF glyph space units
+// (1/1000th of a text space unit).
+// The font matrix fm is applied to the glyph outline.
+//
+// If the glyph is blank, the zero rectangle is returned.
+func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
+	var M matrix.Matrix
+	if o.IsCIDKeyed() {
+		M = o.FontMatrices[o.FDSelect(gid)].Mul(fm)
+	} else {
+		M = fm
+	}
+	M = M.Mul(matrix.Scale(1000, 1000))
+
+	return o.GlyphBBox(M, gid)
 }
