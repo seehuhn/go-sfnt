@@ -8,6 +8,6 @@ require (
 	golang.org/x/image v0.18.0
 	golang.org/x/text v0.16.0
 	seehuhn.de/go/dijkstra v0.9.3
-	seehuhn.de/go/geom v0.0.0-20250115091222-3cab61c7096a
+	seehuhn.de/go/geom v0.0.0-20250611230257-c5fe5f6df8ac
 	seehuhn.de/go/postscript v0.5.1-0.20250316102127-8863e3a3d4c4
 )

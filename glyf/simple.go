@@ -17,6 +17,9 @@
 package glyf
 
 import (
+	"iter"
+
+	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/parser"
@@ -26,6 +29,204 @@ import (
 type SimpleGlyph struct {
 	NumContours int16
 	Encoded     []byte
+}
+
+// Contours returns an iterator over the path contours of a simple glyph.
+// Each contour represents a closed shape in the glyph outline.
+func (g SimpleGlyph) Contours() iter.Seq[path.Contour] {
+	glyphInfo, err := g.Decode()
+	if err != nil {
+		return func(yield func(path.Contour) bool) {}
+	}
+
+	return func(outerYield func(path.Contour) bool) {
+		var buf [3]path.Point
+
+		for _, cc := range glyphInfo.Contours {
+			contour := func(yield func(path.Command, []path.Point) bool) {
+				if len(cc) == 0 {
+					return
+				}
+
+				toPoint := func(p Point) path.Point {
+					return path.Point{X: float64(p.X), Y: float64(p.Y)}
+				}
+
+				midpoint := func(p1, p2 Point) path.Point {
+					return path.Point{
+						X: float64(p1.X+p2.X) / 2,
+						Y: float64(p1.Y+p2.Y) / 2,
+					}
+				}
+
+				// Find first on-curve point or compute midpoint if all off-curve
+				start := 0
+				for i, pt := range cc {
+					if pt.OnCurve {
+						start = i
+						break
+					}
+				}
+
+				// Move to start point
+				if cc[start].OnCurve {
+					buf[0] = toPoint(cc[start])
+				} else {
+					// if all points are off-curve, the TrueType spec says to
+					// start at the midpoint of the first and last point.
+					buf[0] = midpoint(cc[len(cc)-1], cc[0])
+				}
+				if !yield(path.CmdMoveTo, buf[:1]) {
+					return
+				}
+
+				// makeExtendedPointIterator returns a stateful iterator function.
+				// Each call to the iterator returns the next point in the "extended" sequence
+				// (which includes implicit on-curve midpoints).
+				makeExtendedPointIterator := func(
+					cc []Point,
+					toPointFunc func(Point) path.Point, // Renamed to avoid conflict
+					midpointFunc func(Point, Point) path.Point, // Renamed to avoid conflict
+				) func() (pt path.Point, onCurve bool, ok bool) {
+
+					if len(cc) == 0 {
+						return func() (path.Point, bool, bool) { return path.Point{}, false, false }
+					}
+
+					// State for the closure:
+					i := 0 // Corresponds to the loop `for i := 0; i <= len(cc); i++`
+					prevPtInCC := cc[len(cc)-1]
+					prevOnCurveInCC := prevPtInCC.OnCurve
+					pendingActualPoint := false // True if an implicit point was just yielded
+
+					return func() (path.Point, bool, bool) {
+						if pendingActualPoint {
+							pendingActualPoint = false
+
+							curPtOriginal := cc[i%len(cc)]
+
+							prevPtInCC = curPtOriginal
+							prevOnCurveInCC = curPtOriginal.OnCurve
+							i++
+							return toPointFunc(curPtOriginal), curPtOriginal.OnCurve, true
+						}
+
+						if i > len(cc) {
+							return path.Point{}, false, false
+						}
+
+						curPtOriginal := cc[i%len(cc)]
+						curOnCurveOriginal := curPtOriginal.OnCurve
+
+						if !prevOnCurveInCC && !curOnCurveOriginal {
+							pendingActualPoint = true
+							// Note: prevPtInCC and i are NOT advanced here; they advance with the actual point.
+							return midpointFunc(prevPtInCC, curPtOriginal), true, true
+						}
+
+						prevPtInCC = curPtOriginal
+						prevOnCurveInCC = curPtOriginal.OnCurve
+						i++
+						return toPointFunc(curPtOriginal), curPtOriginal.OnCurve, true
+					}
+				}
+
+				getNextExtendedPoint := makeExtendedPointIterator(cc, toPoint, midpoint)
+
+				fillPoint := func(p *struct {
+					pt      path.Point
+					onCurve bool
+					valid   bool
+				}) {
+					ptVal, onCurveVal, okVal := getNextExtendedPoint()
+					if okVal {
+						p.pt, p.onCurve, p.valid = ptVal, onCurveVal, true
+					} else {
+						p.valid = false
+					}
+				}
+
+				var p0, p1, p2 struct {
+					pt      path.Point
+					onCurve bool
+					valid   bool // false if we are at the end of the stream
+				}
+
+				// Prime the lookahead buffer
+				fillPoint(&p0)
+				fillPoint(&p1)
+				fillPoint(&p2)
+
+				for p0.valid {
+					if !p0.onCurve {
+						// This should not happen, as extendedPoints always yields on-curve points
+						// or implicit midpoints which are on-curve.
+						// If it does, it's an internal error or a misunderstanding of the spec.
+						// As a fallback, treat as a line segment to the next available point.
+						if p1.valid {
+							buf[0] = p1.pt
+							if !yield(path.CmdLineTo, buf[:1]) {
+								return
+							}
+						} else if p0.pt != buf[0] { // Avoid empty line segment if p0 is the start point
+							buf[0] = p0.pt
+							if !yield(path.CmdLineTo, buf[:1]) {
+								return
+							}
+						}
+					} else if p1.valid && p1.onCurve {
+						// On-curve to on-curve: Line segment
+						buf[0] = p1.pt
+						if !yield(path.CmdLineTo, buf[:1]) {
+							return
+						}
+					} else if p1.valid && !p1.onCurve && p2.valid {
+						// On-curve to off-curve to any: Quadratic curve
+						buf[0] = p1.pt // control point
+						buf[1] = p2.pt // end point
+						if !yield(path.CmdQuadTo, buf[:2]) {
+							return
+						}
+						// Advance p0 by two points (p0 becomes p2)
+						p0 = p2
+						fillPoint(&p1) // Get next point from stream for new p1
+						if !p1.valid { // Reached end after advancing p0
+							p2.valid = false
+							break
+						}
+						fillPoint(&p2) // Get next point for new p2
+						continue       // Restart loop with new p0, p1, p2
+					} else {
+						// This case should ideally not be reached if the contour is well-formed
+						// and the extendedPoints generator works correctly.
+						// It implies an on-curve point followed by an off-curve point with no subsequent point,
+						// or some other unexpected sequence.
+						// As a fallback, if p1 is valid (it must be off-curve here), draw a line to it.
+						// This is not ideal as it might misinterpret the shape, but prevents crashing.
+						if p1.valid && p1.pt != p0.pt { // p1 is off-curve
+							buf[0] = p1.pt
+							if !yield(path.CmdLineTo, buf[:1]) {
+								return
+							}
+						}
+						// If p1 is not valid, or p1.pt == p0.pt, we are at the end or have a degenerate segment.
+						// The path will be closed by CmdClose outside the loop.
+					}
+
+					// Advance the lookahead buffer
+					p0 = p1
+					p1 = p2
+					fillPoint(&p2) // Get next point from stream for new p2
+				}
+
+				yield(path.CmdClose, nil)
+			}
+
+			if !outerYield(contour) {
+				return
+			}
+		}
+	}
 }
 
 // A Point is a point in a glyph outline
@@ -51,12 +252,17 @@ func (glyph *SimpleGlyph) Decode() (*GlyphInfo, error) {
 	if len(buf) < 2*numContours+2 {
 		return nil, errInvalidGlyphData
 	}
+
 	endPtsOfContours := make([]uint16, numContours)
-	for i := 0; i < numContours; i++ {
+	for i := range endPtsOfContours {
 		endPtsOfContours[i] = uint16(buf[2*i])<<8 | uint16(buf[2*i+1])
 	}
 	buf = buf[2*numContours:]
-	numPoints := int(endPtsOfContours[numContours-1]) + 1
+
+	var numPoints int
+	if numContours > 0 {
+		numPoints = int(endPtsOfContours[numContours-1]) + 1
+	}
 
 	instructionLength := int(buf[0])<<8 | int(buf[1])
 	if len(buf) < 2+instructionLength {
@@ -65,50 +271,45 @@ func (glyph *SimpleGlyph) Decode() (*GlyphInfo, error) {
 	instructions := buf[2 : 2+instructionLength]
 	buf = buf[2+instructionLength:]
 
-	// decode the flags
-	ff := make([]byte, numPoints)
-	i := 0
-	for i < numPoints {
+	flags := make([]byte, numPoints)
+	for i := 0; i < numPoints; {
 		if len(buf) < 1 {
 			return nil, errInvalidGlyphData
 		}
-		flags := buf[0]
+		flag := buf[0]
 		buf = buf[1:]
-		ff[i] = flags
+		flags[i] = flag
 		i++
-		if flags&flagRepeat != 0 {
+		if flag&flagRepeat != 0 {
 			if len(buf) < 1 {
 				return nil, errInvalidGlyphData
 			}
-			count := buf[0]
+			count := int(buf[0])
 			buf = buf[1:]
 			for count > 0 && i < numPoints {
-				ff[i] = flags
+				flags[i] = flag
 				i++
 				count--
 			}
 		}
 	}
-	if i != numPoints {
-		return nil, errInvalidGlyphData
-	}
 
 	// decode the x-coordinates
 	xx := make([]funit.Int16, numPoints)
 	var x funit.Int16
-	for i, flags := range ff {
-		if flags&flagXShortVec != 0 {
+	for i, flag := range flags {
+		if flag&flagXShortVec != 0 {
 			if len(buf) < 1 {
 				return nil, errInvalidGlyphData
 			}
 			dx := funit.Int16(buf[0])
 			buf = buf[1:]
-			if flags&flagXSameOrPos != 0 {
+			if flag&flagXSameOrPos != 0 {
 				x += dx
 			} else {
 				x -= dx
 			}
-		} else if flags&flagXSameOrPos == 0 {
+		} else if flag&flagXSameOrPos == 0 {
 			if len(buf) < 2 {
 				return nil, errInvalidGlyphData
 			}
@@ -122,19 +323,20 @@ func (glyph *SimpleGlyph) Decode() (*GlyphInfo, error) {
 	// decode the y-coordinates
 	yy := make([]funit.Int16, numPoints)
 	var y funit.Int16
-	for i, flags := range ff {
-		if flags&flagYShortVec != 0 {
+	for i, flag := range flags {
+		if flag&flagYShortVec != 0 {
 			if len(buf) < 1 {
 				return nil, errInvalidGlyphData
 			}
+
 			dy := funit.Int16(buf[0])
 			buf = buf[1:]
-			if flags&flagYSameOrPos != 0 {
+			if flag&flagYSameOrPos != 0 {
 				y += dy
 			} else {
 				y -= dy
 			}
-		} else if flags&flagYSameOrPos == 0 {
+		} else if flag&flagYSameOrPos == 0 {
 			if len(buf) < 2 {
 				return nil, errInvalidGlyphData
 			}
@@ -145,72 +347,75 @@ func (glyph *SimpleGlyph) Decode() (*GlyphInfo, error) {
 		yy[i] = y
 	}
 
+	// Build contours from decoded points
 	cc := make([]Contour, numContours)
 	start := 0
 	for i := 0; i < numContours; i++ {
 		end := int(endPtsOfContours[i]) + 1
-		pp := make([]Point, end-start)
+		contour := make([]Point, end-start)
 		for j := start; j < end; j++ {
-			pp[j-start] = Point{xx[j], yy[j], ff[j]&flagOnCurve != 0}
+			contour[j-start] = Point{xx[j], yy[j], flags[j]&flagOnCurve != 0}
 		}
+		cc[i] = contour
 		start = end
-
-		cc[i] = pp
 	}
 
-	res := &GlyphInfo{
+	// Copy instructions if present
+	var inst []byte
+	if instructionLength > 0 {
+		inst = make([]byte, len(instructions))
+		copy(inst, instructions)
+	}
+
+	return &GlyphInfo{
 		Contours:     cc,
-		Instructions: instructions,
-	}
-
-	return res, nil
+		Instructions: inst,
+	}, nil
 }
 
 func (glyph *SimpleGlyph) removePadding() error {
 	buf := glyph.Encoded
-
 	numContours := int(glyph.NumContours)
+
 	if len(buf) < 2*numContours+2 {
 		return errInvalidGlyphData
 	}
-	pos := 2 * numContours // endPtsOfContours
+	pos := 2 * numContours
 
-	numPoints := 0
+	var numPoints int
 	if numContours > 0 {
 		numPoints = (int(buf[pos-2])<<8 | int(buf[pos-1])) + 1
 	}
+
 	instructionLength := int(buf[pos])<<8 | int(buf[pos+1])
 	pos += 2 + instructionLength
 
-	// decode the flags
 	coordBytes := 0
-	i := 0
-	for i < numPoints {
-		if len(buf) <= pos {
+	for i := 0; i < numPoints; {
+		if pos >= len(buf) {
 			return errInvalidGlyphData
 		}
-		flags := buf[pos]
+		flag := buf[pos]
 		pos++
 
 		repeat := 1
-		if flags&flagRepeat != 0 {
-			if len(buf) <= pos {
+		if flag&flagRepeat != 0 {
+			if pos >= len(buf) {
 				return errInvalidGlyphData
 			}
 			repeat = int(buf[pos]) + 1
 			pos++
 		}
 
-		xBytes := 0
-		if flags&flagXShortVec != 0 {
+		var xBytes, yBytes int
+		if flag&flagXShortVec != 0 {
 			xBytes = 1
-		} else if flags&flagXSameOrPos == 0 {
+		} else if flag&flagXSameOrPos == 0 {
 			xBytes = 2
 		}
-		yBytes := 0
-		if flags&flagYShortVec != 0 {
+		if flag&flagYShortVec != 0 {
 			yBytes = 1
-		} else if flags&flagYSameOrPos == 0 {
+		} else if flag&flagYSameOrPos == 0 {
 			yBytes = 2
 		}
 
@@ -219,14 +424,124 @@ func (glyph *SimpleGlyph) removePadding() error {
 	}
 
 	pos += coordBytes
-
-	if i != numPoints || pos > len(buf) {
+	if pos > len(buf) {
 		return errInvalidGlyphData
 	}
 
 	glyph.Encoded = buf[:pos]
-
 	return nil
+}
+
+// writeCoords writes coordinate deltas to buf based on flags
+func writeCoords(buf []byte, flags []byte, deltas []funit.Int16, shortFlag, sameOrPosFlag byte) []byte {
+	for i, flag := range flags {
+		if flag&shortFlag != 0 {
+			if flag&sameOrPosFlag != 0 {
+				buf = append(buf, byte(deltas[i]))
+			} else {
+				buf = append(buf, byte(-deltas[i]))
+			}
+		} else if flag&sameOrPosFlag == 0 {
+			buf = append(buf, byte(deltas[i]>>8), byte(deltas[i]))
+		}
+	}
+	return buf
+}
+
+// Encode encodes the glyph info back into the binary format.
+func (info *GlyphInfo) Encode() *SimpleGlyph {
+	numContours := len(info.Contours)
+	endPtsOfContours := make([]uint16, numContours)
+	totalPoints := 0
+	for i, contour := range info.Contours {
+		totalPoints += len(contour)
+		endPtsOfContours[i] = uint16(totalPoints - 1)
+	}
+
+	points := make([]Point, 0, totalPoints)
+	for _, contour := range info.Contours {
+		points = append(points, contour...)
+	}
+
+	flags := make([]byte, totalPoints)
+	xDeltas := make([]funit.Int16, totalPoints)
+	yDeltas := make([]funit.Int16, totalPoints)
+
+	var prevX, prevY funit.Int16
+	for i, pt := range points {
+		xDeltas[i] = pt.X - prevX
+		yDeltas[i] = pt.Y - prevY
+		prevX = pt.X
+		prevY = pt.Y
+
+		if pt.OnCurve {
+			flags[i] |= flagOnCurve
+		}
+
+		// Determine x-coordinate encoding
+		if xDeltas[i] == 0 {
+			flags[i] |= flagXSameOrPos
+		} else if -255 <= xDeltas[i] && xDeltas[i] <= 255 {
+			flags[i] |= flagXShortVec
+			if xDeltas[i] > 0 {
+				flags[i] |= flagXSameOrPos
+			}
+		}
+
+		// Determine y-coordinate encoding
+		if yDeltas[i] == 0 {
+			flags[i] |= flagYSameOrPos
+		} else if -255 <= yDeltas[i] && yDeltas[i] <= 255 {
+			flags[i] |= flagYShortVec
+			if yDeltas[i] > 0 {
+				flags[i] |= flagYSameOrPos
+			}
+		}
+	}
+
+	// Build the encoded data
+	var buf []byte
+
+	// Write endPtsOfContours
+	for _, endPt := range endPtsOfContours {
+		buf = append(buf, byte(endPt>>8), byte(endPt))
+	}
+
+	// Write instruction length and instructions
+	instructionLength := len(info.Instructions)
+	buf = append(buf, byte(instructionLength>>8), byte(instructionLength))
+	buf = append(buf, info.Instructions...)
+
+	// Write flags with repetition compression
+	i := 0
+	for i < totalPoints {
+		flag := flags[i]
+		runLength := 1
+
+		// Count consecutive identical flags
+		for j := i + 1; j < totalPoints && flags[j] == flag && runLength < 256; j++ {
+			runLength++
+		}
+
+		if runLength > 1 {
+			buf = append(buf, flag|flagRepeat, byte(runLength-1))
+		} else {
+			buf = append(buf, flag)
+		}
+
+		i += runLength
+	}
+
+	// Write x-coordinates
+	buf = writeCoords(buf, flags, xDeltas, flagXShortVec, flagXSameOrPos)
+
+	// Write y-coordinates
+	buf = writeCoords(buf, flags, yDeltas, flagYShortVec, flagYSameOrPos)
+
+	return &SimpleGlyph{
+		NumContours: int16(numContours),
+		Encoded:     buf,
+	}
 }
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/glyf#simpleGlyphFlags

@@ -116,7 +116,7 @@ func decodeGlyph(data []byte) (*Glyph, error) {
 		}
 	}
 
-	var glyphData interface{}
+	var glyphData any
 	numCont := int16(data[0])<<8 | int16(data[1])
 	if numCont >= 0 {
 		simple := SimpleGlyph{

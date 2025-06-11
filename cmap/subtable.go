@@ -25,7 +25,9 @@ type Subtable interface {
 	// Lookup returns the glyph index for the given rune.
 	// If the rune is not found, Lookup returns 0 (corresponding to the ".notdef" glyph).
 	//
-	// TODO(voss): change lookup to map uint32 or int to glyph.ID
+	// TODO(voss): change lookup to map uint32 or int to glyph.ID?
+	//
+	// TODO(voss): change to return (glyph.ID, bool)?
 	Lookup(r rune) glyph.ID
 
 	// Encode returns the binary form of the subtable.
