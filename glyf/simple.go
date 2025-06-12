@@ -348,16 +348,19 @@ func (glyph *SimpleGlyph) Decode() (*GlyphInfo, error) {
 	}
 
 	// Build contours from decoded points
-	cc := make([]Contour, numContours)
-	start := 0
-	for i := 0; i < numContours; i++ {
-		end := int(endPtsOfContours[i]) + 1
-		contour := make([]Point, end-start)
-		for j := start; j < end; j++ {
-			contour[j-start] = Point{xx[j], yy[j], flags[j]&flagOnCurve != 0}
+	var cc []Contour
+	if numContours > 0 {
+		cc = make([]Contour, numContours)
+		start := 0
+		for i := 0; i < numContours; i++ {
+			end := int(endPtsOfContours[i]) + 1
+			contour := make([]Point, end-start)
+			for j := start; j < end; j++ {
+				contour[j-start] = Point{xx[j], yy[j], flags[j]&flagOnCurve != 0}
+			}
+			cc[i] = contour
+			start = end
 		}
-		cc[i] = contour
-		start = end
 	}
 
 	// Copy instructions if present
@@ -450,12 +453,17 @@ func writeCoords(buf []byte, flags []byte, deltas []funit.Int16, shortFlag, same
 
 // Encode encodes the glyph info back into the binary format.
 func (info *GlyphInfo) Encode() *SimpleGlyph {
-	numContours := len(info.Contours)
-	endPtsOfContours := make([]uint16, numContours)
-	totalPoints := 0
-	for i, contour := range info.Contours {
-		totalPoints += len(contour)
-		endPtsOfContours[i] = uint16(totalPoints - 1)
+	var numContours int
+	var endPtsOfContours []uint16
+	var totalPoints int
+	
+	if info.Contours != nil {
+		numContours = len(info.Contours)
+		endPtsOfContours = make([]uint16, numContours)
+		for i, contour := range info.Contours {
+			totalPoints += len(contour)
+			endPtsOfContours[i] = uint16(totalPoints - 1)
+		}
 	}
 
 	points := make([]Point, 0, totalPoints)
