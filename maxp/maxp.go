@@ -34,6 +34,7 @@ type Info struct {
 }
 
 // TTFInfo contains TrueType-specific information from the "maxp" table.
+// https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6maxp.html
 type TTFInfo struct {
 	MaxPoints             uint16
 	MaxContours           uint16

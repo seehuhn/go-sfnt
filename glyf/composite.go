@@ -17,49 +17,41 @@
 package glyf
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"strings"
 
-	"seehuhn.de/go/postscript/funit"
-
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// CompositeGlyph is a composite glyph.
+// CompositeGlyph represents a glyph that is built from multiple component glyphs.
+// Unlike simple glyphs which contain their own outline data, composite glyphs
+// reference other glyphs and specify how to transform and position them.
 type CompositeGlyph struct {
-	Components   []GlyphComponent
-	Instructions []byte
+	Components   []GlyphComponent // The component glyphs that make up this composite
+	Instructions []byte           // TrueType instructions for the composite glyph
 }
 
-// GlyphComponent is a single component of a composite glyph.
+// GlyphComponent represents a single component of a composite glyph.
+// Each component references another glyph by ID and contains transformation
+// data in its Data field that specifies how to position and transform the
+// referenced glyph when rendering the composite.
 //
 // https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#composite-glyph-description
 type GlyphComponent struct {
-	Flags      ComponentFlag
-	GlyphIndex glyph.ID
-	Data       []byte
+	Flags      ComponentFlag // Flags controlling how the component is processed
+	GlyphIndex glyph.ID      // ID of the glyph to include as a component
+	Data       []byte        // Raw transformation data (arguments and matrix values)
 }
 
+// ComponentFlag controls how a component glyph is processed within a composite.
+// These flags determine the format of transformation data and how components
+// are combined.
 type ComponentFlag uint16
-
-// The recognised values for the ComponentFlag field.
-//
-// https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#compositeGlyphFlags
-const (
-	FlagArg1And2AreWords        ComponentFlag = 0x0001
-	FlagArgsAreXYValues         ComponentFlag = 0x0002
-	FlagRoundXYToGrid           ComponentFlag = 0x0004
-	FlagWeHaveAScale            ComponentFlag = 0x0008
-	FlagMoreComponents          ComponentFlag = 0x0020
-	FlagWeHaveAnXAndYScale      ComponentFlag = 0x0040
-	FlagWeHaveATwoByTwo         ComponentFlag = 0x0080
-	FlagWeHaveInstructions      ComponentFlag = 0x0100
-	FlagUseMyMetrics            ComponentFlag = 0x0200
-	FlagOverlapCompound         ComponentFlag = 0x0400
-	FlagScaledComponentOffset   ComponentFlag = 0x0800
-	FlagUnscaledComponentOffset ComponentFlag = 0x1000
-)
 
 func (f ComponentFlag) String() string {
 	var res []string
@@ -105,49 +97,48 @@ func (f ComponentFlag) String() string {
 	return strings.Join(res, "|")
 }
 
-// Note that decodeGlyph retains sub-slices of data.
-func decodeGlyph(data []byte) (*Glyph, error) {
-	if len(data) == 0 {
-		return nil, nil
-	} else if len(data) < 10 {
-		return nil, &parser.InvalidFontError{
-			SubSystem: "sfnt/glyf",
-			Reason:    "incomplete glyph header",
-		}
-	}
+// The recognized values for the ComponentFlag field.
+//
+// https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#compositeGlyphFlags
+const (
+	FlagArg1And2AreWords        ComponentFlag = 0x0001 // Arguments are 16-bit signed values
+	FlagArgsAreXYValues         ComponentFlag = 0x0002 // Arguments are x,y offsets rather than point numbers
+	FlagRoundXYToGrid           ComponentFlag = 0x0004 // Round offset values to grid
+	FlagWeHaveAScale            ComponentFlag = 0x0008 // Component has uniform scaling
+	FlagMoreComponents          ComponentFlag = 0x0020 // More components follow this one
+	FlagWeHaveAnXAndYScale      ComponentFlag = 0x0040 // Component has separate x and y scaling
+	FlagWeHaveATwoByTwo         ComponentFlag = 0x0080 // Component has full 2x2 transformation matrix
+	FlagWeHaveInstructions      ComponentFlag = 0x0100 // Composite glyph has instructions
+	FlagUseMyMetrics            ComponentFlag = 0x0200 // Use this component's metrics for the composite
+	FlagOverlapCompound         ComponentFlag = 0x0400 // Components overlap (used by some rasterizers)
+	FlagScaledComponentOffset   ComponentFlag = 0x0800 // Apply scaling to offset values
+	FlagUnscaledComponentOffset ComponentFlag = 0x1000 // Do not apply scaling to offset values
+)
 
-	var glyphData any
-	numCont := int16(data[0])<<8 | int16(data[1])
-	if numCont >= 0 {
-		simple := SimpleGlyph{
-			NumContours: numCont,
-			Encoded:     data[10:],
-		}
-		err := simple.removePadding()
-		if err != nil {
-			return nil, err
-		}
-		glyphData = simple
-	} else {
-		comp, err := decodeGlyphComposite(data[10:])
-		if err != nil {
-			return nil, err
-		}
-		glyphData = *comp
-	}
+// f2dot14Factor is the scaling factor for F2.14 fixed-point numbers.
+const f2dot14Factor = 1 << 14 // 16384
 
-	g := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: funit.Int16(data[2])<<8 | funit.Int16(data[3]),
-			LLy: funit.Int16(data[4])<<8 | funit.Int16(data[5]),
-			URx: funit.Int16(data[6])<<8 | funit.Int16(data[7]),
-			URy: funit.Int16(data[8])<<8 | funit.Int16(data[9]),
-		},
-		Data: glyphData,
+// floatToF2dot14 converts a float64 to a 16-bit F2.14 fixed-point number.
+// Values are clamped to the valid range of int16.
+func floatToF2dot14(f float64) int16 {
+	val := f * f2dot14Factor
+	if val > 32767.0 { // Max int16
+		return 32767
 	}
-	return g, nil
+	if val < -32768.0 { // Min int16
+		return -32768
+	}
+	return int16(math.Round(val))
 }
 
+// f2dot14ToFloat converts a 16-bit F2.14 fixed-point number back to float64.
+func f2dot14ToFloat(i int16) float64 {
+	return float64(i) / f2dot14Factor
+}
+
+// decodeGlyphComposite decodes a composite glyph from binary data.
+// It parses the component descriptions and optional instructions
+// according to the TrueType glyf table format.
 func decodeGlyphComposite(data []byte) (*CompositeGlyph, error) {
 	var components []GlyphComponent
 	done := false
@@ -210,86 +201,8 @@ func decodeGlyphComposite(data []byte) (*CompositeGlyph, error) {
 	return res, nil
 }
 
-func (g *Glyph) encodeLen() int {
-	if g == nil {
-		return 0
-	}
-
-	total := 10
-	switch d := g.Data.(type) {
-	case SimpleGlyph:
-		total += len(d.Encoded)
-	case CompositeGlyph:
-		for _, comp := range d.Components {
-			total += 4 + len(comp.Data)
-		}
-		if d.Instructions != nil {
-			total += 2 + len(d.Instructions)
-		}
-	default:
-		panic("unexpected glyph type")
-	}
-	for total%glyfAlign != 0 {
-		total++
-	}
-	return total
-}
-
-func (g *Glyph) append(buf []byte) []byte {
-	if g == nil {
-		return buf
-	}
-
-	var numContours int16
-	switch g0 := g.Data.(type) {
-	case SimpleGlyph:
-		numContours = g0.NumContours
-	case CompositeGlyph:
-		numContours = -1
-	default:
-		panic("unexpected glyph type")
-	}
-
-	buf = append(buf,
-		byte(numContours>>8),
-		byte(numContours),
-		byte(g.LLx>>8),
-		byte(g.LLx),
-		byte(g.LLy>>8),
-		byte(g.LLy),
-		byte(g.URx>>8),
-		byte(g.URx),
-		byte(g.URy>>8),
-		byte(g.URy))
-
-	switch d := g.Data.(type) {
-	case SimpleGlyph:
-		buf = append(buf, d.Encoded...)
-	case CompositeGlyph:
-		for _, comp := range d.Components {
-			buf = append(buf,
-				byte(comp.Flags>>8), byte(comp.Flags),
-				byte(comp.GlyphIndex>>8), byte(comp.GlyphIndex))
-			buf = append(buf, comp.Data...)
-		}
-		if d.Instructions != nil {
-			L := len(d.Instructions)
-			buf = append(buf, byte(L>>8), byte(L))
-			buf = append(buf, d.Instructions...)
-		}
-	default:
-		panic("unexpected glyph type")
-	}
-
-	for len(buf)%glyfAlign != 0 {
-		buf = append(buf, 0)
-	}
-
-	return buf
-}
-
-// Components returns the components of a composite glyph, or nil if the glyph
-// is simple.
+// Components returns the component glyph IDs of a composite glyph.
+// Returns nil if the glyph is simple.
 func (g *Glyph) Components() []glyph.ID {
 	if g == nil {
 		return nil
@@ -309,6 +222,8 @@ func (g *Glyph) Components() []glyph.ID {
 }
 
 // FixComponents changes the glyph component IDs of a composite glyph.
+// For simple glyphs, returns the glyph unchanged. For composite glyphs,
+// returns a new glyph with component IDs mapped according to newGid.
 func (g *Glyph) FixComponents(newGid map[glyph.ID]glyph.ID) *Glyph {
 	if g == nil {
 		return nil
@@ -338,7 +253,263 @@ func (g *Glyph) FixComponents(newGid map[glyph.ID]glyph.ID) *Glyph {
 	}
 }
 
-const glyfAlign = 2
+// Unpack extracts the component data into a more accessible format.
+// When FlagArgsAreXYValues is not set, arg1 and arg2 represent
+// point indices for point matching, not offsets. In this case, the
+// actual offset values depend on the referenced glyphs' point data
+// and cannot be determined without additional context.
+func (gc GlyphComponent) Unpack() (*ComponentUnpacked, error) {
+	res := &ComponentUnpacked{
+		Child:           gc.GlyphIndex,
+		RoundXYToGrid:   gc.Flags&FlagRoundXYToGrid != 0,
+		UseMyMetrics:    gc.Flags&FlagUseMyMetrics != 0,
+		OverlapCompound: gc.Flags&FlagOverlapCompound != 0,
+	}
+
+	// Determine ScaledComponentOffset behavior
+	if gc.Flags&FlagScaledComponentOffset != 0 {
+		res.ScaledComponentOffset = true
+	} else if gc.Flags&FlagUnscaledComponentOffset != 0 {
+		res.ScaledComponentOffset = false
+	} else {
+		// When neither flag is set, the behavior is implementation-dependent.
+		// We default to unscaled for compatibility.
+		res.ScaledComponentOffset = false
+	}
+
+	r := bytes.NewReader(gc.Data)
+
+	var arg1, arg2 int16
+	if gc.Flags&FlagArg1And2AreWords != 0 {
+		if err := binary.Read(r, binary.BigEndian, &arg1); err != nil {
+			return nil, fmt.Errorf("reading arg1 (word): %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &arg2); err != nil {
+			return nil, fmt.Errorf("reading arg2 (word): %w", err)
+		}
+	} else {
+		var bArg1, bArg2 int8
+		if err := binary.Read(r, binary.BigEndian, &bArg1); err != nil {
+			return nil, fmt.Errorf("reading arg1 (byte): %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &bArg2); err != nil {
+			return nil, fmt.Errorf("reading arg2 (byte): %w", err)
+		}
+		arg1 = int16(bArg1)
+		arg2 = int16(bArg2)
+	}
+
+	// Default to identity transform
+	res.Trfm = matrix.Matrix{1, 0, 0, 1, 0, 0}
+
+	if gc.Flags&FlagWeHaveAScale != 0 {
+		var scaleRaw int16
+		if err := binary.Read(r, binary.BigEndian, &scaleRaw); err != nil {
+			return nil, fmt.Errorf("reading scale (F2DOT14): %w", err)
+		}
+		scale := f2dot14ToFloat(scaleRaw)
+		res.Trfm[0] = scale // xx
+		res.Trfm[3] = scale // yy
+	} else if gc.Flags&FlagWeHaveAnXAndYScale != 0 {
+		var xScaleRaw, yScaleRaw int16
+		if err := binary.Read(r, binary.BigEndian, &xScaleRaw); err != nil {
+			return nil, fmt.Errorf("reading xScale (F2DOT14): %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &yScaleRaw); err != nil {
+			return nil, fmt.Errorf("reading yScale (F2DOT14): %w", err)
+		}
+		xScale := f2dot14ToFloat(xScaleRaw)
+		yScale := f2dot14ToFloat(yScaleRaw)
+		res.Trfm[0] = xScale // xx
+		res.Trfm[3] = yScale // yy
+	} else if gc.Flags&FlagWeHaveATwoByTwo != 0 {
+		var m0, m1, m2, m3 int16
+		if err := binary.Read(r, binary.BigEndian, &m0); err != nil {
+			return nil, fmt.Errorf("reading matrix xx (F2DOT14): %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &m1); err != nil {
+			return nil, fmt.Errorf("reading matrix xy (F2DOT14): %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &m2); err != nil {
+			return nil, fmt.Errorf("reading matrix yx (F2DOT14): %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &m3); err != nil {
+			return nil, fmt.Errorf("reading matrix yy (F2DOT14): %w", err)
+		}
+		res.Trfm[0] = f2dot14ToFloat(m0) // xx
+		res.Trfm[1] = f2dot14ToFloat(m1) // xy
+		res.Trfm[2] = f2dot14ToFloat(m2) // yx
+		res.Trfm[3] = f2dot14ToFloat(m3) // yy
+	}
+
+	if gc.Flags&FlagArgsAreXYValues != 0 {
+		res.Trfm[4] = float64(arg1) // dx
+		res.Trfm[5] = float64(arg2) // dy
+		res.AlignPoints = false
+	} else {
+		// Point matching case - store the point indices
+		res.OurPoint = arg1
+		res.TheirPoint = arg2
+		res.AlignPoints = true
+		// dx and dy remain 0 in the transformation matrix
+	}
+
+	return res, nil
+}
+
+// ComponentUnpacked provides a structured representation of a glyph component,
+// making it easier to define composite glyphs programmatically.
+type ComponentUnpacked struct {
+	// Child is the glyph ID of the component glyph to include.
+	Child glyph.ID
+
+	// Trfm is the 2D affine transformation matrix applied to the component.
+	// Format: [xx, xy, yx, yy, dx, dy].
+	// If ScaledComponentOffset is false, child coordinates are transformed as:
+	//   x' = xx*x + yx*y + dx
+	//   y' = xy*x + yy*y + dy
+	// If ScaledComponentOffset is true, the offset is scaled:
+	//   x' = xx*x + yx*y + xx*dx + yx*dy
+	//   y' = xy*x + yy*y + xy*dx + yy*dy
+	Trfm matrix.Matrix // [6]float64
+
+	// AlignPoints indicates whether Arg1 and Arg2 contain
+	// point indices for point matching (true) or whether Trfm[4] and Trfm[5] contain
+	// actual offset values (false).
+	AlignPoints bool
+
+	// OurPoint and TheirPoint store point indices when ArgsArePointIndices is true.
+	// When ArgsArePointIndices is false, these fields are ignored and
+	// Trfm[4] and Trfm[5] are used instead.
+	OurPoint, TheirPoint int16
+
+	// RoundXYToGrid instructs the rasterizer to round the translation
+	// values to the nearest grid points during rendering.
+	RoundXYToGrid bool
+
+	// UseMyMetrics indicates that this component's advance width and other
+	// metrics should be used for the entire composite glyph.
+	UseMyMetrics bool
+
+	// OverlapCompound is a hint to rasterizers that this component may
+	// overlap with other components in the composite glyph.
+	OverlapCompound bool
+
+	// ScaledComponentOffset controls how the offset in Trfm is applied.
+	// When true, the offset is scaled by the transformation matrix.
+	// When false, the offset is applied directly.
+	ScaledComponentOffset bool
+}
+
+// Pack converts the unpacked component data back to its binary representation.
+// The method preserves the positioning mode from the unpacked data:
+// - If AlignPoints is false, it encodes Trfm[4] and Trfm[5] as x,y offsets
+// - If AlignPoints is true, it encodes Arg1 and Arg2 as point indices for point matching
+// The transformation matrix is encoded efficiently: uniform scaling uses 2 bytes,
+// non-uniform scaling uses 4 bytes, and full 2x2 matrices use 8 bytes.
+func (cu *ComponentUnpacked) Pack() GlyphComponent {
+	gc := GlyphComponent{
+		GlyphIndex: cu.Child,
+	}
+
+	// Set flags from boolean fields
+	if cu.RoundXYToGrid {
+		gc.Flags |= FlagRoundXYToGrid
+	}
+	if cu.UseMyMetrics {
+		gc.Flags |= FlagUseMyMetrics
+	}
+	if cu.OverlapCompound {
+		gc.Flags |= FlagOverlapCompound
+	}
+
+	// Only set offset scaling flags when needed to disambiguate behavior
+	if cu.ScaledComponentOffset {
+		gc.Flags |= FlagScaledComponentOffset
+	} else {
+		gc.Flags |= FlagUnscaledComponentOffset
+	}
+
+	if cu.AlignPoints {
+		// Point matching case - do NOT set FlagArgsAreXYValues
+		if cu.OurPoint >= -128 && cu.OurPoint <= 127 && cu.TheirPoint >= -128 && cu.TheirPoint <= 127 {
+			// Can use 8-bit values
+		} else {
+			gc.Flags |= FlagArg1And2AreWords
+		}
+
+		var buf bytes.Buffer
+
+		if gc.Flags&FlagArg1And2AreWords != 0 {
+			binary.Write(&buf, binary.BigEndian, cu.OurPoint)
+			binary.Write(&buf, binary.BigEndian, cu.TheirPoint)
+		} else {
+			binary.Write(&buf, binary.BigEndian, int8(cu.OurPoint))
+			binary.Write(&buf, binary.BigEndian, int8(cu.TheirPoint))
+		}
+
+		gc.Data = buf.Bytes()
+	} else {
+		gc.Flags |= FlagArgsAreXYValues
+
+		// Extract offset values from transformation matrix
+		dx := cu.Trfm[4]
+		dy := cu.Trfm[5]
+
+		// Note: RoundXYToGrid is an instruction to the rasterizer,
+		// not to round values during storage
+		arg1 := int16(math.Round(dx))
+		arg2 := int16(math.Round(dy))
+
+		if arg1 >= -128 && arg1 <= 127 && arg2 >= -128 && arg2 <= 127 {
+			// Can use 8-bit values
+		} else {
+			gc.Flags |= FlagArg1And2AreWords
+		}
+
+		var buf bytes.Buffer
+
+		if gc.Flags&FlagArg1And2AreWords != 0 {
+			binary.Write(&buf, binary.BigEndian, arg1)
+			binary.Write(&buf, binary.BigEndian, arg2)
+		} else {
+			binary.Write(&buf, binary.BigEndian, int8(arg1))
+			binary.Write(&buf, binary.BigEndian, int8(arg2))
+		}
+
+		gc.Data = buf.Bytes()
+	}
+
+	// Append transformation matrix data
+	xx, xy, yx, yy := cu.Trfm[0], cu.Trfm[1], cu.Trfm[2], cu.Trfm[3]
+
+	isIdentityScaleRotation := (xx == 1 && xy == 0 && yx == 0 && yy == 1)
+	isUniformScale := (xx == yy && xy == 0 && yx == 0)
+	isNonUniformScale := (xy == 0 && yx == 0 && (xx != yy || xx != 1 || yy != 1))
+
+	var buf bytes.Buffer
+	buf.Write(gc.Data)
+
+	if isIdentityScaleRotation {
+		// No scaling data needed
+	} else if isUniformScale {
+		gc.Flags |= FlagWeHaveAScale
+		binary.Write(&buf, binary.BigEndian, floatToF2dot14(xx))
+	} else if isNonUniformScale {
+		gc.Flags |= FlagWeHaveAnXAndYScale
+		binary.Write(&buf, binary.BigEndian, floatToF2dot14(xx))
+		binary.Write(&buf, binary.BigEndian, floatToF2dot14(yy))
+	} else {
+		gc.Flags |= FlagWeHaveATwoByTwo
+		binary.Write(&buf, binary.BigEndian, floatToF2dot14(xx))
+		binary.Write(&buf, binary.BigEndian, floatToF2dot14(xy))
+		binary.Write(&buf, binary.BigEndian, floatToF2dot14(yx))
+		binary.Write(&buf, binary.BigEndian, floatToF2dot14(yy))
+	}
+
+	gc.Data = buf.Bytes()
+	return gc
+}
 
 var errIncompleteGlyph = &parser.InvalidFontError{
 	SubSystem: "sfnt/glyf",

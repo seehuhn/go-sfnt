@@ -114,19 +114,17 @@ func MakeSimpleFont() *sfnt.Font {
 
 		if origGlyph != nil {
 			glyphPath := origOutlines.Glyphs.Path(gid)
-			for contour := range glyphPath.Contours() {
-				cubicContour := path.ToCubic(contour)
-				for cmd, pts := range cubicContour {
-					switch cmd {
-					case path.CmdMoveTo:
-						cffGlyph.MoveTo(pts[0].X, pts[0].Y)
-					case path.CmdLineTo:
-						cffGlyph.LineTo(pts[0].X, pts[0].Y)
-					case path.CmdCubeTo:
-						cffGlyph.CurveTo(pts[0].X, pts[0].Y, pts[1].X, pts[1].Y, pts[2].X, pts[2].Y)
-					case path.CmdClose:
-						// CFF glyphs auto-close, no explicit close needed
-					}
+			cubicPath := path.ToCubic(glyphPath)
+			for cmd, pts := range cubicPath {
+				switch cmd {
+				case path.CmdMoveTo:
+					cffGlyph.MoveTo(pts[0].X, pts[0].Y)
+				case path.CmdLineTo:
+					cffGlyph.LineTo(pts[0].X, pts[0].Y)
+				case path.CmdCubeTo:
+					cffGlyph.CurveTo(pts[0].X, pts[0].Y, pts[1].X, pts[1].Y, pts[2].X, pts[2].Y)
+				case path.CmdClose:
+					// CFF glyphs auto-close, no explicit close needed
 				}
 			}
 		}

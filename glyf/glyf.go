@@ -21,7 +21,6 @@ package glyf
 
 import (
 	"fmt"
-	"iter"
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
@@ -29,6 +28,7 @@ import (
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/maxp"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // Outlines stores the glyph data of a TrueType font.
@@ -140,6 +140,50 @@ func Decode(enc *Encoded) (Glyphs, error) {
 	return gg, nil
 }
 
+// decodeGlyph decodes a glyph from binary data.
+// Returns nil for empty glyphs. The function retains sub-slices of the input data.
+func decodeGlyph(data []byte) (*Glyph, error) {
+	if len(data) == 0 {
+		return nil, nil
+	} else if len(data) < 10 {
+		return nil, &parser.InvalidFontError{
+			SubSystem: "sfnt/glyf",
+			Reason:    "incomplete glyph header",
+		}
+	}
+
+	var glyphData any
+	numCont := int16(data[0])<<8 | int16(data[1])
+	if numCont >= 0 {
+		simple := SimpleGlyph{
+			NumContours: numCont,
+			Encoded:     data[10:],
+		}
+		err := simple.removePadding()
+		if err != nil {
+			return nil, err
+		}
+		glyphData = simple
+	} else {
+		comp, err := decodeGlyphComposite(data[10:])
+		if err != nil {
+			return nil, err
+		}
+		glyphData = *comp
+	}
+
+	g := &Glyph{
+		Rect16: funit.Rect16{
+			LLx: funit.Int16(data[2])<<8 | funit.Int16(data[3]),
+			LLy: funit.Int16(data[4])<<8 | funit.Int16(data[5]),
+			URx: funit.Int16(data[6])<<8 | funit.Int16(data[7]),
+			URy: funit.Int16(data[8])<<8 | funit.Int16(data[9]),
+		},
+		Data: glyphData,
+	}
+	return g, nil
+}
+
 // Encode encodes the Glyphs into a "glyf" and "loca" table.
 func (gg Glyphs) Encode() *Encoded {
 	n := len(gg)
@@ -166,109 +210,225 @@ func (gg Glyphs) Encode() *Encoded {
 	return enc
 }
 
-// Path returns a compound path representing the glyph outline.
+func (g *Glyph) encodeLen() int {
+	if g == nil {
+		return 0
+	}
+
+	total := 10
+	switch d := g.Data.(type) {
+	case SimpleGlyph:
+		total += len(d.Encoded)
+	case CompositeGlyph:
+		for _, comp := range d.Components {
+			total += 4 + len(comp.Data)
+		}
+		if d.Instructions != nil {
+			total += 2 + len(d.Instructions)
+		}
+	default:
+		panic("unexpected glyph type")
+	}
+	for total%glyfAlign != 0 {
+		total++
+	}
+	return total
+}
+
+func (g *Glyph) append(buf []byte) []byte {
+	if g == nil {
+		return buf
+	}
+
+	var numContours int16
+	switch g0 := g.Data.(type) {
+	case SimpleGlyph:
+		numContours = g0.NumContours
+	case CompositeGlyph:
+		numContours = -1
+	default:
+		panic("unexpected glyph type")
+	}
+
+	buf = append(buf,
+		byte(numContours>>8),
+		byte(numContours),
+		byte(g.LLx>>8),
+		byte(g.LLx),
+		byte(g.LLy>>8),
+		byte(g.LLy),
+		byte(g.URx>>8),
+		byte(g.URx),
+		byte(g.URy>>8),
+		byte(g.URy))
+
+	switch d := g.Data.(type) {
+	case SimpleGlyph:
+		buf = append(buf, d.Encoded...)
+	case CompositeGlyph:
+		for i, comp := range d.Components {
+			flags := comp.Flags
+			// Set FlagMoreComponents for all but the last component
+			if i < len(d.Components)-1 {
+				flags |= FlagMoreComponents
+			}
+			buf = append(buf,
+				byte(flags>>8), byte(flags),
+				byte(comp.GlyphIndex>>8), byte(comp.GlyphIndex))
+			buf = append(buf, comp.Data...)
+		}
+		if d.Instructions != nil {
+			L := len(d.Instructions)
+			buf = append(buf, byte(L>>8), byte(L))
+			buf = append(buf, d.Instructions...)
+		}
+	default:
+		panic("unexpected glyph type")
+	}
+
+	for len(buf)%glyfAlign != 0 {
+		buf = append(buf, 0)
+	}
+
+	return buf
+}
+
+// Path returns a path representing the glyph outline.
 // For composite glyphs, this recursively includes all component glyphs
 // with their transformations applied.
-func (gg Glyphs) Path(gid glyph.ID) path.Compound {
-	return &glyphPath{gg: gg, gid: gid}
+func (gg Glyphs) Path(gid glyph.ID) path.Path {
+	if int(gid) >= len(gg) || gg[gid] == nil {
+		return func(yield func(path.Command, []path.Point) bool) {}
+	}
+
+	if g, ok := gg[gid].Data.(SimpleGlyph); ok {
+		return g.Path()
+	}
+
+	return func(yield func(path.Command, []path.Point) bool) {
+		// allocate a separate map for each call of the iterator
+		seen := make(map[glyph.ID]bool)
+		for cmd, pts := range gg.pathRecursive(seen, gid) {
+			if !yield(cmd, pts) {
+				return
+			}
+		}
+	}
 }
 
-type glyphPath struct {
-	gg  Glyphs
-	gid glyph.ID
-}
-
-func (q *glyphPath) Contours() iter.Seq[path.Contour] {
-	seen := make(map[glyph.ID]bool)
-	return q.do(seen, q.gid)
-}
-
-func (q *glyphPath) do(seen map[glyph.ID]bool, gid glyph.ID) iter.Seq[path.Contour] {
-	if int(gid) >= len(q.gg) || seen[gid] {
-		return func(yield func(path.Contour) bool) {}
+func (gg Glyphs) pathRecursive(seen map[glyph.ID]bool, gid glyph.ID) path.Path {
+	if int(gid) >= len(gg) || seen[gid] {
+		return func(yield func(path.Command, []path.Point) bool) {}
 	}
 	seen[gid] = true
 
-	g := q.gg[gid]
+	g := gg[gid]
 	if g == nil { // blank glyph
-		return func(yield func(path.Contour) bool) {}
+		return func(yield func(path.Command, []path.Point) bool) {}
 	}
 
 	switch g := g.Data.(type) {
 	case SimpleGlyph:
-		return g.Contours()
+		return g.Path()
 
 	case CompositeGlyph:
-		return q.compositeContours(seen, g)
+		return gg.compositePath(seen, g)
 
 	default:
 		panic("invalid glyph data type")
 	}
 }
 
-func (q *glyphPath) compositeContours(seen map[glyph.ID]bool, g CompositeGlyph) iter.Seq[path.Contour] {
-	return func(yield func(path.Contour) bool) {
+func (gg Glyphs) compositePath(seen map[glyph.ID]bool, g CompositeGlyph) path.Path {
+	return func(yield func(path.Command, []path.Point) bool) {
+	componentLoop:
 		for _, comp := range g.Components {
 			transform := [6]float64{1, 0, 0, 1, 0, 0} // identity matrix
 
 			data := comp.Data
-			idx := 0
+			offset := 0
 
-			readInt16 := func(i int) float64 {
-				if i+1 >= len(data) {
-					return 0
+			// Helper to safely read int16 from data
+			readInt16 := func() (float64, bool) {
+				if offset+1 >= len(data) {
+					return 0, false
 				}
-				u := uint16(data[i])<<8 | uint16(data[i+1])
-				return float64(int16(u))
+				val := uint16(data[offset])<<8 | uint16(data[offset+1])
+				offset += 2
+				return float64(int16(val)), true
 			}
 
-			// Read offset/alignment
+			// Helper to safely read int8 from data
+			readInt8 := func() (float64, bool) {
+				if offset >= len(data) {
+					return 0, false
+				}
+				val := int8(data[offset])
+				offset++
+				return float64(val), true
+			}
+
+			// Read translation/offset
 			if comp.Flags&FlagArgsAreXYValues != 0 {
+				var dx, dy float64
+				var ok bool
 				if comp.Flags&FlagArg1And2AreWords != 0 {
-					if idx+3 >= len(data) {
-						return
+					// 16-bit offsets
+					if dx, ok = readInt16(); !ok {
+						continue // skip malformed component
 					}
-					transform[4] = readInt16(idx)
-					transform[5] = readInt16(idx + 2)
-					idx += 4
+					if dy, ok = readInt16(); !ok {
+						continue // skip malformed component
+					}
 				} else {
-					if idx+1 >= len(data) {
-						return
+					// 8-bit offsets
+					if dx, ok = readInt8(); !ok {
+						continue // skip malformed component
 					}
-					transform[4] = float64(int8(data[idx]))
-					transform[5] = float64(int8(data[idx+1]))
-					idx += 2
+					if dy, ok = readInt8(); !ok {
+						continue // skip malformed component
+					}
 				}
+				transform[4], transform[5] = dx, dy
 			}
 
-			// Read transformation
-			if comp.Flags&FlagWeHaveAScale != 0 {
-				if idx+1 >= len(data) {
-					return
+			// Read scaling/transformation
+			switch {
+			case comp.Flags&FlagWeHaveAScale != 0:
+				// Uniform scaling
+				scale, ok := readInt16()
+				if !ok {
+					continue // skip malformed component
 				}
-				scale := readInt16(idx) / 16384.0
+				scale /= 16384.0
 				transform[0], transform[3] = scale, scale
-				idx += 2
-			} else if comp.Flags&FlagWeHaveAnXAndYScale != 0 {
-				if idx+3 >= len(data) {
-					return
+
+			case comp.Flags&FlagWeHaveAnXAndYScale != 0:
+				// Separate X and Y scaling
+				xScale, ok1 := readInt16()
+				yScale, ok2 := readInt16()
+				if !ok1 || !ok2 {
+					continue componentLoop // skip malformed component
 				}
-				transform[0] = readInt16(idx) / 16384.0
-				transform[3] = readInt16(idx+2) / 16384.0
-				idx += 4
-			} else if comp.Flags&FlagWeHaveATwoByTwo != 0 {
-				if idx+7 >= len(data) {
-					return
+				transform[0] = xScale / 16384.0
+				transform[3] = yScale / 16384.0
+
+			case comp.Flags&FlagWeHaveATwoByTwo != 0:
+				// Full 2x2 transformation matrix
+				for i := 0; i < 4; i++ {
+					val, ok := readInt16()
+					if !ok {
+						continue componentLoop // skip malformed component
+					}
+					transform[i] = val / 16384.0
 				}
-				for i := range 4 {
-					transform[i] = readInt16(idx+i*2) / 16384.0
-				}
-				idx += 8
 			}
 
-			// Apply transformation to component contours
-			for contour := range q.do(seen, comp.GlyphIndex) {
-				if !yield(transformContour(contour, transform)) {
+			// Apply transformation to component paths
+			componentPath := gg.pathRecursive(seen, comp.GlyphIndex)
+			transformedPath := transformPath(componentPath, transform)
+			for cmd, pts := range transformedPath {
+				if !yield(cmd, pts) {
 					return
 				}
 			}
@@ -276,10 +436,15 @@ func (q *glyphPath) compositeContours(seen map[glyph.ID]bool, g CompositeGlyph) 
 	}
 }
 
-func transformContour(contour path.Contour, t [6]float64) path.Contour {
+// transformPath applies a 2D affine transformation to a path.
+// The transformation matrix t is [a, b, c, d, e, f] representing:
+// [a c e]   [x]
+// [b d f] * [y]
+// [0 0 1]   [1]
+func transformPath(p path.Path, t [6]float64) path.Path {
 	return func(yield func(path.Command, []path.Point) bool) {
 		var buf [3]path.Point
-		for cmd, pts := range contour {
+		for cmd, pts := range p {
 			for i, p := range pts {
 				buf[i] = path.Point{
 					X: p.X*t[0] + p.Y*t[2] + t[4],
@@ -292,3 +457,5 @@ func transformContour(contour path.Contour, t [6]float64) path.Contour {
 		}
 	}
 }
+
+const glyfAlign = 2

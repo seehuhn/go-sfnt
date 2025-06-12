@@ -17,13 +17,16 @@
 package glyf
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"seehuhn.de/go/postscript/funit"
 )
 
 func TestEncode(t *testing.T) {
-	info := &GlyphInfo{
+	info := &SimpleUnpacked{
 		Contours: []Contour{
 			{
 				{X: 100, Y: 100, OnCurve: true},
@@ -40,32 +43,32 @@ func TestEncode(t *testing.T) {
 		Instructions: []byte{0x01, 0x02, 0x03},
 	}
 
-	encoded := info.Encode()
-	decoded, err := encoded.Decode()
+	encoded := info.Pack()
+	decoded, err := encoded.Unpack()
 	if err != nil {
-		t.Fatalf("Failed to decode: %v", err)
+		t.Fatalf("decode failed: %v", err)
 	}
 
 	if diff := cmp.Diff(info, decoded); diff != "" {
-		t.Errorf("Round trip failed:\n%s", diff)
+		t.Errorf("round trip failed:\n%s", diff)
 	}
 }
 
 func TestEncodeEmptyGlyph(t *testing.T) {
-	info := &GlyphInfo{}
+	info := &SimpleUnpacked{}
 
-	decoded, err := info.Encode().Decode()
+	decoded, err := info.Pack().Unpack()
 	if err != nil {
-		t.Fatalf("Failed to decode: %v", err)
+		t.Fatalf("decode failed: %v", err)
 	}
 
 	if diff := cmp.Diff(info, decoded); diff != "" {
-		t.Errorf("Round trip failed:\n%s", diff)
+		t.Errorf("round trip failed:\n%s", diff)
 	}
 }
 
 func TestEncodeWithRepetition(t *testing.T) {
-	info := &GlyphInfo{
+	info := &SimpleUnpacked{
 		Contours: []Contour{
 			{
 				{X: 0, Y: 100, OnCurve: true},
@@ -76,24 +79,24 @@ func TestEncodeWithRepetition(t *testing.T) {
 		},
 	}
 
-	encoded := info.Encode()
+	encoded := info.Pack()
 
 	if len(encoded.Encoded) > 50 {
-		t.Errorf("Encoded size seems too large, repetition may not be working: %d bytes", len(encoded.Encoded))
+		t.Errorf("encoded size too large, repetition may not be working: %d bytes", len(encoded.Encoded))
 	}
 
-	decoded, err := encoded.Decode()
+	decoded, err := encoded.Unpack()
 	if err != nil {
-		t.Fatalf("Failed to decode: %v", err)
+		t.Fatalf("decode failed: %v", err)
 	}
 
 	if diff := cmp.Diff(info, decoded); diff != "" {
-		t.Errorf("Round trip failed:\n%s", diff)
+		t.Errorf("round trip failed:\n%s", diff)
 	}
 }
 
 func TestEncodeLargeCoordinates(t *testing.T) {
-	info := &GlyphInfo{
+	info := &SimpleUnpacked{
 		Contours: []Contour{
 			{
 				{X: 0, Y: 0, OnCurve: true},
@@ -104,13 +107,90 @@ func TestEncodeLargeCoordinates(t *testing.T) {
 		Instructions: []byte{0xAA, 0xBB},
 	}
 
-	encoded := info.Encode()
-	decoded, err := encoded.Decode()
+	encoded := info.Pack()
+	decoded, err := encoded.Unpack()
 	if err != nil {
-		t.Fatalf("Failed to decode: %v", err)
+		t.Fatalf("decode failed: %v", err)
 	}
 
 	if diff := cmp.Diff(info, decoded); diff != "" {
-		t.Errorf("Round trip failed:\n%s", diff)
+		t.Errorf("round trip failed:\n%s", diff)
+	}
+}
+
+func TestGlyphInfo_AsGlyph(t *testing.T) {
+	info := &SimpleUnpacked{
+		Contours: []Contour{
+			{
+				{X: 100, Y: 110, OnCurve: true}, // bottom-left
+				{X: 200, Y: 110, OnCurve: true}, // bottom-right
+				{X: 200, Y: 210, OnCurve: true}, // top-right
+				{X: 100, Y: 210, OnCurve: true}, // top-left
+			},
+		},
+		Instructions: []byte{0x01, 0x02},
+	}
+
+	glyph := info.AsGlyph()
+
+	expectedBBox := funit.Rect16{
+		LLx: 100, LLy: 110,
+		URx: 200, URy: 210,
+	}
+	if glyph.Rect16 != expectedBBox {
+		t.Errorf("bounding box mismatch: got %+v, want %+v", glyph.Rect16, expectedBBox)
+	}
+
+	simpleGlyph, ok := glyph.Data.(SimpleGlyph)
+	if !ok {
+		t.Fatalf("expected SimpleGlyph, got %T", glyph.Data)
+	}
+
+	if simpleGlyph.NumContours != 1 {
+		t.Errorf("expected 1 contour, got %d", simpleGlyph.NumContours)
+	}
+
+	if len(simpleGlyph.Encoded) == 0 {
+		t.Error("encoded data should not be empty")
+	}
+
+	// verify round-trip
+	decoded, err := simpleGlyph.Unpack()
+	if err != nil {
+		t.Fatalf("failed to decode glyph: %v", err)
+	}
+
+	if len(decoded.Contours) != len(info.Contours) {
+		t.Errorf("contour count mismatch: got %d, want %d", len(decoded.Contours), len(info.Contours))
+	}
+
+	if len(decoded.Contours) > 0 && len(decoded.Contours[0]) != len(info.Contours[0]) {
+		t.Errorf("point count mismatch: got %d, want %d", len(decoded.Contours[0]), len(info.Contours[0]))
+	}
+
+	if !bytes.Equal(decoded.Instructions, info.Instructions) {
+		t.Errorf("instructions mismatch: got %02x, want %02x", decoded.Instructions, info.Instructions)
+	}
+}
+
+func TestGlyphInfo_AsGlyph_EmptyContours(t *testing.T) {
+	info := &SimpleUnpacked{
+		Contours:     []Contour{},
+		Instructions: nil,
+	}
+
+	glyph := info.AsGlyph()
+
+	if !glyph.Rect16.IsZero() {
+		t.Errorf("bounding box should be zero for empty glyph: got %+v", glyph.Rect16)
+	}
+
+	simpleGlyph, ok := glyph.Data.(SimpleGlyph)
+	if !ok {
+		t.Fatalf("expected SimpleGlyph, got %T", glyph.Data)
+	}
+
+	if simpleGlyph.NumContours != 0 {
+		t.Errorf("expected 0 contours, got %d", simpleGlyph.NumContours)
 	}
 }

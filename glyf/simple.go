@@ -17,9 +17,8 @@
 package glyf
 
 import (
-	"iter"
-
 	"seehuhn.de/go/geom/path"
+
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/parser"
@@ -31,202 +30,14 @@ type SimpleGlyph struct {
 	Encoded     []byte
 }
 
-// Contours returns an iterator over the path contours of a simple glyph.
-// Each contour represents a closed shape in the glyph outline.
-func (g SimpleGlyph) Contours() iter.Seq[path.Contour] {
-	glyphInfo, err := g.Decode()
+// Path returns a path.Path that iterates over all contours of the glyph outline.
+// Each contour starts with a moveto, followed by all segments of that contour.
+func (g SimpleGlyph) Path() path.Path {
+	glyphInfo, err := g.Unpack()
 	if err != nil {
-		return func(yield func(path.Contour) bool) {}
+		return func(yield func(path.Command, []path.Point) bool) {}
 	}
-
-	return func(outerYield func(path.Contour) bool) {
-		var buf [3]path.Point
-
-		for _, cc := range glyphInfo.Contours {
-			contour := func(yield func(path.Command, []path.Point) bool) {
-				if len(cc) == 0 {
-					return
-				}
-
-				toPoint := func(p Point) path.Point {
-					return path.Point{X: float64(p.X), Y: float64(p.Y)}
-				}
-
-				midpoint := func(p1, p2 Point) path.Point {
-					return path.Point{
-						X: float64(p1.X+p2.X) / 2,
-						Y: float64(p1.Y+p2.Y) / 2,
-					}
-				}
-
-				// Find first on-curve point or compute midpoint if all off-curve
-				start := 0
-				for i, pt := range cc {
-					if pt.OnCurve {
-						start = i
-						break
-					}
-				}
-
-				// Move to start point
-				if cc[start].OnCurve {
-					buf[0] = toPoint(cc[start])
-				} else {
-					// if all points are off-curve, the TrueType spec says to
-					// start at the midpoint of the first and last point.
-					buf[0] = midpoint(cc[len(cc)-1], cc[0])
-				}
-				if !yield(path.CmdMoveTo, buf[:1]) {
-					return
-				}
-
-				// makeExtendedPointIterator returns a stateful iterator function.
-				// Each call to the iterator returns the next point in the "extended" sequence
-				// (which includes implicit on-curve midpoints).
-				makeExtendedPointIterator := func(
-					cc []Point,
-					toPointFunc func(Point) path.Point, // Renamed to avoid conflict
-					midpointFunc func(Point, Point) path.Point, // Renamed to avoid conflict
-				) func() (pt path.Point, onCurve bool, ok bool) {
-
-					if len(cc) == 0 {
-						return func() (path.Point, bool, bool) { return path.Point{}, false, false }
-					}
-
-					// State for the closure:
-					i := 0 // Corresponds to the loop `for i := 0; i <= len(cc); i++`
-					prevPtInCC := cc[len(cc)-1]
-					prevOnCurveInCC := prevPtInCC.OnCurve
-					pendingActualPoint := false // True if an implicit point was just yielded
-
-					return func() (path.Point, bool, bool) {
-						if pendingActualPoint {
-							pendingActualPoint = false
-
-							curPtOriginal := cc[i%len(cc)]
-
-							prevPtInCC = curPtOriginal
-							prevOnCurveInCC = curPtOriginal.OnCurve
-							i++
-							return toPointFunc(curPtOriginal), curPtOriginal.OnCurve, true
-						}
-
-						if i > len(cc) {
-							return path.Point{}, false, false
-						}
-
-						curPtOriginal := cc[i%len(cc)]
-						curOnCurveOriginal := curPtOriginal.OnCurve
-
-						if !prevOnCurveInCC && !curOnCurveOriginal {
-							pendingActualPoint = true
-							// Note: prevPtInCC and i are NOT advanced here; they advance with the actual point.
-							return midpointFunc(prevPtInCC, curPtOriginal), true, true
-						}
-
-						prevPtInCC = curPtOriginal
-						prevOnCurveInCC = curPtOriginal.OnCurve
-						i++
-						return toPointFunc(curPtOriginal), curPtOriginal.OnCurve, true
-					}
-				}
-
-				getNextExtendedPoint := makeExtendedPointIterator(cc, toPoint, midpoint)
-
-				fillPoint := func(p *struct {
-					pt      path.Point
-					onCurve bool
-					valid   bool
-				}) {
-					ptVal, onCurveVal, okVal := getNextExtendedPoint()
-					if okVal {
-						p.pt, p.onCurve, p.valid = ptVal, onCurveVal, true
-					} else {
-						p.valid = false
-					}
-				}
-
-				var p0, p1, p2 struct {
-					pt      path.Point
-					onCurve bool
-					valid   bool // false if we are at the end of the stream
-				}
-
-				// Prime the lookahead buffer
-				fillPoint(&p0)
-				fillPoint(&p1)
-				fillPoint(&p2)
-
-				for p0.valid {
-					if !p0.onCurve {
-						// This should not happen, as extendedPoints always yields on-curve points
-						// or implicit midpoints which are on-curve.
-						// If it does, it's an internal error or a misunderstanding of the spec.
-						// As a fallback, treat as a line segment to the next available point.
-						if p1.valid {
-							buf[0] = p1.pt
-							if !yield(path.CmdLineTo, buf[:1]) {
-								return
-							}
-						} else if p0.pt != buf[0] { // Avoid empty line segment if p0 is the start point
-							buf[0] = p0.pt
-							if !yield(path.CmdLineTo, buf[:1]) {
-								return
-							}
-						}
-					} else if p1.valid && p1.onCurve {
-						// On-curve to on-curve: Line segment
-						buf[0] = p1.pt
-						if !yield(path.CmdLineTo, buf[:1]) {
-							return
-						}
-					} else if p1.valid && !p1.onCurve && p2.valid {
-						// On-curve to off-curve to any: Quadratic curve
-						buf[0] = p1.pt // control point
-						buf[1] = p2.pt // end point
-						if !yield(path.CmdQuadTo, buf[:2]) {
-							return
-						}
-						// Advance p0 by two points (p0 becomes p2)
-						p0 = p2
-						fillPoint(&p1) // Get next point from stream for new p1
-						if !p1.valid { // Reached end after advancing p0
-							p2.valid = false
-							break
-						}
-						fillPoint(&p2) // Get next point for new p2
-						continue       // Restart loop with new p0, p1, p2
-					} else {
-						// This case should ideally not be reached if the contour is well-formed
-						// and the extendedPoints generator works correctly.
-						// It implies an on-curve point followed by an off-curve point with no subsequent point,
-						// or some other unexpected sequence.
-						// As a fallback, if p1 is valid (it must be off-curve here), draw a line to it.
-						// This is not ideal as it might misinterpret the shape, but prevents crashing.
-						if p1.valid && p1.pt != p0.pt { // p1 is off-curve
-							buf[0] = p1.pt
-							if !yield(path.CmdLineTo, buf[:1]) {
-								return
-							}
-						}
-						// If p1 is not valid, or p1.pt == p0.pt, we are at the end or have a degenerate segment.
-						// The path will be closed by CmdClose outside the loop.
-					}
-
-					// Advance the lookahead buffer
-					p0 = p1
-					p1 = p2
-					fillPoint(&p2) // Get next point from stream for new p2
-				}
-
-				yield(path.CmdClose, nil)
-			}
-
-			if !outerYield(contour) {
-				return
-			}
-		}
-	}
+	return glyphInfo.Path()
 }
 
 // A Point is a point in a glyph outline
@@ -238,17 +49,17 @@ type Point struct {
 // A Contour describes a connected part of a glyph outline.
 type Contour []Point
 
-// GlyphInfo contains the contours of a SimpleGlyph.
-type GlyphInfo struct {
+// SimpleUnpacked contains the contours of a SimpleGlyph.
+type SimpleUnpacked struct {
 	Contours     []Contour
 	Instructions []byte
 }
 
-// Decode returns the contours of a glyph.
-func (glyph *SimpleGlyph) Decode() (*GlyphInfo, error) {
-	buf := glyph.Encoded
+// Unpack returns the contours of a glyph.
+func (sg SimpleGlyph) Unpack() (*SimpleUnpacked, error) {
+	buf := sg.Encoded
 
-	numContours := int(glyph.NumContours)
+	numContours := int(sg.NumContours)
 	if len(buf) < 2*numContours+2 {
 		return nil, errInvalidGlyphData
 	}
@@ -370,15 +181,15 @@ func (glyph *SimpleGlyph) Decode() (*GlyphInfo, error) {
 		copy(inst, instructions)
 	}
 
-	return &GlyphInfo{
+	return &SimpleUnpacked{
 		Contours:     cc,
 		Instructions: inst,
 	}, nil
 }
 
-func (glyph *SimpleGlyph) removePadding() error {
-	buf := glyph.Encoded
-	numContours := int(glyph.NumContours)
+func (sg *SimpleGlyph) removePadding() error {
+	buf := sg.Encoded
+	numContours := int(sg.NumContours)
 
 	if len(buf) < 2*numContours+2 {
 		return errInvalidGlyphData
@@ -431,7 +242,7 @@ func (glyph *SimpleGlyph) removePadding() error {
 		return errInvalidGlyphData
 	}
 
-	glyph.Encoded = buf[:pos]
+	sg.Encoded = buf[:pos]
 	return nil
 }
 
@@ -451,23 +262,23 @@ func writeCoords(buf []byte, flags []byte, deltas []funit.Int16, shortFlag, same
 	return buf
 }
 
-// Encode encodes the glyph info back into the binary format.
-func (info *GlyphInfo) Encode() *SimpleGlyph {
+// Pack encodes the glyph info back into the binary format.
+func (sd *SimpleUnpacked) Pack() SimpleGlyph {
 	var numContours int
 	var endPtsOfContours []uint16
 	var totalPoints int
-	
-	if info.Contours != nil {
-		numContours = len(info.Contours)
+
+	if sd.Contours != nil {
+		numContours = len(sd.Contours)
 		endPtsOfContours = make([]uint16, numContours)
-		for i, contour := range info.Contours {
+		for i, contour := range sd.Contours {
 			totalPoints += len(contour)
 			endPtsOfContours[i] = uint16(totalPoints - 1)
 		}
 	}
 
 	points := make([]Point, 0, totalPoints)
-	for _, contour := range info.Contours {
+	for _, contour := range sd.Contours {
 		points = append(points, contour...)
 	}
 
@@ -516,9 +327,9 @@ func (info *GlyphInfo) Encode() *SimpleGlyph {
 	}
 
 	// Write instruction length and instructions
-	instructionLength := len(info.Instructions)
+	instructionLength := len(sd.Instructions)
 	buf = append(buf, byte(instructionLength>>8), byte(instructionLength))
-	buf = append(buf, info.Instructions...)
+	buf = append(buf, sd.Instructions...)
 
 	// Write flags with repetition compression
 	i := 0
@@ -546,9 +357,223 @@ func (info *GlyphInfo) Encode() *SimpleGlyph {
 	// Write y-coordinates
 	buf = writeCoords(buf, flags, yDeltas, flagYShortVec, flagYSameOrPos)
 
-	return &SimpleGlyph{
+	return SimpleGlyph{
 		NumContours: int16(numContours),
 		Encoded:     buf,
+	}
+}
+
+func (sd *SimpleUnpacked) AsGlyph() Glyph {
+	var bbox funit.Rect16
+	first := true
+	for _, contour := range sd.Contours {
+		for _, pt := range contour {
+			if first || pt.X < bbox.LLx {
+				bbox.LLx = pt.X
+			}
+			if first || pt.X > bbox.URx {
+				bbox.URx = pt.X
+			}
+			if first || pt.Y < bbox.LLy {
+				bbox.LLy = pt.Y
+			}
+			if first || pt.Y > bbox.URy {
+				bbox.URy = pt.Y
+			}
+			first = false
+		}
+	}
+	g := sd.Pack()
+	return Glyph{
+		Rect16: bbox,
+		Data:   g,
+	}
+}
+
+func (sd *SimpleUnpacked) Path() path.Path {
+	return func(yield func(path.Command, []path.Point) bool) {
+		var buf [3]path.Point
+
+		for _, cc := range sd.Contours {
+			if len(cc) < 2 { // no meaningful contour
+				continue
+			}
+
+			toPoint := func(p Point) path.Point {
+				return path.Point{X: float64(p.X), Y: float64(p.Y)}
+			}
+
+			midpoint := func(p1, p2 Point) path.Point {
+				return path.Point{
+					X: float64(p1.X+p2.X) / 2,
+					Y: float64(p1.Y+p2.Y) / 2,
+				}
+			}
+
+			// Find first on-curve point or compute midpoint if all off-curve
+			start := 0
+			for i, pt := range cc {
+				if pt.OnCurve {
+					start = i
+					break
+				}
+			}
+
+			// Move to start point
+			if cc[start].OnCurve {
+				buf[0] = toPoint(cc[start])
+			} else {
+				// if all points are off-curve, the TrueType spec says to
+				// start at the midpoint of the first and last point.
+				buf[0] = midpoint(cc[len(cc)-1], cc[0])
+			}
+			if !yield(path.CmdMoveTo, buf[:1]) {
+				return
+			}
+
+			// makeExtendedPointIterator returns a stateful iterator function.
+			// Each call to the iterator returns the next point in the "extended" sequence
+			// (which includes implicit on-curve midpoints).
+			makeExtendedPointIterator := func(
+				cc []Point,
+				toPointFunc func(Point) path.Point, // Renamed to avoid conflict
+				midpointFunc func(Point, Point) path.Point, // Renamed to avoid conflict
+			) func() (pt path.Point, onCurve bool, ok bool) {
+
+				if len(cc) == 0 {
+					return func() (path.Point, bool, bool) { return path.Point{}, false, false }
+				}
+
+				// State for the closure:
+				i := 0 // Corresponds to the loop `for i := 0; i <= len(cc); i++`
+				prevPtInCC := cc[len(cc)-1]
+				prevOnCurveInCC := prevPtInCC.OnCurve
+				pendingActualPoint := false // True if an implicit point was just yielded
+
+				return func() (path.Point, bool, bool) {
+					if pendingActualPoint {
+						pendingActualPoint = false
+
+						curPtOriginal := cc[i%len(cc)]
+
+						prevPtInCC = curPtOriginal
+						prevOnCurveInCC = curPtOriginal.OnCurve
+						i++
+						return toPointFunc(curPtOriginal), curPtOriginal.OnCurve, true
+					}
+
+					if i > len(cc) {
+						return path.Point{}, false, false
+					}
+
+					curPtOriginal := cc[i%len(cc)]
+					curOnCurveOriginal := curPtOriginal.OnCurve
+
+					if !prevOnCurveInCC && !curOnCurveOriginal {
+						pendingActualPoint = true
+						// Note: prevPtInCC and i are NOT advanced here; they advance with the actual point.
+						return midpointFunc(prevPtInCC, curPtOriginal), true, true
+					}
+
+					prevPtInCC = curPtOriginal
+					prevOnCurveInCC = curPtOriginal.OnCurve
+					i++
+					return toPointFunc(curPtOriginal), curPtOriginal.OnCurve, true
+				}
+			}
+
+			getNextExtendedPoint := makeExtendedPointIterator(cc, toPoint, midpoint)
+
+			fillPoint := func(p *struct {
+				pt      path.Point
+				onCurve bool
+				valid   bool
+			}) {
+				ptVal, onCurveVal, okVal := getNextExtendedPoint()
+				if okVal {
+					p.pt, p.onCurve, p.valid = ptVal, onCurveVal, true
+				} else {
+					p.valid = false
+				}
+			}
+
+			var p0, p1, p2 struct {
+				pt      path.Point
+				onCurve bool
+				valid   bool // false if we are at the end of the stream
+			}
+
+			// Prime the lookahead buffer
+			fillPoint(&p0)
+			fillPoint(&p1)
+			fillPoint(&p2)
+
+			for p0.valid {
+				if !p0.onCurve {
+					// This should not happen, as extendedPoints always yields on-curve points
+					// or implicit midpoints which are on-curve.
+					// If it does, it's an internal error or a misunderstanding of the spec.
+					// As a fallback, treat as a line segment to the next available point.
+					if p1.valid {
+						buf[0] = p1.pt
+						if !yield(path.CmdLineTo, buf[:1]) {
+							return
+						}
+					} else if p0.pt != buf[0] { // Avoid empty line segment if p0 is the start point
+						buf[0] = p0.pt
+						if !yield(path.CmdLineTo, buf[:1]) {
+							return
+						}
+					}
+				} else if p1.valid && p1.onCurve {
+					// On-curve to on-curve: Line segment
+					buf[0] = p1.pt
+					if !yield(path.CmdLineTo, buf[:1]) {
+						return
+					}
+				} else if p1.valid && !p1.onCurve && p2.valid {
+					// On-curve to off-curve to any: Quadratic curve
+					buf[0] = p1.pt // control point
+					buf[1] = p2.pt // end point
+					if !yield(path.CmdQuadTo, buf[:2]) {
+						return
+					}
+					// Advance p0 by two points (p0 becomes p2)
+					p0 = p2
+					fillPoint(&p1) // Get next point from stream for new p1
+					if !p1.valid { // Reached end after advancing p0
+						p2.valid = false
+						break
+					}
+					fillPoint(&p2) // Get next point for new p2
+					continue       // Restart loop with new p0, p1, p2
+				} else {
+					// This case should ideally not be reached if the contour is well-formed
+					// and the extendedPoints generator works correctly.
+					// It implies an on-curve point followed by an off-curve point with no subsequent point,
+					// or some other unexpected sequence.
+					// As a fallback, if p1 is valid (it must be off-curve here), draw a line to it.
+					// This is not ideal as it might misinterpret the shape, but prevents crashing.
+					if p1.valid && p1.pt != p0.pt { // p1 is off-curve
+						buf[0] = p1.pt
+						if !yield(path.CmdLineTo, buf[:1]) {
+							return
+						}
+					}
+					// If p1 is not valid, or p1.pt == p0.pt, we are at the end or have a degenerate segment.
+					// The path will be closed by CmdClose outside the loop.
+				}
+
+				// Advance the lookahead buffer
+				p0 = p1
+				p1 = p2
+				fillPoint(&p2) // Get next point from stream for new p2
+			}
+
+			if !yield(path.CmdClose, nil) {
+				return
+			}
+		}
 	}
 }
 
