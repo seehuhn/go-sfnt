@@ -201,6 +201,11 @@ func decodeGlyphComposite(data []byte) (*CompositeGlyph, error) {
 	return res, nil
 }
 
+var errIncompleteGlyph = &parser.InvalidFontError{
+	SubSystem: "sfnt/glyf",
+	Reason:    "incomplete glyph",
+}
+
 // Components returns the component glyph IDs of a composite glyph.
 // Returns nil if the glyph is simple.
 func (g *Glyph) Components() []glyph.ID {
@@ -348,10 +353,13 @@ func (gc GlyphComponent) Unpack() (*ComponentUnpacked, error) {
 		res.AlignPoints = false
 	} else {
 		// Point matching case - store the point indices
-		res.OurPoint = arg1
-		res.TheirPoint = arg2
+		if arg1 >= 0 {
+			res.OurPoint = uint16(arg1)
+		}
+		if arg2 >= 0 {
+			res.TheirPoint = uint16(arg2)
+		}
 		res.AlignPoints = true
-		// dx and dy remain 0 in the transformation matrix
 	}
 
 	return res, nil
@@ -378,10 +386,10 @@ type ComponentUnpacked struct {
 	// actual offset values (false).
 	AlignPoints bool
 
-	// OurPoint and TheirPoint store point indices when ArgsArePointIndices is true.
-	// When ArgsArePointIndices is false, these fields are ignored and
+	// OurPoint and TheirPoint store point indices when AlignPoints is true.
+	// When AlignPoints is false, these fields are ignored and
 	// Trfm[4] and Trfm[5] are used instead.
-	OurPoint, TheirPoint int16
+	OurPoint, TheirPoint uint16
 
 	// RoundXYToGrid instructs the rasterizer to round the translation
 	// values to the nearest grid points during rendering.
@@ -423,7 +431,6 @@ func (cu *ComponentUnpacked) Pack() GlyphComponent {
 		gc.Flags |= FlagOverlapCompound
 	}
 
-	// Only set offset scaling flags when needed to disambiguate behavior
 	if cu.ScaledComponentOffset {
 		gc.Flags |= FlagScaledComponentOffset
 	} else {
@@ -432,7 +439,7 @@ func (cu *ComponentUnpacked) Pack() GlyphComponent {
 
 	if cu.AlignPoints {
 		// Point matching case - do NOT set FlagArgsAreXYValues
-		if cu.OurPoint >= -128 && cu.OurPoint <= 127 && cu.TheirPoint >= -128 && cu.TheirPoint <= 127 {
+		if cu.OurPoint < 256 && cu.TheirPoint < 256 {
 			// Can use 8-bit values
 		} else {
 			gc.Flags |= FlagArg1And2AreWords
@@ -452,7 +459,6 @@ func (cu *ComponentUnpacked) Pack() GlyphComponent {
 	} else {
 		gc.Flags |= FlagArgsAreXYValues
 
-		// Extract offset values from transformation matrix
 		dx := cu.Trfm[4]
 		dy := cu.Trfm[5]
 
@@ -509,9 +515,4 @@ func (cu *ComponentUnpacked) Pack() GlyphComponent {
 
 	gc.Data = buf.Bytes()
 	return gc
-}
-
-var errIncompleteGlyph = &parser.InvalidFontError{
-	SubSystem: "sfnt/glyf",
-	Reason:    "incomplete glyph",
 }

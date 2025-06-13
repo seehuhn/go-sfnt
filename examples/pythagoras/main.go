@@ -187,6 +187,10 @@ func createPythagorasLevel(k int) *glyf.Glyph {
 		UseMyMetrics: true,
 	}
 
+	// TODO(voss): try to use ComponentUnpacked.AlignPoints here.
+	// I tried, but somehow this seems to interact with the rotation
+	// in ways which seem to contradict the TrueType spec.
+
 	ca := math.Cos(alpha)
 	sa := math.Sin(alpha)
 	D := float64((unitsPerEm - squareSize) / 2)
