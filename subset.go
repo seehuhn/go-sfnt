@@ -472,7 +472,7 @@ func (s *subsetter) SubsetGlyf(oldOutlines *glyf.Outlines) *glyf.Outlines {
 			}
 			componendGidNew := glyph.ID(len(s.glyphs))
 			s.glyphs = append(s.glyphs, componentGidOld)
-			s.newGid[oldGid] = componendGidNew
+			s.newGid[componentGidOld] = componendGidNew
 			todo[componentGidOld] = true
 		}
 	}
