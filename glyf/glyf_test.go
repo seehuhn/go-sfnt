@@ -19,9 +19,6 @@ package glyf
 import (
 	"bytes"
 	"math"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -94,28 +91,31 @@ func BenchmarkGlyph(b *testing.B) {
 }
 
 func FuzzGlyf(f *testing.F) {
-	names, err := filepath.Glob("../../../demo/try-all-fonts/glyf/*.glyf")
+	// Use goregular.TTF as a seed
+	r := bytes.NewReader(goregular.TTF)
+	header, err := header.Read(r)
 	if err != nil {
 		f.Fatal(err)
 	}
-	for _, name := range names {
-		glyfData, err := os.ReadFile(name)
-		if err != nil {
-			f.Error(err)
-			continue
-		}
-		locaName := strings.TrimSuffix(name, ".glyf") + ".loca"
-		locaData, err := os.ReadFile(locaName)
-		if err != nil {
-			f.Error(err)
-			continue
-		}
-		locaFormat := int16(0)
-		if len(glyfData) > 0xFFFF {
-			locaFormat = 1
-		}
-		f.Add(glyfData, locaData, locaFormat)
+	glyfData, err := header.ReadTableBytes(r, "glyf")
+	if err != nil {
+		f.Fatal(err)
 	}
+	locaData, err := header.ReadTableBytes(r, "loca")
+	if err != nil {
+		f.Fatal(err)
+	}
+	locaFormat := int16(0)
+	if len(glyfData) > 0xFFFF {
+		locaFormat = 1
+	}
+	f.Add(glyfData, locaData, locaFormat)
+
+	// Add minimal synthetic test cases
+	f.Add([]byte{}, []byte{0, 0}, int16(0))                    // empty tables
+	f.Add([]byte{}, []byte{0, 0, 0, 0}, int16(1))              // empty tables, format 1
+	f.Add(make([]byte, 10), []byte{0, 0, 0, 10}, int16(0))     // minimal glyph header
+	f.Add(make([]byte, 20), []byte{0, 0, 0, 20, 0, 40}, int16(0)) // two minimal glyphs
 
 	f.Fuzz(func(t *testing.T, glyfData, locaData []byte, locaFormat int16) {
 		enc := &Encoded{
@@ -141,11 +141,7 @@ func FuzzGlyf(f *testing.F) {
 	})
 }
 
-// TestGlyphPath tests the Path() method for both simple and composite glyphs.
-// It creates a simple square glyph and a composite glyph with two squares,
-// then verifies that the Path() method returns the expected command structure.
 func TestGlyphPath(t *testing.T) {
-	// Create a simple square glyph (100x100 square from (0,0) to (100,100))
 	squareUnpacked := &SimpleUnpacked{
 		Contours: []Contour{
 			// One contour forming a square
@@ -168,8 +164,6 @@ func TestGlyphPath(t *testing.T) {
 		},
 		Data: squareUnpacked.Pack(),
 	}
-
-	// Create a composite glyph with two squares: one at origin, one translated by (150, 0)
 	comp1 := &ComponentUnpacked{
 		Child:       0,                               // reference to square glyph
 		Trfm:        matrix.Matrix{1, 0, 0, 1, 0, 0}, // identity transform at origin
@@ -302,11 +296,7 @@ func TestGlyphPath(t *testing.T) {
 	})
 }
 
-// TestGlyphPathInfiniteLoop tests that the Path() method handles circular references
-// gracefully without hanging. This creates two composite glyphs that reference each other,
-// forming an infinite loop, and verifies that Path() terminates properly.
 func TestGlyphPathInfiniteLoop(t *testing.T) {
-	// Create a simple base glyph (small triangle) to avoid empty paths
 	triangleUnpacked := &SimpleUnpacked{
 		Contours: []Contour{
 			// One contour forming a triangle
@@ -328,8 +318,6 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 		},
 		Data: triangleUnpacked.Pack(),
 	}
-
-	// Create composite glyph A that references glyph B (index 2)
 	compA := &ComponentUnpacked{
 		Child:       2,                               // reference to composite glyph B
 		Trfm:        matrix.Matrix{1, 0, 0, 1, 0, 0}, // identity transform
@@ -357,8 +345,6 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 			},
 		},
 	}
-
-	// Create composite glyph B that references glyph A (index 1)
 	compB := &ComponentUnpacked{
 		Child: 1,                                     // reference to composite glyph A
 		Trfm:  matrix.Matrix{0.5, 0, 0, 0.5, 10, 10}, // scaled and translated
@@ -383,9 +369,6 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 			},
 		},
 	}
-
-	// Create glyph collection: [0=triangle, 1=compositeA, 2=compositeB]
-	// compositeA references compositeB, compositeB references compositeA -> infinite loop
 	glyphs := Glyphs{triangle, compositeA, compositeB}
 
 	t.Run("infinite_loop_detection", func(t *testing.T) {
@@ -398,7 +381,7 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 			pathA := glyphs.Path(1)
 
 			// Collect commands to verify it returns something reasonable
-			for cmd, _ := range pathA {
+			for cmd := range pathA {
 				pathCommands = append(pathCommands, cmd)
 				// Limit collection to avoid infinite iteration in case of bugs
 				if len(pathCommands) > 1000 {
@@ -443,7 +426,7 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 
 		go func() {
 			pathB := glyphs.Path(2)
-			for cmd, _ := range pathB {
+			for cmd := range pathB {
 				pathCommands = append(pathCommands, cmd)
 				if len(pathCommands) > 1000 {
 					break
@@ -460,6 +443,127 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 			}
 		case <-time.After(5 * time.Second):
 			t.Errorf("Path() method on glyph B hanged - did not complete within 5 seconds")
+		}
+	})
+}
+
+func TestGlyphBBoxPDFCoordinates(t *testing.T) {
+	square := &Glyph{
+		Rect16: funit.Rect16{
+			LLx: 100,
+			LLy: 200,
+			URx: 300,
+			URy: 400,
+		},
+		Data: nil,
+	}
+
+	outlines := &Outlines{
+		Glyphs: []*Glyph{square},
+	}
+
+	// Test with font matrix representing unitsPerEm = 1000
+	t.Run("unitsPerEm_1000_via_matrix", func(t *testing.T) {
+		// Font matrix for unitsPerEm=1000: 1/1000 = 0.001
+		fontMatrix := matrix.Matrix{0.001, 0, 0, 0.001, 0, 0}
+		bbox := outlines.GlyphBBoxPDF(fontMatrix, 0)
+
+		// Expected: (glyph coords * 0.001) * 1000 = glyph coords
+		expectedLLx := 100.0
+		expectedLLy := 200.0
+		expectedURx := 300.0
+		expectedURy := 400.0
+
+		if math.Abs(bbox.LLx-expectedLLx) > 1e-6 {
+			t.Errorf("bbox.LLx = %g, want %g", bbox.LLx, expectedLLx)
+		}
+		if math.Abs(bbox.LLy-expectedLLy) > 1e-6 {
+			t.Errorf("bbox.LLy = %g, want %g", bbox.LLy, expectedLLy)
+		}
+		if math.Abs(bbox.URx-expectedURx) > 1e-6 {
+			t.Errorf("bbox.URx = %g, want %g", bbox.URx, expectedURx)
+		}
+		if math.Abs(bbox.URy-expectedURy) > 1e-6 {
+			t.Errorf("bbox.URy = %g, want %g", bbox.URy, expectedURy)
+		}
+	})
+
+	// Test with font matrix representing unitsPerEm = 2048
+	t.Run("unitsPerEm_2048_via_matrix", func(t *testing.T) {
+		// Font matrix for unitsPerEm=2048: 1/2048 ≈ 0.00048828125
+		fontMatrix := matrix.Matrix{1.0 / 2048.0, 0, 0, 1.0 / 2048.0, 0, 0}
+		bbox := outlines.GlyphBBoxPDF(fontMatrix, 0)
+
+		// Expected: (glyph coords / 2048) * 1000
+		expectedLLx := 100.0 / 2048.0 * 1000.0 // ≈ 48.828125
+		expectedLLy := 200.0 / 2048.0 * 1000.0 // ≈ 97.65625
+		expectedURx := 300.0 / 2048.0 * 1000.0 // ≈ 146.484375
+		expectedURy := 400.0 / 2048.0 * 1000.0 // ≈ 195.3125
+
+		if math.Abs(bbox.LLx-expectedLLx) > 1e-6 {
+			t.Errorf("bbox.LLx = %g, want %g", bbox.LLx, expectedLLx)
+		}
+		if math.Abs(bbox.LLy-expectedLLy) > 1e-6 {
+			t.Errorf("bbox.LLy = %g, want %g", bbox.LLy, expectedLLy)
+		}
+		if math.Abs(bbox.URx-expectedURx) > 1e-6 {
+			t.Errorf("bbox.URx = %g, want %g", bbox.URx, expectedURx)
+		}
+		if math.Abs(bbox.URy-expectedURy) > 1e-6 {
+			t.Errorf("bbox.URy = %g, want %g", bbox.URy, expectedURy)
+		}
+	})
+
+	// Test with combined font matrix and scaling
+	t.Run("unitsPerEm_1000_with_2x_scale", func(t *testing.T) {
+		// Font matrix with 2x scaling: (1/1000) * 2 = 0.002
+		fontMatrix := matrix.Matrix{0.002, 0, 0, 0.002, 0, 0}
+		bbox := outlines.GlyphBBoxPDF(fontMatrix, 0)
+
+		// Expected: (glyph coords * 0.002) * 1000 = glyph coords * 2
+		expectedLLx := 200.0
+		expectedLLy := 400.0
+		expectedURx := 600.0
+		expectedURy := 800.0
+
+		if math.Abs(bbox.LLx-expectedLLx) > 1e-6 {
+			t.Errorf("bbox.LLx = %g, want %g", bbox.LLx, expectedLLx)
+		}
+		if math.Abs(bbox.LLy-expectedLLy) > 1e-6 {
+			t.Errorf("bbox.LLy = %g, want %g", bbox.LLy, expectedLLy)
+		}
+		if math.Abs(bbox.URx-expectedURx) > 1e-6 {
+			t.Errorf("bbox.URx = %g, want %g", bbox.URx, expectedURx)
+		}
+		if math.Abs(bbox.URy-expectedURy) > 1e-6 {
+			t.Errorf("bbox.URy = %g, want %g", bbox.URy, expectedURy)
+		}
+	})
+
+	// Test with translation
+	t.Run("with_translation", func(t *testing.T) {
+		// Font matrix with translation
+		fontMatrix := matrix.Matrix{0.001, 0, 0, 0.001, 50, -25}
+		bbox := outlines.GlyphBBoxPDF(fontMatrix, 0)
+
+		// Expected: ((glyph coords * 0.001) + translation) * 1000
+		// = glyph coords + translation * 1000
+		expectedLLx := 100.0 + 50000.0 // 100 + 50*1000
+		expectedLLy := 200.0 - 25000.0 // 200 - 25*1000
+		expectedURx := 300.0 + 50000.0 // 300 + 50*1000
+		expectedURy := 400.0 - 25000.0 // 400 - 25*1000
+
+		if math.Abs(bbox.LLx-expectedLLx) > 1e-6 {
+			t.Errorf("bbox.LLx = %g, want %g", bbox.LLx, expectedLLx)
+		}
+		if math.Abs(bbox.LLy-expectedLLy) > 1e-6 {
+			t.Errorf("bbox.LLy = %g, want %g", bbox.LLy, expectedLLy)
+		}
+		if math.Abs(bbox.URx-expectedURx) > 1e-6 {
+			t.Errorf("bbox.URx = %g, want %g", bbox.URx, expectedURx)
+		}
+		if math.Abs(bbox.URy-expectedURy) > 1e-6 {
+			t.Errorf("bbox.URy = %g, want %g", bbox.URy, expectedURy)
 		}
 	})
 }

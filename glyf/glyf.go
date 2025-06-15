@@ -31,6 +31,8 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
+const glyfAlign = 2
+
 // Outlines stores the glyph data of a TrueType font.
 type Outlines struct {
 	// Glyphs is a slice of glyph outlines in the font.
@@ -268,7 +270,7 @@ func (g *Glyph) append(buf []byte) []byte {
 	case CompositeGlyph:
 		for i, comp := range d.Components {
 			flags := comp.Flags
-			// Set FlagMoreComponents for all but the last component
+			// set FlagMoreComponents for all but the last component
 			if i < len(d.Components)-1 {
 				flags |= FlagMoreComponents
 			}
@@ -293,7 +295,7 @@ func (g *Glyph) append(buf []byte) []byte {
 	return buf
 }
 
-// Path returns a path representing the glyph outline.
+// Path returns the glyph outline.
 // For composite glyphs, this recursively includes all component glyphs
 // with their transformations applied.
 func (gg Glyphs) Path(gid glyph.ID) path.Path {
@@ -332,18 +334,18 @@ func (gg Glyphs) pathRecursive(seen map[glyph.ID]bool, gid glyph.ID) path.Path {
 		return g.Path()
 
 	case CompositeGlyph:
-		return gg.compositePath(seen, g)
+		return gg.compositePath(seen, gid, g)
 
 	default:
 		panic("invalid glyph data type")
 	}
 }
 
-func (gg Glyphs) compositePath(seen map[glyph.ID]bool, g CompositeGlyph) path.Path {
+func (gg Glyphs) compositePath(seen map[glyph.ID]bool, gid glyph.ID, g CompositeGlyph) path.Path {
 	return func(yield func(path.Command, []path.Point) bool) {
 	componentLoop:
 		for _, comp := range g.Components {
-			transform := [6]float64{1, 0, 0, 1, 0, 0} // identity matrix
+			M := [6]float64{1, 0, 0, 1, 0, 0} // identity matrix
 
 			data := comp.Data
 			offset := 0
@@ -389,7 +391,44 @@ func (gg Glyphs) compositePath(seen map[glyph.ID]bool, g CompositeGlyph) path.Pa
 						continue // skip malformed component
 					}
 				}
-				transform[4], transform[5] = dx, dy
+				M[4], M[5] = dx, dy
+			} else {
+				// Point matching case - arguments are point indices
+				var ourPointIdx, theirPointIdx uint16
+				var ok bool
+				if comp.Flags&FlagArg1And2AreWords != 0 {
+					// 16-bit point indices
+					val, ok1 := readInt16()
+					if !ok1 {
+						continue // skip malformed component
+					}
+					ourPointIdx = uint16(val)
+					val, ok = readInt16()
+					if !ok {
+						continue // skip malformed component
+					}
+					theirPointIdx = uint16(val)
+				} else {
+					// 8-bit point indices
+					val, ok1 := readInt8()
+					if !ok1 {
+						continue // skip malformed component
+					}
+					ourPointIdx = uint16(val)
+					val, ok = readInt8()
+					if !ok {
+						continue // skip malformed component
+					}
+					theirPointIdx = uint16(val)
+				}
+
+				// Calculate offset from point matching
+				ourPoint, ourOk := gg.getGlyphPoint(gid, ourPointIdx)
+				theirPoint, theirOk := gg.getGlyphPoint(comp.GlyphIndex, theirPointIdx)
+				if ourOk && theirOk {
+					M[4] = ourPoint.X - theirPoint.X
+					M[5] = ourPoint.Y - theirPoint.Y
+				}
 			}
 
 			// Read scaling/transformation
@@ -401,7 +440,7 @@ func (gg Glyphs) compositePath(seen map[glyph.ID]bool, g CompositeGlyph) path.Pa
 					continue // skip malformed component
 				}
 				scale /= 16384.0
-				transform[0], transform[3] = scale, scale
+				M[0], M[3] = scale, scale
 
 			case comp.Flags&FlagWeHaveAnXAndYScale != 0:
 				// Separate X and Y scaling
@@ -410,8 +449,8 @@ func (gg Glyphs) compositePath(seen map[glyph.ID]bool, g CompositeGlyph) path.Pa
 				if !ok1 || !ok2 {
 					continue componentLoop // skip malformed component
 				}
-				transform[0] = xScale / 16384.0
-				transform[3] = yScale / 16384.0
+				M[0] = xScale / 16384.0
+				M[3] = yScale / 16384.0
 
 			case comp.Flags&FlagWeHaveATwoByTwo != 0:
 				// Full 2x2 transformation matrix
@@ -420,13 +459,13 @@ func (gg Glyphs) compositePath(seen map[glyph.ID]bool, g CompositeGlyph) path.Pa
 					if !ok {
 						continue componentLoop // skip malformed component
 					}
-					transform[i] = val / 16384.0
+					M[i] = val / 16384.0
 				}
 			}
 
 			// Apply transformation to component paths
 			componentPath := gg.pathRecursive(seen, comp.GlyphIndex)
-			transformedPath := transformPath(componentPath, transform)
+			transformedPath := componentPath.Transform(M)
 			for cmd, pts := range transformedPath {
 				if !yield(cmd, pts) {
 					return
@@ -436,26 +475,41 @@ func (gg Glyphs) compositePath(seen map[glyph.ID]bool, g CompositeGlyph) path.Pa
 	}
 }
 
-// transformPath applies a 2D affine transformation to a path.
-// The transformation matrix t is [a, b, c, d, e, f] representing:
-// [a c e]   [x]
-// [b d f] * [y]
-// [0 0 1]   [1]
-func transformPath(p path.Path, t [6]float64) path.Path {
-	return func(yield func(path.Command, []path.Point) bool) {
-		var buf [3]path.Point
-		for cmd, pts := range p {
-			for i, p := range pts {
-				buf[i] = path.Point{
-					X: p.X*t[0] + p.Y*t[2] + t[4],
-					Y: p.X*t[1] + p.Y*t[3] + t[5],
-				}
-			}
-			if !yield(cmd, buf[:len(pts)]) {
-				return
-			}
+// getGlyphPoint extracts the coordinates of a specific point from a glyph.
+// Returns the point coordinates and true if successful, or false if the
+// point index is invalid or the glyph cannot be processed.
+func (gg Glyphs) getGlyphPoint(gid glyph.ID, pointIdx uint16) (point struct{ X, Y float64 }, ok bool) {
+	if int(gid) >= len(gg) || gg[gid] == nil {
+		return point, false
+	}
+
+	g := gg[gid]
+	switch gData := g.Data.(type) {
+	case SimpleGlyph:
+		unpacked, err := gData.Unpack()
+		if err != nil {
+			return point, false
 		}
+
+		// Find the point in the contours
+		pointCount := uint16(0)
+		for _, contour := range unpacked.Contours {
+			if pointIdx < pointCount+uint16(len(contour)) {
+				pt := contour[pointIdx-pointCount]
+				return struct{ X, Y float64 }{float64(pt.X), float64(pt.Y)}, true
+			}
+			pointCount += uint16(len(contour))
+		}
+		return point, false
+
+	case CompositeGlyph:
+		// For composite glyphs, we need to collect all points from components
+		// This is more complex as it requires applying transformations.
+
+		// TODO(voss): implement this.
+		return point, false
+
+	default:
+		panic("unexpected glyph type")
 	}
 }
-
-const glyfAlign = 2

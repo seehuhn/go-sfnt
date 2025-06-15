@@ -25,14 +25,12 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 )
 
-const f2dot14FactorTest = 1 << 14 // 16384
+const f2dot14FactorTest = 1 << 14
 
-// floatToF2dot14Test converts a float64 to a 16-bit F2.14 fixed-point number for testing.
 func floatToF2dot14Test(f float64) int16 {
 	return int16(math.Round(f * f2dot14FactorTest))
 }
 
-// f2dot14ToFloatTest converts a 16-bit F2.14 fixed-point number back to float64 for testing.
 func f2dot14ToFloatTest(i int16) float64 {
 	return float64(i) / f2dot14FactorTest
 }
@@ -81,9 +79,7 @@ func TestComponentUnpacked_Roundtrip(t *testing.T) {
 			name: "full matrix",
 			original: ComponentUnpacked{
 				Child: glyph.ID(5),
-				// Values chosen to have exact F2DOT14 representations for some
-				// 0.125 = 2048/16384, 0.25 = 4096/16384, 0.875 = 14336/16384
-				Trfm: matrix.Matrix{1, 0.125, 0.25, 0.875, -10, -20},
+				Trfm:  matrix.Matrix{1, 0.125, 0.25, 0.875, -10, -20},
 			},
 		},
 		{
@@ -152,6 +148,16 @@ func TestComponentUnpacked_Roundtrip(t *testing.T) {
 			original: ComponentUnpacked{
 				Child: glyph.ID(14),
 				Trfm:  matrix.Matrix{-0.5, 0, 0, -0.5, 10, 20},
+			},
+		},
+		{
+			name: "point matching (FlagArgsAreXYValues unset)",
+			original: ComponentUnpacked{
+				Child:       glyph.ID(15),
+				Trfm:        matrix.Matrix{1, 0, 0, 1, 0, 0}, // Offset ignored in point matching
+				AlignPoints: true,
+				OurPoint:    5,
+				TheirPoint:  3,
 			},
 		},
 	}
