@@ -27,6 +27,7 @@ import (
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/header"
 )
 
@@ -112,9 +113,9 @@ func FuzzGlyf(f *testing.F) {
 	f.Add(glyfData, locaData, locaFormat)
 
 	// Add minimal synthetic test cases
-	f.Add([]byte{}, []byte{0, 0}, int16(0))                    // empty tables
-	f.Add([]byte{}, []byte{0, 0, 0, 0}, int16(1))              // empty tables, format 1
-	f.Add(make([]byte, 10), []byte{0, 0, 0, 10}, int16(0))     // minimal glyph header
+	f.Add([]byte{}, []byte{0, 0}, int16(0))                       // empty tables
+	f.Add([]byte{}, []byte{0, 0, 0, 0}, int16(1))                 // empty tables, format 1
+	f.Add(make([]byte, 10), []byte{0, 0, 0, 10}, int16(0))        // minimal glyph header
 	f.Add(make([]byte, 20), []byte{0, 0, 0, 20, 0, 40}, int16(0)) // two minimal glyphs
 
 	f.Fuzz(func(t *testing.T, glyfData, locaData []byte, locaFormat int16) {
@@ -566,4 +567,37 @@ func TestGlyphBBoxPDFCoordinates(t *testing.T) {
 			t.Errorf("bbox.URy = %g, want %g", bbox.URy, expectedURy)
 		}
 	})
+}
+
+func TestGlyphBBox(t *testing.T) {
+	// Test that GlyphBBox and GlyphBBoxPDF give consistent results
+	g := &Glyph{
+		Rect16: funit.Rect16{
+			LLx: 100,
+			LLy: 200,
+			URx: 300,
+			URy: 400,
+		},
+	}
+	outlines := &Outlines{
+		Glyphs: []*Glyph{g},
+	}
+
+	M := matrix.Matrix{1, 0, 0, 1, 0, 0} // identity matrix
+
+	bboxPDF := outlines.GlyphBBoxPDF(M, glyph.ID(0))
+	bboxPDFExpected := outlines.GlyphBBox(M.Mul(matrix.Scale(1000, 1000)), glyph.ID(0))
+
+	if math.Abs(bboxPDF.LLx-bboxPDFExpected.LLx) > 1e-6 {
+		t.Errorf("GlyphBBoxPDF.LLx = %g, want %g", bboxPDF.LLx, bboxPDFExpected.LLx)
+	}
+	if math.Abs(bboxPDF.LLy-bboxPDFExpected.LLy) > 1e-6 {
+		t.Errorf("GlyphBBoxPDF.LLy = %g, want %g", bboxPDF.LLy, bboxPDFExpected.LLy)
+	}
+	if math.Abs(bboxPDF.URx-bboxPDFExpected.URx) > 1e-6 {
+		t.Errorf("GlyphBBoxPDF.URx = %g, want %g", bboxPDF.URx, bboxPDFExpected.URx)
+	}
+	if math.Abs(bboxPDF.URy-bboxPDFExpected.URy) > 1e-6 {
+		t.Errorf("GlyphBBoxPDF.URy = %g, want %g", bboxPDF.URy, bboxPDFExpected.URy)
+	}
 }

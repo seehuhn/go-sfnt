@@ -62,6 +62,15 @@ func (o *Outlines) NumGlyphs() int {
 //
 // If the glyph is blank, the zero rectangle is returned.
 func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
+	M := fm.Mul(matrix.Scale(1000, 1000))
+	return o.GlyphBBox(M, gid)
+}
+
+// GlyphBBox computes the bounding box of a glyph, after the matrix M has been
+// applied to the glyph outline.
+//
+// If the glyph is blank, the zero rectangle is returned.
+func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	if int(gid) >= len(o.Glyphs) {
 		return
 	}
@@ -70,7 +79,6 @@ func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
 		return
 	}
 
-	M := fm.Mul(matrix.Scale(1000, 1000))
 	type p16 struct {
 		x, y funit.Int16
 	}
