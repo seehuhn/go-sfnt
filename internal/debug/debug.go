@@ -113,7 +113,7 @@ func MakeSimpleFont() *sfnt.Font {
 		cffGlyph := cff.NewGlyph(info.GlyphName(gid), info.GlyphWidth(gid))
 
 		if origGlyph != nil {
-			glyphPath := origOutlines.Glyphs.Path(gid)
+			glyphPath := origOutlines.Path(gid)
 			cubicPath := glyphPath.ToCubic()
 			for cmd, pts := range cubicPath {
 				switch cmd {

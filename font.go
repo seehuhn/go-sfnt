@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
@@ -42,8 +43,22 @@ import (
 // Outlines represents the glyph data of a TrueType or OpenType font.
 // This must be one of [*glyf.Outlines] or [*cff.Outlines].
 type Outlines interface {
+	// NumGlyphs returns the number of glyphs in the font.
 	NumGlyphs() int
+
+	// IsBlank returns true if the glyph with the given ID does not add marks to the page.
+	IsBlank(gid glyph.ID) bool
+
+	// GlyphBBox returns the bounding box of the glyph with the given ID
+	// in font design units.
+	GlyphBBox(m matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
+
+	// GlyphBBoxPDF returns the bounding box of the glyph with the given ID
+	// in PDF glyph space units.
 	GlyphBBoxPDF(m matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
+
+	// Path returns the glyph outline as a path, in font design units.
+	Path(gid glyph.ID) path.Path
 }
 
 // Font contains information about a TrueType or OpenType font.

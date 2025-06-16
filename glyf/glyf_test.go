@@ -194,11 +194,13 @@ func TestGlyphPath(t *testing.T) {
 	}
 
 	// Create glyph collection
-	glyphs := Glyphs{square, composite}
+	outlines := &Outlines{
+		Glyphs: Glyphs{square, composite},
+	}
 
 	// Test simple square glyph path
 	t.Run("simple_square", func(t *testing.T) {
-		squarePath := glyphs.Path(0)
+		squarePath := outlines.Path(0)
 
 		// Collect path commands
 		var commands []path.Command
@@ -239,7 +241,7 @@ func TestGlyphPath(t *testing.T) {
 
 	// Test composite glyph path
 	t.Run("composite_two_squares", func(t *testing.T) {
-		compositePath := glyphs.Path(1)
+		compositePath := outlines.Path(1)
 
 		// Collect path commands
 		var commands []path.Command
@@ -370,7 +372,9 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 			},
 		},
 	}
-	glyphs := Glyphs{triangle, compositeA, compositeB}
+	outlines := &Outlines{
+		Glyphs: Glyphs{triangle, compositeA, compositeB},
+	}
 
 	t.Run("infinite_loop_detection", func(t *testing.T) {
 		// Set a timeout to detect hanging
@@ -379,7 +383,7 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 
 		go func() {
 			// Call Path() on composite A, which should detect the circular reference
-			pathA := glyphs.Path(1)
+			pathA := outlines.Path(1)
 
 			// Collect commands to verify it returns something reasonable
 			for cmd := range pathA {
@@ -426,7 +430,7 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 		var pathCommands []path.Command
 
 		go func() {
-			pathB := glyphs.Path(2)
+			pathB := outlines.Path(2)
 			for cmd := range pathB {
 				pathCommands = append(pathCommands, cmd)
 				if len(pathCommands) > 1000 {

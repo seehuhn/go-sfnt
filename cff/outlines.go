@@ -18,6 +18,7 @@ package cff
 
 import (
 	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
 
 	"seehuhn.de/go/postscript/cid"
@@ -102,6 +103,53 @@ func (o *Outlines) NumGlyphs() int {
 	return len(o.Glyphs)
 }
 
+// Path returns the glyph outline as a path.Path iterator.
+// This converts CFF glyph commands to path commands.
+func (o *Outlines) Path(gid glyph.ID) path.Path {
+	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
+		return func(yield func(path.Command, []path.Point) bool) {}
+	}
+
+	cffGlyph := o.Glyphs[gid]
+
+	return func(yield func(path.Command, []path.Point) bool) {
+		var buf [3]path.Point
+
+		for _, cmd := range cffGlyph.Cmds {
+			switch cmd.Op {
+			case OpMoveTo:
+				if len(cmd.Args) >= 2 {
+					buf[0] = path.Point{X: cmd.Args[0], Y: cmd.Args[1]}
+					if !yield(path.CmdMoveTo, buf[:1]) {
+						return
+					}
+				}
+			case OpLineTo:
+				if len(cmd.Args) >= 2 {
+					buf[0] = path.Point{X: cmd.Args[0], Y: cmd.Args[1]}
+					if !yield(path.CmdLineTo, buf[:1]) {
+						return
+					}
+				}
+			case OpCurveTo:
+				if len(cmd.Args) >= 6 {
+					buf[0] = path.Point{X: cmd.Args[0], Y: cmd.Args[1]} // control point 1
+					buf[1] = path.Point{X: cmd.Args[2], Y: cmd.Args[3]} // control point 2
+					buf[2] = path.Point{X: cmd.Args[4], Y: cmd.Args[5]} // end point
+					if !yield(path.CmdCubeTo, buf[:3]) {
+						return
+					}
+				}
+			}
+		}
+
+		// CFF glyphs are implicitly closed
+		if !yield(path.CmdClose, nil) {
+			return
+		}
+	}
+}
+
 // BBox returns the font bounding box.
 //
 // TODO(voss): remove
@@ -179,4 +227,11 @@ func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
 	M = M.Mul(matrix.Scale(1000, 1000))
 
 	return o.GlyphBBox(M, gid)
+}
+
+func (o *Outlines) IsBlank(gid glyph.ID) bool {
+	if int(gid) >= len(o.Glyphs) {
+		gid = 0 // .notdef
+	}
+	return len(o.Glyphs[gid].Cmds) == 0
 }

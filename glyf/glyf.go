@@ -56,6 +56,14 @@ func (o *Outlines) NumGlyphs() int {
 	return len(o.Glyphs)
 }
 
+func (o *Outlines) IsBlank(gid glyph.ID) bool {
+	if int(gid) >= len(o.Glyphs) {
+		gid = 0 // .notdef
+	}
+	g := o.Glyphs[gid]
+	return g == nil
+}
+
 // GlyphBBoxPDF computes the bounding box of a glyph in PDF glyph space units
 // (1/1000th of a font unit).
 // The font matrix fm is applied to the glyph bounding box from the font data.
@@ -72,7 +80,7 @@ func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
 // If the glyph is blank, the zero rectangle is returned.
 func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	if int(gid) >= len(o.Glyphs) {
-		return
+		gid = 0 // .notdef
 	}
 	g := o.Glyphs[gid]
 	if g == nil {
@@ -306,19 +314,19 @@ func (g *Glyph) append(buf []byte) []byte {
 // Path returns the glyph outline.
 // For composite glyphs, this recursively includes all component glyphs
 // with their transformations applied.
-func (gg Glyphs) Path(gid glyph.ID) path.Path {
-	if int(gid) >= len(gg) || gg[gid] == nil {
+func (o *Outlines) Path(gid glyph.ID) path.Path {
+	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
 		return func(yield func(path.Command, []path.Point) bool) {}
 	}
 
-	if g, ok := gg[gid].Data.(SimpleGlyph); ok {
+	if g, ok := o.Glyphs[gid].Data.(SimpleGlyph); ok {
 		return g.Path()
 	}
 
 	return func(yield func(path.Command, []path.Point) bool) {
 		// allocate a separate map for each call of the iterator
 		seen := make(map[glyph.ID]bool)
-		for cmd, pts := range gg.pathRecursive(seen, gid) {
+		for cmd, pts := range o.Glyphs.pathRecursive(seen, gid) {
 			if !yield(cmd, pts) {
 				return
 			}
