@@ -22,7 +22,6 @@ import (
 	"seehuhn.de/go/geom/rect"
 
 	"seehuhn.de/go/postscript/cid"
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -150,79 +149,22 @@ func (o *Outlines) Path(gid glyph.ID) path.Path {
 	}
 }
 
-// BBox returns the font bounding box.
-//
-// TODO(voss): remove
-func (o *Outlines) BBox() (bbox funit.Rect16) {
-	first := true
-	for _, glyph := range o.Glyphs {
-		glyphBox := glyph.Extent()
-		if glyphBox.IsZero() {
-			continue
-		}
-		if first {
-			bbox = glyphBox
-			first = false
-		} else {
-			bbox.Extend(glyphBox)
-		}
-	}
-	return bbox
-}
-
-// GlyphBBox computes the bounding box of a glyph, after the matrix fm has been
+// GlyphBBox computes the bounding box of a glyph, after the matrix M has been
 // applied to the glyph outline.
 //
 // If the glyph is blank, the zero rectangle is returned.
-func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
-	g := o.Glyphs[gid]
-
-	first := true
-cmdLoop:
-	for _, cmd := range g.Cmds {
-		var x, y float64
-		switch cmd.Op {
-		case OpMoveTo, OpLineTo:
-			x = cmd.Args[0]
-			y = cmd.Args[1]
-		case OpCurveTo:
-			x = cmd.Args[4]
-			y = cmd.Args[5]
-		default:
-			continue cmdLoop
-		}
-
-		x, y = M.Apply(x, y)
-
-		if first || x < bbox.LLx {
-			bbox.LLx = x
-		}
-		if first || x > bbox.URx {
-			bbox.URx = x
-		}
-		if first || y < bbox.LLy {
-			bbox.LLy = y
-		}
-		if first || y > bbox.URy {
-			bbox.URy = y
-		}
-		first = false
-	}
-
-	return bbox
+func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {
+	return o.Path(gid).Transform([6]float64(M)).BBox()
 }
 
 // GlyphBBoxPDF computes the bounding box of a glyph in PDF glyph space units
 // (1/1000th of a text space unit).
-// The font matrix fm is applied to the glyph outline.
+// The font matrix M is applied to the glyph outline.
 //
 // If the glyph is blank, the zero rectangle is returned.
-func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
-	var M matrix.Matrix
+func (o *Outlines) GlyphBBoxPDF(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	if o.IsCIDKeyed() {
-		M = o.FontMatrices[o.FDSelect(gid)].Mul(fm)
-	} else {
-		M = fm
+		M = o.FontMatrices[o.FDSelect(gid)].Mul(M)
 	}
 	M = M.Mul(matrix.Scale(1000, 1000))
 
