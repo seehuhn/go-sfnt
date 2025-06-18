@@ -3,10 +3,10 @@ module seehuhn.de/go/sfnt
 go 1.24
 
 require (
-	github.com/google/go-cmp v0.6.0
-	golang.org/x/exp v0.0.0-20240409090435-93d18d7e34b8
-	golang.org/x/image v0.18.0
-	golang.org/x/text v0.16.0
+	github.com/google/go-cmp v0.7.0
+	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476
+	golang.org/x/image v0.28.0
+	golang.org/x/text v0.26.0
 	seehuhn.de/go/dijkstra v0.9.3
 	seehuhn.de/go/geom v0.0.0-20250616181134-58e392c14e27
 	seehuhn.de/go/postscript v0.5.1-0.20250316102127-8863e3a3d4c4
