@@ -21,12 +21,11 @@ import (
 	"fmt"
 	"math"
 
-	"seehuhn.de/go/dijkstra"
+	"seehuhn.de/go/dag"
 
 	"seehuhn.de/go/postscript/funit"
 )
 
-// TODO(voss): use seehuhn.de/go/dag instead of seehuhn.de/go/dijkstra
 
 func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, error) {
 	var header [][]byte
@@ -196,7 +195,7 @@ func encodeArgs(cmds []GlyphOp) []enCmd {
 
 func encodeSubPath(cmds []enCmd) [][]byte {
 	g := encoder(cmds)
-	ee, err := dijkstra.ShortestPath(g, 0, len(cmds))
+	ee, err := dag.ShortestPath(g, len(cmds))
 	if err != nil {
 		panic(err)
 	}

@@ -21,7 +21,7 @@ import (
 	"encoding/binary"
 	"math/bits"
 
-	"seehuhn.de/go/dijkstra"
+	"seehuhn.de/go/dag"
 	"seehuhn.de/go/sfnt/glyph"
 )
 
@@ -102,8 +102,7 @@ func (cmap Format4) Lookup(r rune) glyph.ID {
 // Encode encodes the subtable into a byte slice.
 func (cmap Format4) Encode(language uint16) []byte {
 	g := makeSegments(cmap)
-	// TODO(voss): try dag.ShortestPath
-	segments, err := dijkstra.ShortestPath[uint32, *segment, int](g, 0, 0x10000)
+	segments, err := dag.ShortestPath[*segment, int](g, 0x10000)
 	if err != nil {
 		panic(err)
 	}
@@ -178,13 +177,13 @@ type segment struct {
 
 type makeSegments map[uint16]glyph.ID
 
-func (ms makeSegments) AppendEdges(segs []*segment, v uint32) []*segment {
+func (ms makeSegments) AppendEdges(segs []*segment, v int) []*segment {
 	if v > 0xFFFF {
 		return segs
 	}
 
 	// skip leading .notdef mappings
-	start := v
+	start := uint32(v)
 	var skip uint16
 	for start < 0xFFFF && ms[uint16(start)] == 0 {
 		start++
@@ -253,15 +252,15 @@ func (ms makeSegments) AppendEdges(segs []*segment, v uint32) []*segment {
 	return segs
 }
 
-func (ms makeSegments) Length(_ uint32, e *segment) int {
+func (ms makeSegments) Length(_ int, e *segment) int {
 	if e.useValues {
 		return 4 + (int(e.last-e.first) + 1)
 	}
 	return 4
 }
 
-func (ms makeSegments) To(_ uint32, e *segment) uint32 {
-	return uint32(e.last) + 1
+func (ms makeSegments) To(_ int, e *segment) int {
+	return int(e.last) + 1
 }
 
 type cmapFormat4 struct {
