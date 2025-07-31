@@ -150,10 +150,10 @@ func (f *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) cffD
 	}
 
 	if defaultWidth != 0 {
-		privateDict[opDefaultWidthX] = []interface{}{int32(defaultWidth)}
+		privateDict[opDefaultWidthX] = []interface{}{defaultWidth}
 	}
 	if nominalWidth != 0 {
-		privateDict[opNominalWidthX] = []interface{}{int32(nominalWidth)}
+		privateDict[opNominalWidthX] = []interface{}{nominalWidth}
 	}
 
 	return privateDict
