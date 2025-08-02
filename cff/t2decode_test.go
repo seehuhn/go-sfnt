@@ -138,7 +138,10 @@ func formatT2CharString(code []byte) string {
 }
 
 func glyphsEqual(g1, g2 *Glyph) bool {
-	if g1.Name != g2.Name || g1.Width != g2.Width {
+	if g1.Name != g2.Name {
+		return false
+	}
+	if math.Abs(g1.Width-g2.Width) > 0.5/65536 {
 		return false
 	}
 
