@@ -25,6 +25,7 @@ import (
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
+	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/maxp"
@@ -316,14 +317,14 @@ func (g *Glyph) append(buf []byte) []byte {
 // with their transformations applied.
 func (o *Outlines) Path(gid glyph.ID) path.Path {
 	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
-		return func(yield func(path.Command, []path.Point) bool) {}
+		return func(yield func(path.Command, []vec.Vec2) bool) {}
 	}
 
 	if g, ok := o.Glyphs[gid].Data.(SimpleGlyph); ok {
 		return g.Path()
 	}
 
-	return func(yield func(path.Command, []path.Point) bool) {
+	return func(yield func(path.Command, []vec.Vec2) bool) {
 		// allocate a separate map for each call of the iterator
 		seen := make(map[glyph.ID]bool)
 		for cmd, pts := range o.Glyphs.pathRecursive(seen, gid) {
@@ -336,13 +337,13 @@ func (o *Outlines) Path(gid glyph.ID) path.Path {
 
 func (gg Glyphs) pathRecursive(seen map[glyph.ID]bool, gid glyph.ID) path.Path {
 	if int(gid) >= len(gg) || seen[gid] {
-		return func(yield func(path.Command, []path.Point) bool) {}
+		return func(yield func(path.Command, []vec.Vec2) bool) {}
 	}
 	seen[gid] = true
 
 	g := gg[gid]
 	if g == nil { // blank glyph
-		return func(yield func(path.Command, []path.Point) bool) {}
+		return func(yield func(path.Command, []vec.Vec2) bool) {}
 	}
 
 	switch g := g.Data.(type) {
@@ -358,7 +359,7 @@ func (gg Glyphs) pathRecursive(seen map[glyph.ID]bool, gid glyph.ID) path.Path {
 }
 
 func (gg Glyphs) compositePath(seen map[glyph.ID]bool, gid glyph.ID, g CompositeGlyph) path.Path {
-	return func(yield func(path.Command, []path.Point) bool) {
+	return func(yield func(path.Command, []vec.Vec2) bool) {
 	componentLoop:
 		for _, comp := range g.Components {
 			M := [6]float64{1, 0, 0, 1, 0, 0} // identity matrix

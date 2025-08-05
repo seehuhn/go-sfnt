@@ -26,6 +26,7 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/header"
@@ -204,7 +205,7 @@ func TestGlyphPath(t *testing.T) {
 
 		// Collect path commands
 		var commands []path.Command
-		var points [][]path.Point
+		var points [][]vec.Vec2
 
 		for cmd, pts := range squarePath {
 			commands = append(commands, cmd)
@@ -245,7 +246,7 @@ func TestGlyphPath(t *testing.T) {
 
 		// Collect path commands
 		var commands []path.Command
-		var points [][]path.Point
+		var points [][]vec.Vec2
 
 		for cmd, pts := range compositePath {
 			commands = append(commands, cmd)

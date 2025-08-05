@@ -18,6 +18,7 @@ package glyf
 
 import (
 	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/geom/vec"
 
 	"seehuhn.de/go/postscript/funit"
 
@@ -35,7 +36,7 @@ type SimpleGlyph struct {
 func (g SimpleGlyph) Path() path.Path {
 	glyphInfo, err := g.Unpack()
 	if err != nil {
-		return func(yield func(path.Command, []path.Point) bool) {}
+		return func(yield func(path.Command, []vec.Vec2) bool) {}
 	}
 	return glyphInfo.Path()
 }
@@ -391,20 +392,20 @@ func (sd *SimpleUnpacked) AsGlyph() Glyph {
 }
 
 func (sd *SimpleUnpacked) Path() path.Path {
-	return func(yield func(path.Command, []path.Point) bool) {
-		var buf [3]path.Point
+	return func(yield func(path.Command, []vec.Vec2) bool) {
+		var buf [3]vec.Vec2
 
 		for _, cc := range sd.Contours {
 			if len(cc) < 2 { // no meaningful contour
 				continue
 			}
 
-			toPoint := func(p Point) path.Point {
-				return path.Point{X: float64(p.X), Y: float64(p.Y)}
+			toPoint := func(p Point) vec.Vec2 {
+				return vec.Vec2{X: float64(p.X), Y: float64(p.Y)}
 			}
 
-			midpoint := func(p1, p2 Point) path.Point {
-				return path.Point{
+			midpoint := func(p1, p2 Point) vec.Vec2 {
+				return vec.Vec2{
 					X: float64(p1.X+p2.X) / 2,
 					Y: float64(p1.Y+p2.Y) / 2,
 				}
@@ -436,12 +437,12 @@ func (sd *SimpleUnpacked) Path() path.Path {
 			// (which includes implicit on-curve midpoints).
 			makeExtendedPointIterator := func(
 				cc []Point,
-				toPointFunc func(Point) path.Point, // Renamed to avoid conflict
-				midpointFunc func(Point, Point) path.Point, // Renamed to avoid conflict
-			) func() (pt path.Point, onCurve bool, ok bool) {
+				toPointFunc func(Point) vec.Vec2, // Renamed to avoid conflict
+				midpointFunc func(Point, Point) vec.Vec2, // Renamed to avoid conflict
+			) func() (pt vec.Vec2, onCurve bool, ok bool) {
 
 				if len(cc) == 0 {
-					return func() (path.Point, bool, bool) { return path.Point{}, false, false }
+					return func() (vec.Vec2, bool, bool) { return vec.Vec2{}, false, false }
 				}
 
 				// State for the closure:
@@ -450,7 +451,7 @@ func (sd *SimpleUnpacked) Path() path.Path {
 				prevOnCurveInCC := prevPtInCC.OnCurve
 				pendingActualPoint := false // True if an implicit point was just yielded
 
-				return func() (path.Point, bool, bool) {
+				return func() (vec.Vec2, bool, bool) {
 					if pendingActualPoint {
 						pendingActualPoint = false
 
@@ -463,7 +464,7 @@ func (sd *SimpleUnpacked) Path() path.Path {
 					}
 
 					if i > len(cc) {
-						return path.Point{}, false, false
+						return vec.Vec2{}, false, false
 					}
 
 					curPtOriginal := cc[i%len(cc)]
@@ -485,7 +486,7 @@ func (sd *SimpleUnpacked) Path() path.Path {
 			getNextExtendedPoint := makeExtendedPointIterator(cc, toPoint, midpoint)
 
 			fillPoint := func(p *struct {
-				pt      path.Point
+				pt      vec.Vec2
 				onCurve bool
 				valid   bool
 			}) {
@@ -498,7 +499,7 @@ func (sd *SimpleUnpacked) Path() path.Path {
 			}
 
 			var p0, p1, p2 struct {
-				pt      path.Point
+				pt      vec.Vec2
 				onCurve bool
 				valid   bool // false if we are at the end of the stream
 			}

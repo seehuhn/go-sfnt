@@ -20,6 +20,7 @@ import (
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
+	"seehuhn.de/go/geom/vec"
 
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/type1"
@@ -106,35 +107,35 @@ func (o *Outlines) NumGlyphs() int {
 // This converts CFF glyph commands to path commands.
 func (o *Outlines) Path(gid glyph.ID) path.Path {
 	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
-		return func(yield func(path.Command, []path.Point) bool) {}
+		return func(yield func(path.Command, []vec.Vec2) bool) {}
 	}
 
 	cffGlyph := o.Glyphs[gid]
 
-	return func(yield func(path.Command, []path.Point) bool) {
-		var buf [3]path.Point
+	return func(yield func(path.Command, []vec.Vec2) bool) {
+		var buf [3]vec.Vec2
 
 		for _, cmd := range cffGlyph.Cmds {
 			switch cmd.Op {
 			case OpMoveTo:
 				if len(cmd.Args) >= 2 {
-					buf[0] = path.Point{X: cmd.Args[0], Y: cmd.Args[1]}
+					buf[0] = vec.Vec2{X: cmd.Args[0], Y: cmd.Args[1]}
 					if !yield(path.CmdMoveTo, buf[:1]) {
 						return
 					}
 				}
 			case OpLineTo:
 				if len(cmd.Args) >= 2 {
-					buf[0] = path.Point{X: cmd.Args[0], Y: cmd.Args[1]}
+					buf[0] = vec.Vec2{X: cmd.Args[0], Y: cmd.Args[1]}
 					if !yield(path.CmdLineTo, buf[:1]) {
 						return
 					}
 				}
 			case OpCurveTo:
 				if len(cmd.Args) >= 6 {
-					buf[0] = path.Point{X: cmd.Args[0], Y: cmd.Args[1]} // control point 1
-					buf[1] = path.Point{X: cmd.Args[2], Y: cmd.Args[3]} // control point 2
-					buf[2] = path.Point{X: cmd.Args[4], Y: cmd.Args[5]} // end point
+					buf[0] = vec.Vec2{X: cmd.Args[0], Y: cmd.Args[1]} // control point 1
+					buf[1] = vec.Vec2{X: cmd.Args[2], Y: cmd.Args[3]} // control point 2
+					buf[2] = vec.Vec2{X: cmd.Args[4], Y: cmd.Args[5]} // end point
 					if !yield(path.CmdCubeTo, buf[:3]) {
 						return
 					}
