@@ -137,6 +137,15 @@ func formatT2CharString(code []byte) string {
 	return buf.String()
 }
 
+// floatEqual returns true if two float64 values are equal within CFF encoding tolerance.
+// For values outside the 16-bit integer range, we don't check tolerance.
+func floatEqual(a, b float64) bool {
+	if math.Abs(a) >= 32767 || math.Abs(b) >= 32767 {
+		return true
+	}
+	return math.Abs(a-b) <= 0.5/65536
+}
+
 func glyphsEqual(g1, g2 *Glyph) bool {
 	if g1.Name != g2.Name {
 		return false
@@ -149,12 +158,12 @@ func glyphsEqual(g1, g2 *Glyph) bool {
 		return false
 	}
 	for i, s1 := range g1.HStem {
-		if s1 != g2.HStem[i] {
+		if !floatEqual(s1, g2.HStem[i]) {
 			return false
 		}
 	}
 	for i, s1 := range g1.VStem {
-		if s1 != g2.VStem[i] {
+		if !floatEqual(s1, g2.VStem[i]) {
 			return false
 		}
 	}
