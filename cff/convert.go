@@ -120,7 +120,7 @@ func (o *Outlines) makeNames(glyphText map[glyph.ID]string) {
 //   - The encoding is discarded.
 //   - The CID SystemInfo is replaced with the given ros.
 func (o *Outlines) MakeCIDKeyed(ros *cid.SystemInfo, gidToCID []cid.CID) {
-	// remove information onlly relevant for simple fonts
+	// remove information only relevant for simple fonts
 	for i, g := range o.Glyphs {
 		if g.Name == "" {
 			continue
