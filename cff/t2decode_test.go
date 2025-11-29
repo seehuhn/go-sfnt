@@ -50,6 +50,13 @@ func FuzzT2Decode(f *testing.F) {
 			return
 		}
 
+		// Skip glyphs with values that overflow int32 when scaled to 16.16
+		// fixed-point. This can happen when arithmetic operators like div
+		// produce values that can't be directly encoded.
+		if hasOutOfRangeValues(g1, info.nominalWidth) {
+			return
+		}
+
 		data2, err := g1.encodeCharString(info.defaultWidth, info.nominalWidth)
 		if err != nil {
 			t.Fatal(err)
@@ -74,6 +81,28 @@ func FuzzT2Decode(f *testing.F) {
 			t.Error("different")
 		}
 	})
+}
+
+func hasOutOfRangeValues(g *Glyph, nominalWidth float64) bool {
+	// check width
+	widthDiff := g.Width - nominalWidth
+	if scaled := math.Round(widthDiff * 65536); scaled > math.MaxInt32 || scaled < math.MinInt32 {
+		return true
+	}
+
+	// check stems
+	for _, stems := range [][]float64{g.HStem, g.VStem} {
+		prev := 0.0
+		for _, x := range stems {
+			diff := x - prev
+			scaled := math.Round(diff * 65536)
+			if scaled > math.MaxInt32 || scaled < math.MinInt32 {
+				return true
+			}
+			prev = x
+		}
+	}
+	return false
 }
 
 func formatT2CharString(code []byte) string {

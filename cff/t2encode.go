@@ -71,8 +71,9 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 			stems = stems[2*k:]
 			prev := 0.0
 			for _, x := range chunk {
-				header = append(header, encodeNumber(x-prev).Code)
-				prev = x
+				encoded := encodeNumber(x - prev)
+				header = append(header, encoded.Code)
+				prev += encoded.Val
 			}
 
 			canOmitVStem := (i == 1 &&
