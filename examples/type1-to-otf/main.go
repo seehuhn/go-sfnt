@@ -30,6 +30,7 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
 
+	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/postscript/afm"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
@@ -127,14 +128,24 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 				t1.WidthY, name)
 		}
 		g := cff.NewGlyph(name, t1.WidthX)
-		for _, cmd := range t1.Cmds {
-			switch cmd.Op {
-			case type1.OpMoveTo:
-				g.MoveTo(cmd.Args[0], cmd.Args[1])
-			case type1.OpLineTo:
-				g.LineTo(cmd.Args[0], cmd.Args[1])
-			case type1.OpCurveTo:
-				g.CurveTo(cmd.Args[0], cmd.Args[1], cmd.Args[2], cmd.Args[3], cmd.Args[4], cmd.Args[5])
+		if t1.Outline != nil {
+			coordIdx := 0
+			for _, cmd := range t1.Outline.Cmds {
+				switch cmd {
+				case path.CmdMoveTo:
+					g.MoveTo(t1.Outline.Coords[coordIdx].X, t1.Outline.Coords[coordIdx].Y)
+					coordIdx++
+				case path.CmdLineTo:
+					g.LineTo(t1.Outline.Coords[coordIdx].X, t1.Outline.Coords[coordIdx].Y)
+					coordIdx++
+				case path.CmdCubeTo:
+					g.CurveTo(
+						t1.Outline.Coords[coordIdx].X, t1.Outline.Coords[coordIdx].Y,
+						t1.Outline.Coords[coordIdx+1].X, t1.Outline.Coords[coordIdx+1].Y,
+						t1.Outline.Coords[coordIdx+2].X, t1.Outline.Coords[coordIdx+2].Y,
+					)
+					coordIdx += 3
+				}
 			}
 		}
 		g.HStem = fixSlice(t1.HStem)
