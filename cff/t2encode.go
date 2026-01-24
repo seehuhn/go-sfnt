@@ -26,7 +26,6 @@ import (
 	"seehuhn.de/go/postscript/funit"
 )
 
-
 func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, error) {
 	var header [][]byte
 	w := g.Width

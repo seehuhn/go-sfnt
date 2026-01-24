@@ -114,15 +114,23 @@ func (o *Outlines) Path(gid glyph.ID) path.Path {
 
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		var buf [3]vec.Vec2
+		hasSubpath := false // track whether we have an open subpath
 
 		for _, cmd := range cffGlyph.Cmds {
 			switch cmd.Op {
 			case OpMoveTo:
 				if len(cmd.Args) >= 2 {
+					// in CFF, MoveTo implicitly closes the previous subpath
+					if hasSubpath {
+						if !yield(path.CmdClose, nil) {
+							return
+						}
+					}
 					buf[0] = vec.Vec2{X: cmd.Args[0], Y: cmd.Args[1]}
 					if !yield(path.CmdMoveTo, buf[:1]) {
 						return
 					}
+					hasSubpath = true
 				}
 			case OpLineTo:
 				if len(cmd.Args) >= 2 {
@@ -143,9 +151,11 @@ func (o *Outlines) Path(gid glyph.ID) path.Path {
 			}
 		}
 
-		// CFF glyphs are implicitly closed
-		if !yield(path.CmdClose, nil) {
-			return
+		// close the final subpath
+		if hasSubpath {
+			if !yield(path.CmdClose, nil) {
+				return
+			}
 		}
 	}
 }
