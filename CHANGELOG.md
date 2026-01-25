@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] (2025-01-25)
+
+### Changed
+- **API Change**: Path() methods in CFF and TrueType glyph outlines now use `vec.Vec2` instead of `path.Point` for point coordinates in the iterator function signature.
+- Updated dependencies including seehuhn.de/go/geom and seehuhn.de/go/postscript packages.
+
+### Fixed
+- Stem hint encoding now uses actually encoded (rounded) values as base for subsequent deltas, ensuring round-trip consistency.
+- Several fuzzing failures addressed.
+
 ## [0.6.0] (2025-06-30)
 
 ### Added
