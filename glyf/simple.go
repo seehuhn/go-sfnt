@@ -164,7 +164,7 @@ func (sg SimpleGlyph) Unpack() (*SimpleUnpacked, error) {
 	if numContours > 0 {
 		cc = make([]Contour, numContours)
 		start := 0
-		for i := 0; i < numContours; i++ {
+		for i := range numContours {
 			end := int(endPtsOfContours[i]) + 1
 			contour := make([]Point, end-start)
 			for j := start; j < end; j++ {

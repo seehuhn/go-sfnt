@@ -41,7 +41,7 @@ func readFDSelect(p *parser.Parser, nGlyphs, nPrivate int) (FDSelectFn, error) {
 		if err != nil {
 			return nil, err
 		}
-		for i := 0; i < nGlyphs; i++ {
+		for i := range nGlyphs {
 			if int(buf[i]) >= nPrivate {
 				return nil, invalidSince("FDSelect out of range")
 			}
@@ -105,7 +105,7 @@ func (fdSelect FDSelectFn) encode(nGlyphs int) []byte {
 	buf := []byte{3, 0, 0}
 	var currendFD int
 	nSeg := 0
-	for i := 0; i < nGlyphs; i++ {
+	for i := range nGlyphs {
 		fd := fdSelect(glyph.ID(i))
 		if i > 0 && fd == currendFD {
 			continue
@@ -124,7 +124,7 @@ func (fdSelect FDSelectFn) encode(nGlyphs int) []byte {
 
 useFormat0:
 	buf = make([]byte, nGlyphs+1)
-	for i := 0; i < nGlyphs; i++ {
+	for i := range nGlyphs {
 		buf[i+1] = byte(fdSelect(glyph.ID(i)))
 	}
 	return buf

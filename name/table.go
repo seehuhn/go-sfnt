@@ -18,7 +18,7 @@ package name
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"golang.org/x/exp/maps"
@@ -141,9 +141,7 @@ func (t *Table) String() string {
 
 	if t.Extra != nil {
 		keys := maps.Keys(t.Extra)
-		sort.Slice(keys, func(i, j int) bool {
-			return keys[i] < keys[j]
-		})
+		slices.Sort(keys)
 		for _, nameID := range keys {
 			fmt.Fprintf(b, "%d: %q\n", nameID, t.VariationsPostScriptName)
 		}
@@ -286,9 +284,7 @@ func (t *Table) keys() []ID {
 				res = append(res, nameID)
 			}
 		}
-		sort.Slice(res, func(i, j int) bool {
-			return res[i] < res[j]
-		})
+		slices.Sort(res)
 	}
 	return res
 }

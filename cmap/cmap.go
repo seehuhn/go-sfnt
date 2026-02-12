@@ -68,7 +68,7 @@ func Decode(data []byte) (Table, error) {
 	var segs []seg
 
 	res := make(Table)
-	for i := 0; i < numTables; i++ {
+	for i := range numTables {
 		platformID := uint16(data[4+i*8])<<8 | uint16(data[5+i*8])
 		if platformID > 4 {
 			return nil, errMalformedTable
@@ -170,7 +170,7 @@ func (ss Table) Encode() []byte {
 	pos := endOfHeader
 offsLoop:
 	for i, e := range ext {
-		for j := 0; j < i; j++ {
+		for j := range i {
 			if bytes.Equal(e.Data, ext[j].Data) {
 				ext[i].Offs = ext[j].Offs
 				ext[i].Data = nil

@@ -129,7 +129,7 @@ func circle(g *cff.Glyph, x, y, radius float64) {
 	y0 := y + radius*math.Sin(phi)
 	g.MoveTo(x0, y0)
 
-	for i := 0; i < nSegment; i++ {
+	for range nSegment {
 		x1 := x0 - k*math.Sin(phi)
 		y1 := y0 + k*math.Cos(phi)
 		phi += dPhi

@@ -62,10 +62,7 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 			return nil, errors.New("invalid number of stems")
 		}
 		for len(stems) > 0 {
-			k := (maxStack - extra) / 2
-			if k > len(stems)/2 {
-				k = len(stems) / 2
-			}
+			k := min((maxStack-extra)/2, len(stems)/2)
 			chunk := stems[:2*k]
 			stems = stems[2*k:]
 			prev := 0.0

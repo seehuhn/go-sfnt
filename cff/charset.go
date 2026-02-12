@@ -135,10 +135,7 @@ func encodeCharset(names []int32) ([]byte, error) {
 			name := names[runs[i]]
 			length := int32(runs[i+1] - runs[i])
 			for length > 0 {
-				chunk := length
-				if chunk > 256 {
-					chunk = 256
-				}
+				chunk := min(length, 256)
 				buf = append(buf, byte(name>>8), byte(name), byte(chunk-1))
 				name += chunk
 				length -= chunk

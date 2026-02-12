@@ -19,6 +19,7 @@ package glyf
 import (
 	"bytes"
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -409,13 +410,7 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 			}
 
 			// Verify we get reasonable path structure
-			hasMoveTo := false
-			for _, cmd := range pathCommands {
-				if cmd == path.CmdMoveTo {
-					hasMoveTo = true
-					break
-				}
-			}
+			hasMoveTo := slices.Contains(pathCommands, path.CmdMoveTo)
 			if !hasMoveTo {
 				t.Errorf("Expected at least one MoveTo command")
 			}

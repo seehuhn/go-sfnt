@@ -19,7 +19,7 @@ package mac
 import "testing"
 
 func TestEncoding(t *testing.T) {
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		s := Decode([]byte{byte(i)})
 		cc := Encode(s)
 		if len(cc) != 1 || cc[0] != byte(i) {

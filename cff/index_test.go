@@ -32,7 +32,7 @@ func TestIndex(t *testing.T) {
 
 	for _, count := range []int{0, 2, 3, 517} {
 		data := make(cffIndex, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			d := i % 2
 			data[i] = blob[d : d+127]
 		}

@@ -55,10 +55,10 @@ func (f *Font) Write(w io.Writer) error {
 		// see afdko/c/shared/source/cffwrite/cffwrite_dict.c:cfwDictFillTop
 		registrySID := strings.lookup(f.ROS.Registry)
 		orderingSID := strings.lookup(f.ROS.Ordering)
-		topDict[opROS] = []interface{}{
+		topDict[opROS] = []any{
 			registrySID, orderingSID, f.ROS.Supplement,
 		}
-		topDict[opCIDCount] = []interface{}{int32(numGlyphs)}
+		topDict[opCIDCount] = []any{int32(numGlyphs)}
 		// opFDArray is updated below
 		// opFDSelect is updated below
 	} else {
@@ -83,14 +83,14 @@ func (f *Font) Write(w io.Writer) error {
 	var glyphNames []int32
 	if f.ROS == nil {
 		glyphNames = make([]int32, numGlyphs)
-		for i := uint16(0); i < numGlyphs; i++ {
+		for i := range numGlyphs {
 			glyphNames[i] = strings.lookup(f.Glyphs[i].Name)
 		}
 
 		if len(f.Encoding) == 0 || isStandardEncoding(f.Encoding, f.Glyphs) {
 			// topDict[opEncoding] = []interface{}{int32(0)}
 		} else if isExpertEncoding(f.Encoding, f.Glyphs) {
-			topDict[opEncoding] = []interface{}{int32(1)}
+			topDict[opEncoding] = []any{int32(1)}
 		} else {
 			encoding, err := encodeEncoding(f.Encoding, glyphNames)
 			if err != nil {
@@ -166,7 +166,7 @@ func (f *Font) Write(w io.Writer) error {
 
 	cumsum := func() []int32 {
 		res := make([]int32, numSections+1)
-		for i := 0; i < numSections; i++ {
+		for i := range numSections {
 			res[i+1] = res[i] + int32(len(blobs[i]))
 		}
 		return res
@@ -180,13 +180,13 @@ func (f *Font) Write(w io.Writer) error {
 		blobs[secHeader][3] = offsSize(offs[numSections])
 
 		var fontDictIndex cffIndex
-		for i := 0; i < numFonts; i++ {
+		for i := range numFonts {
 			secPrivateDict := secPrivateDicts[i]
 			// TODO(voss): only write this key, if subroutines are present?
-			privateDicts[i][opSubrs] = []interface{}{offs[secSubrsIndex] - offs[secPrivateDict]}
+			privateDicts[i][opSubrs] = []any{offs[secSubrsIndex] - offs[secPrivateDict]}
 			blobs[secPrivateDict] = privateDicts[i].encode(strings)
 			pdSize := len(blobs[secPrivateDict])
-			pdDesc := []interface{}{int32(pdSize), offs[secPrivateDict]}
+			pdDesc := []any{int32(pdSize), offs[secPrivateDict]}
 			if f.ROS != nil {
 				fontDicts[i][opPrivate] = pdDesc
 				fontDictData := fontDicts[i].encode(strings)
@@ -199,14 +199,14 @@ func (f *Font) Write(w io.Writer) error {
 			blobs[secFontDictIndex] = fontDictIndex.encode()
 		}
 
-		topDict[opCharset] = []interface{}{offs[secCharsets]}
+		topDict[opCharset] = []any{offs[secCharsets]}
 		if secEncodings >= 4 {
-			topDict[opEncoding] = []interface{}{offs[secEncodings]}
+			topDict[opEncoding] = []any{offs[secEncodings]}
 		}
-		topDict[opCharStrings] = []interface{}{offs[secCharStringsIndex]}
+		topDict[opCharStrings] = []any{offs[secCharStringsIndex]}
 		if secFDSelect >= 0 {
-			topDict[opFDSelect] = []interface{}{offs[secFDSelect]}
-			topDict[opFDArray] = []interface{}{offs[secFontDictIndex]}
+			topDict[opFDSelect] = []any{offs[secFDSelect]}
+			topDict[opFDArray] = []any{offs[secFontDictIndex]}
 		}
 		topDictData := topDict.encode(strings)
 		blobs[secTopDictIndex] = cffIndex{topDictData}.encode()
@@ -215,7 +215,7 @@ func (f *Font) Write(w io.Writer) error {
 
 		newOffs := cumsum()
 		done := true
-		for i := 0; i < numSections; i++ {
+		for i := range numSections {
 			if newOffs[i] != offs[i] {
 				done = false
 				break
@@ -228,7 +228,7 @@ func (f *Font) Write(w io.Writer) error {
 		offs = newOffs
 	}
 
-	for i := 0; i < numSections; i++ {
+	for i := range numSections {
 		_, err = w.Write(blobs[i])
 		if err != nil {
 			return err

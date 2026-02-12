@@ -58,7 +58,7 @@ func decodeFormat4(in []byte, code2rune func(c int) rune) (Subtable, error) {
 
 	cmap := Format4{}
 	prevEnd := uint32(0)
-	for k := 0; k < segCount; k++ {
+	for k := range segCount {
 		start := uint32(startCode[k])
 		end := uint32(endCode[k]) + 1
 		if start < prevEnd || end <= start {

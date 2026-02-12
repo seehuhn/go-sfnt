@@ -131,29 +131,29 @@ func (f *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) cffD
 	privateDict.setDeltaF16(opBlueValues, private.BlueValues)
 	privateDict.setDeltaF16(opOtherBlues, private.OtherBlues)
 	if math.Abs(private.BlueScale-defaultBlueScale) > 1e-6 {
-		privateDict[opBlueScale] = []interface{}{private.BlueScale}
+		privateDict[opBlueScale] = []any{private.BlueScale}
 	}
 	if private.BlueShift != defaultBlueShift {
-		privateDict[opBlueShift] = []interface{}{private.BlueShift}
+		privateDict[opBlueShift] = []any{private.BlueShift}
 	}
 	if private.BlueFuzz != defaultBlueFuzz {
-		privateDict[opBlueFuzz] = []interface{}{private.BlueFuzz}
+		privateDict[opBlueFuzz] = []any{private.BlueFuzz}
 	}
 	if private.StdHW != 0 {
-		privateDict[opStdHW] = []interface{}{private.StdHW}
+		privateDict[opStdHW] = []any{private.StdHW}
 	}
 	if private.StdVW != 0 {
-		privateDict[opStdVW] = []interface{}{private.StdVW}
+		privateDict[opStdVW] = []any{private.StdVW}
 	}
 	if private.ForceBold {
-		privateDict[opForceBold] = []interface{}{int32(1)}
+		privateDict[opForceBold] = []any{int32(1)}
 	}
 
 	if defaultWidth != 0 {
-		privateDict[opDefaultWidthX] = []interface{}{defaultWidth}
+		privateDict[opDefaultWidthX] = []any{defaultWidth}
 	}
 	if nominalWidth != 0 {
-		privateDict[opNominalWidthX] = []interface{}{nominalWidth}
+		privateDict[opNominalWidthX] = []any{nominalWidth}
 	}
 
 	return privateDict

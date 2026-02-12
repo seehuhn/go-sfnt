@@ -18,7 +18,7 @@ package builder
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 
 	"golang.org/x/exp/maps"
@@ -634,7 +634,7 @@ func (p *parser) readGpos4() *gtab.LookupTable {
 		}
 
 		numClasses := len(classesSeen)
-		for cls := 0; cls < numClasses; cls++ {
+		for cls := range numClasses {
 			if !classesSeen[uint16(cls)] {
 				p.fatal("missing mark class %d", cls)
 			}
@@ -654,7 +654,7 @@ func (p *parser) readGpos4() *gtab.LookupTable {
 			p.optional(itemColon)
 
 			anchors := make([]anchor.Table, numClasses)
-			for i := 0; i < numClasses; i++ {
+			for i := range numClasses {
 				if i > 0 {
 					p.optional(itemComma)
 				}
@@ -1183,7 +1183,7 @@ done:
 func (p *parser) readGlyphSet() []glyph.ID {
 	p.required(itemSquareBracketOpen, "[")
 	res := p.readGlyphList()
-	sort.Slice(res, func(i, j int) bool { return res[i] < res[j] })
+	slices.Sort(res)
 	p.required(itemSquareBracketClose, "]")
 	return unique(res)
 }
@@ -1370,10 +1370,8 @@ func (p *parser) requiredIdentifier(name string) item {
 
 func (p *parser) optional(types ...itemType) bool {
 	item := p.readItem()
-	for _, typ := range types {
-		if item.typ == typ {
-			return true
-		}
+	if slices.Contains(types, item.typ) {
+		return true
 	}
 	p.backlog = append(p.backlog, item)
 	return false
@@ -1427,7 +1425,7 @@ func isIdentifier(i item, val string) bool {
 }
 
 func makeCoverageTable(in []glyph.ID) coverage.Table {
-	sort.Slice(in, func(i, j int) bool { return in[i] < in[j] })
+	slices.Sort(in)
 	in = unique(in)
 	cov := make(coverage.Table, len(in))
 	for i, gid := range in {
@@ -1474,7 +1472,7 @@ func rev[T any](seq []T) []T {
 func copyRev[T any](seq []T) []T {
 	n := len(seq)
 	res := make([]T, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		res[i] = seq[n-i-1]
 	}
 	return res
@@ -1489,7 +1487,7 @@ func (err *parseError) Error() string {
 	return fmt.Sprintf("%d:%s: %s", err.next.line, err.next.String(), err.msg)
 }
 
-func (p *parser) fatal(format string, a ...interface{}) {
+func (p *parser) fatal(format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
 	panic(&parseError{next: p.peek(), msg: msg})
 }

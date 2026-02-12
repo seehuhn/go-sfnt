@@ -31,7 +31,7 @@ func FuzzEncoding(f *testing.F) {
 	var cc []int32
 
 	var glyphs []*Glyph
-	for i := 0; i < 258; i++ {
+	for i := range 258 {
 		var name string
 		if i == 0 {
 			name = ".notdef"

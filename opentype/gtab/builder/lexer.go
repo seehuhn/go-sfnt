@@ -133,7 +133,7 @@ func (l *lexer) backup() {
 	l.pos -= l.width
 }
 
-func (l *lexer) errorf(format string, args ...interface{}) stateFn {
+func (l *lexer) errorf(format string, args ...any) stateFn {
 	l.items <- item{
 		typ: itemError,
 		val: fmt.Sprintf(format, args...),

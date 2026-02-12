@@ -32,7 +32,7 @@ import (
 func TestFDSelect(t *testing.T) {
 	// Construct a CID-keyed CFF font with several FDs.
 	o1 := &cff.Outlines{}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		g := cff.NewGlyph(fmt.Sprintf("orig%d", i), 100*float64(i))
 		g.MoveTo(0, 0)
 		g.LineTo(100*float64(i), 0)
@@ -53,7 +53,7 @@ func TestFDSelect(t *testing.T) {
 		Supplement: 0,
 	}
 	o1.GIDToCID = make([]cid.CID, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		o1.GIDToCID[i] = cid.CID(i)
 	}
 	i1 := &Font{

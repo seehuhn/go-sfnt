@@ -34,7 +34,7 @@ func TestPostScriptName(t *testing.T) {
 	}
 
 	var rr []rune
-	for i := 0; i < 255; i++ {
+	for i := range 255 {
 		rr = append(rr, rune(i))
 	}
 	info.FamilyName = string(rr)

@@ -20,7 +20,7 @@ package coverage
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt/glyph"
@@ -42,7 +42,7 @@ func (table Table) Contains(gid glyph.ID) bool {
 // Glyphs returns the glyphs covered by the table in increasing order.
 func (table Table) Glyphs() []glyph.ID {
 	keys := maps.Keys(table)
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	slices.Sort(keys)
 	return keys
 }
 

@@ -20,7 +20,7 @@ package classdef
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
@@ -55,8 +55,7 @@ func (info Table) Glyphs() [][]glyph.ID {
 		glyphs[cls] = append(glyphs[cls], gid)
 	}
 	for i := 1; i < numClasses; i++ {
-		sort.Slice(glyphs[i],
-			func(k, l int) bool { return glyphs[i][k] < glyphs[i][l] })
+		slices.Sort(glyphs[i])
 	}
 	return glyphs
 }
@@ -88,7 +87,7 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 		}
 
 		res := make(Table, glyphCount)
-		for i := 0; i < glyphCount; i++ {
+		for i := range glyphCount {
 			classValue, err := p.ReadUint16()
 			if err != nil {
 				return nil, err

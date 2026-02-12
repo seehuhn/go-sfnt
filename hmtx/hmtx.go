@@ -238,7 +238,7 @@ func (info *Info) Encode() (hheaData []byte, hmtxData []byte) {
 	hheaData = buf.Bytes()
 
 	buf = bytes.NewBuffer(make([]byte, 0, 4*numLong+2*(numGlyphs-numLong)))
-	for i := 0; i < numGlyphs; i++ {
+	for i := range numGlyphs {
 		if i < numLong {
 			buf.Write([]byte{
 				byte(info.Widths[i] >> 8), byte(info.Widths[i]),

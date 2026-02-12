@@ -107,7 +107,7 @@ func (g *FontGen) GsubTestFont(idx int) (*sfnt.Font, error) {
 
 func fixLines(s string) string {
 	var lines []string
-	for _, l := range strings.Split(s, "\n") {
+	for l := range strings.SplitSeq(s, "\n") {
 		l = strings.TrimSpace(l)
 		if l != "" {
 			lines = append(lines, l+"\n")

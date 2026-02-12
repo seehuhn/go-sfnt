@@ -494,10 +494,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				if k < 0 {
 					return nil, errStackUnderflow
 				}
-				idx := int(stack[k])
-				if idx < 0 {
-					idx = 0
-				}
+				idx := max(int(stack[k]), 0)
 				if k-idx-1 < 0 {
 					return nil, errors.New("invalid index")
 				}

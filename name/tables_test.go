@@ -26,7 +26,7 @@ func TestChoose(t *testing.T) {
 	tt := Tables{}
 	makeTable := func(lang string, numEntries int) {
 		t := &Table{}
-		for i := 0; i < numEntries; i++ {
+		for i := range numEntries {
 			t.set(ID(i), "x")
 		}
 		t.set(1000, lang)

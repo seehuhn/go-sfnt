@@ -471,7 +471,7 @@ func (gg Glyphs) compositePath(seen map[glyph.ID]bool, gid glyph.ID, g Composite
 
 			case comp.Flags&FlagWeHaveATwoByTwo != 0:
 				// Full 2x2 transformation matrix
-				for i := 0; i < 4; i++ {
+				for i := range 4 {
 					val, ok := readInt16()
 					if !ok {
 						continue componentLoop // skip malformed component

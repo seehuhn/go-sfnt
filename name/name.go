@@ -76,7 +76,7 @@ func Decode(data []byte) (*Info, error) {
 	msTables := make(map[string]*Table)
 
 recLoop:
-	for i := 0; i < numRec; i++ {
+	for i := range numRec {
 		pos := recBase + i*12
 		platformID := uint16(data[pos])<<8 | uint16(data[pos+1])
 		encodingID := uint16(data[pos+2])<<8 | uint16(data[pos+3])
@@ -222,7 +222,7 @@ func (info *Info) Encode(windowsEncodingID uint16) []byte {
 	res[3] = byte(numRec)
 	res[4] = byte(startOfStrings >> 8)
 	res[5] = byte(startOfStrings)
-	for i := 0; i < numRec; i++ {
+	for i := range numRec {
 		rec := records[i]
 		base := startOfRecords + i*12
 		res[base] = byte(rec.PlatformID >> 8)

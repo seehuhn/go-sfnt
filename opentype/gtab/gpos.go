@@ -19,7 +19,6 @@ package gtab
 import (
 	"fmt"
 	"slices"
-	"sort"
 
 	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt/glyph"
@@ -435,7 +434,7 @@ func (l Gpos2_1) encode() []byte {
 		buf = append(buf, byte(pairValueCount>>8), byte(pairValueCount))
 
 		keys := maps.Keys(adj)
-		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+		slices.Sort(keys)
 		for _, secondGlyph := range keys {
 			buf = append(buf, byte(secondGlyph>>8), byte(secondGlyph))
 			buf = append(buf, adj[secondGlyph].First.encode(valueFormat1)...)
@@ -515,7 +514,7 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 	records := make([]*PairAdjust, numRecords)
-	for i := 0; i < numRecords; i++ {
+	for i := range numRecords {
 		first, err := readValueRecord(p, valueFormat1)
 		if err != nil {
 			return nil, err
@@ -773,13 +772,13 @@ func (l *Gpos3_1) encode() []byte {
 		byte(coverageOffset>>8), byte(coverageOffset),
 		byte(entryExitCount>>8), byte(entryExitCount),
 	)
-	for i := 0; i < entryExitCount; i++ {
+	for i := range entryExitCount {
 		res = append(res,
 			byte(entryOffs[i]>>8), byte(entryOffs[i]),
 			byte(exitOffs[i]>>8), byte(exitOffs[i]),
 		)
 	}
-	for i := 0; i < entryExitCount; i++ {
+	for i := range entryExitCount {
 		if entryOffs[i] != 0 {
 			res = l.Records[i].Entry.Append(res)
 		}

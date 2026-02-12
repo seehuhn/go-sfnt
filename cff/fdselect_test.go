@@ -54,7 +54,7 @@ func FuzzFDSelect(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		for i := glyph.ID(0); i < nGlyphs; i++ {
+		for i := range glyph.ID(nGlyphs) {
 			if fdSelect(i) != fdSelect2(i) {
 				t.Errorf("%d: %d != %d", i, fdSelect(i), fdSelect2(i))
 			}

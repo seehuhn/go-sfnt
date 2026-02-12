@@ -31,11 +31,11 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-type cffDict map[dictOp][]interface{}
+type cffDict map[dictOp][]any
 
 func decodeDict(buf []byte, ss *cffStrings) (cffDict, error) {
 	res := cffDict{}
-	var stack []interface{}
+	var stack []any
 
 	flush := func(op dictOp) error {
 		if op.isString() {
@@ -140,7 +140,7 @@ func (d cffDict) encode(ss *cffStrings) []byte {
 
 	res := &bytes.Buffer{}
 	for _, op := range keys {
-		var args []interface{}
+		var args []any
 		for _, arg := range d[op] {
 			if s, ok := arg.(string); ok {
 				arg = ss.lookup(s)
@@ -425,7 +425,7 @@ func (d cffDict) setDeltaF16(op dictOp, val []funit.Int16) {
 		delete(d, op)
 		return
 	}
-	res := make([]interface{}, len(val))
+	res := make([]any, len(val))
 	var prev funit.Int16
 	for i, x := range val {
 		res[i] = int32(x - prev)
@@ -452,7 +452,7 @@ func (d cffDict) setFontMatrix(op dictOp, fm matrix.Matrix, isCIDKeyed bool) {
 		return
 	}
 
-	val := make([]interface{}, 6)
+	val := make([]any, 6)
 	for i, xi := range fm {
 		val[i] = xi
 	}
@@ -481,37 +481,37 @@ func (d cffDict) sortedKeys() []dictOp {
 func makeTopDict(info *type1.FontInfo) cffDict {
 	topDict := cffDict{}
 	if info.Version != "" {
-		topDict[opVersion] = []interface{}{info.Version}
+		topDict[opVersion] = []any{info.Version}
 	}
 	if info.Notice != "" {
-		topDict[opNotice] = []interface{}{info.Notice}
+		topDict[opNotice] = []any{info.Notice}
 	}
 	if info.Copyright != "" {
-		topDict[opCopyright] = []interface{}{info.Copyright}
+		topDict[opCopyright] = []any{info.Copyright}
 	}
 	if info.FullName != "" {
-		topDict[opFullName] = []interface{}{info.FullName}
+		topDict[opFullName] = []any{info.FullName}
 	}
 	if info.FamilyName != "" {
-		topDict[opFamilyName] = []interface{}{info.FamilyName}
+		topDict[opFamilyName] = []any{info.FamilyName}
 	}
 	if info.Weight != "" {
-		topDict[opWeight] = []interface{}{info.Weight}
+		topDict[opWeight] = []any{info.Weight}
 	}
 	if info.IsFixedPitch {
-		topDict[opIsFixedPitch] = []interface{}{int32(1)}
+		topDict[opIsFixedPitch] = []any{int32(1)}
 	}
 	if info.ItalicAngle != 0 {
-		topDict[opItalicAngle] = []interface{}{info.ItalicAngle}
+		topDict[opItalicAngle] = []any{info.ItalicAngle}
 	}
 	if info.UnderlinePosition != defaultUnderlinePosition {
-		topDict[opUnderlinePosition] = []interface{}{int32(info.UnderlinePosition)}
+		topDict[opUnderlinePosition] = []any{int32(info.UnderlinePosition)}
 	}
 	if info.UnderlineThickness != defaultUnderlineThickness {
-		topDict[opUnderlineThickness] = []interface{}{int32(info.UnderlineThickness)}
+		topDict[opUnderlineThickness] = []any{int32(info.UnderlineThickness)}
 	}
 	// if info.IsOutlined {
-	// 	topDict[opPaintType] = []interface{}{int32(2)} // per font
+	// 	topDict[opPaintType] = []any{int32(2)} // per font
 	// }
 
 	return topDict

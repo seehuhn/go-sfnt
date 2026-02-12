@@ -92,10 +92,7 @@ func (p *Parser) Discard(n int) error {
 func (p *Parser) Read(buf []byte) (int, error) {
 	total := 0
 	for len(buf) > 0 {
-		k := len(buf)
-		if k > bufferSize {
-			k = bufferSize
-		}
+		k := min(len(buf), bufferSize)
 		tmp, err := p.ReadBytes(k)
 		k = copy(buf, tmp)
 		total += k

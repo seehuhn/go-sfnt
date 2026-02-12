@@ -19,6 +19,7 @@ package sfnt
 import (
 	"bytes"
 	"io"
+	"maps"
 	"math"
 	"time"
 
@@ -68,9 +69,7 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 		tableData["glyf"] = enc.GlyfData
 		tableData["loca"] = enc.LocaData
 		locaFormat = enc.LocaFormat
-		for name, data := range outlines.Tables {
-			tableData[name] = data
-		}
+		maps.Copy(tableData, outlines.Tables)
 		scalerType = header.ScalerTypeTrueType
 		maxpTtf = outlines.Maxp
 	default:
@@ -119,9 +118,7 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 	enc := outlines.Glyphs.Encode()
 	tableData["glyf"] = enc.GlyfData
 	tableData["loca"] = enc.LocaData
-	for name, data := range outlines.Tables {
-		tableData[name] = data
-	}
+	maps.Copy(tableData, outlines.Tables)
 
 	maxpInfo := &maxp.Info{
 		NumGlyphs: f.NumGlyphs(),

@@ -23,7 +23,7 @@ import (
 
 func TestTable(t *testing.T) {
 	table := &Table{}
-	for i := ID(0); i < 300; i++ {
+	for i := range ID(300) {
 		val := fmt.Sprint(i)
 		table.set(i, val)
 		val2 := table.get(i)

@@ -17,6 +17,7 @@
 package gtab
 
 import (
+	"slices"
 	"sort"
 
 	"golang.org/x/text/language"
@@ -620,8 +621,6 @@ func (info *Info) FindLookups(lang language.Tag, includeFeature map[string]bool)
 		}
 		ll = append(ll, l)
 	}
-	sort.Slice(ll, func(i, j int) bool {
-		return ll[i] < ll[j]
-	})
+	slices.Sort(ll)
 	return ll
 }

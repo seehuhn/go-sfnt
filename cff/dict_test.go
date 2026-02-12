@@ -121,7 +121,7 @@ func TestDictEncodeInt(t *testing.T) {
 	var op dictOp = 7
 	for i := int32(-32769); i <= 32769; i += 3 {
 		d := cffDict{
-			op: []interface{}{i, i + 1, i + 2},
+			op: []any{i, i + 1, i + 2},
 		}
 		blob := d.encode(nil)
 		d2, err := decodeDict(blob, nil)
@@ -166,7 +166,7 @@ func TestDictFloat(t *testing.T) {
 	}
 	for _, x := range cases {
 		d := cffDict{
-			opDebug: []interface{}{x},
+			opDebug: []any{x},
 		}
 		blob := d.encode(nil)
 		d2, err := decodeDict(blob, nil)

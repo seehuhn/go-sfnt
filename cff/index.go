@@ -132,7 +132,7 @@ func (data cffIndex) encode() []byte {
 	}
 
 	// data
-	for i := 0; i < count; i++ {
+	for i := range count {
 		out.Write(data[i])
 	}
 

@@ -18,7 +18,7 @@ package cmap
 
 import (
 	"errors"
-	"sort"
+	"slices"
 
 	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt/glyph"
@@ -49,7 +49,7 @@ func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 
 	var size uint32
 	var prevEnd uint32
-	for i := uint32(0); i < nSegments; i++ {
+	for i := range nSegments {
 		base := 16 + i*12
 		startCharCode := uint32(data[base])<<24 | uint32(data[base+1])<<16 | uint32(data[base+2])<<8 | uint32(data[base+3])
 		endCharCode := uint32(data[base+4])<<24 | uint32(data[base+5])<<16 | uint32(data[base+6])<<8 | uint32(data[base+7])
@@ -81,7 +81,7 @@ func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 func (cmap Format12) Encode(language uint16) []byte {
 	var ss []format12segment
 	keys := maps.Keys(cmap)
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	slices.Sort(keys)
 	segStart := 0
 	for i := 1; i < len(keys); i++ {
 		if keys[i] != keys[i-1]+1 || cmap[keys[i]] != cmap[keys[i-1]]+1 {
@@ -110,7 +110,7 @@ func (cmap Format12) Encode(language uint16) []byte {
 		0, 0, byte(language >> 8), byte(language),
 		byte(nSegments >> 24), byte(nSegments >> 16), byte(nSegments >> 8), byte(nSegments),
 	})
-	for i := 0; i < nSegments; i++ {
+	for i := range nSegments {
 		base := 16 + i*12
 		out[base] = byte(ss[i].StartCharCode >> 24)
 		out[base+1] = byte(ss[i].StartCharCode >> 16)

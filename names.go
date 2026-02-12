@@ -18,6 +18,7 @@ package sfnt
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"seehuhn.de/go/postscript/type1/names"
@@ -81,13 +82,7 @@ func (f *Font) MakeGlyphNames() []string {
 		}
 	}
 
-	complete := true
-	for _, name := range glyphNames {
-		if name == "" {
-			complete = false
-			break
-		}
-	}
+	complete := !slices.Contains(glyphNames, "")
 	if complete {
 		return glyphNames
 	}

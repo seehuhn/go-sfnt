@@ -89,12 +89,12 @@ func Read(r io.ReaderAt) (*Info, error) {
 		End   uint32
 	}
 	var coverage []alloc
-	for i := 0; i < numTables; i++ {
+	for i := range numTables {
 		_, err := r.ReadAt(buf[:16], int64(12+i*16))
 		if err != nil {
 			return nil, err
 		}
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			if buf[i] < 0x20 || buf[i] > 0x7e {
 				return nil, &parser.InvalidFontError{
 					SubSystem: "sfnt/header",

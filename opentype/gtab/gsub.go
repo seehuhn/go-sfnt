@@ -195,7 +195,7 @@ func (l *Gsub1_2) encode() []byte {
 	buf[3] = byte(covOffs)
 	buf[4] = byte(n >> 8)
 	buf[5] = byte(n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		buf[6+2*i] = byte(l.SubstituteGlyphIDs[i] >> 8)
 		buf[6+2*i+1] = byte(l.SubstituteGlyphIDs[i])
 	}
@@ -239,7 +239,7 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 	sequenceCount := len(sequenceOffsets)
 	repl := make([][]glyph.ID, sequenceCount)
-	for i := 0; i < sequenceCount; i++ {
+	for i := range sequenceCount {
 		err := p.SeekPos(subtablePos + int64(sequenceOffsets[i]))
 		if err != nil {
 			return nil, err
@@ -365,7 +365,7 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 	alternateSetCount := len(alternateSetOffsets)
 	alt := make([][]glyph.ID, alternateSetCount)
-	for i := 0; i < alternateSetCount; i++ {
+	for i := range alternateSetCount {
 		err := p.SeekPos(subtablePos + int64(alternateSetOffsets[i]))
 		if err != nil {
 			return nil, err

@@ -18,7 +18,7 @@ package coverage
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt/glyph"
@@ -31,7 +31,7 @@ type Set map[glyph.ID]bool
 // Glyphs returned the glyphs covered by the Set, in order of increasing glyph ID.
 func (set Set) Glyphs() []glyph.ID {
 	glyphs := maps.Keys(set)
-	sort.Slice(glyphs, func(i, j int) bool { return glyphs[i] < glyphs[j] })
+	slices.Sort(glyphs)
 	return glyphs
 }
 

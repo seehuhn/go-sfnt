@@ -18,6 +18,7 @@ package builder
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -198,7 +199,7 @@ func ExplainGpos(fontInfo *sfnt.Font) []string {
 					idx := cov[firstGid]
 					row := adjust[idx]
 					secondGids := maps.Keys(row)
-					sort.Slice(secondGids, func(i, j int) bool { return secondGids[i] < secondGids[j] })
+					slices.Sort(secondGids)
 					for _, secondGid := range secondGids {
 						if first {
 							ee.w.WriteRune(' ')

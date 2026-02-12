@@ -783,7 +783,7 @@ func FuzzChainedSeqContext3(f *testing.F) {
 // and ignores all glyphs 50, ..., 255.
 func makeDebugKeepFunc() *keepFunc {
 	class := classdef.Table{}
-	for i := glyph.ID(0); i < 256; i++ {
+	for i := range glyph.ID(256) {
 		if i < 50 {
 			class[i] = gdef.GlyphClassBase
 		} else {
@@ -797,7 +797,7 @@ func makeDebugKeepFunc() *keepFunc {
 
 func TestDebugKeepFunc(t *testing.T) {
 	k := makeDebugKeepFunc()
-	for i := glyph.ID(0); i < 256; i++ {
+	for i := range glyph.ID(256) {
 		if k.Keep(i) != (i < 50) {
 			t.Errorf("Keep(%d) = %v, want %v", i, k.Keep(i), i < 50)
 		}
