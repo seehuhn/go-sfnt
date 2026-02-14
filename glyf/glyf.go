@@ -93,18 +93,18 @@ func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	}
 	first := true
 	for _, p := range []p16{{g.LLx, g.LLy}, {g.URx, g.LLy}, {g.URx, g.URy}, {g.LLx, g.URy}} {
-		x, y := M.Apply(float64(p.x), float64(p.y))
-		if first || x < bbox.LLx {
-			bbox.LLx = x
+		q := M.Apply(vec.Vec2{X: float64(p.x), Y: float64(p.y)})
+		if first || q.X < bbox.LLx {
+			bbox.LLx = q.X
 		}
-		if first || x > bbox.URx {
-			bbox.URx = x
+		if first || q.X > bbox.URx {
+			bbox.URx = q.X
 		}
-		if first || y < bbox.LLy {
-			bbox.LLy = y
+		if first || q.Y < bbox.LLy {
+			bbox.LLy = q.Y
 		}
-		if first || y > bbox.URy {
-			bbox.URy = y
+		if first || q.Y > bbox.URy {
+			bbox.URy = q.Y
 		}
 		first = false
 	}
