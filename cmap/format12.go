@@ -18,9 +18,9 @@ package cmap
 
 import (
 	"errors"
+	"maps"
 	"slices"
 
-	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt/glyph"
 )
 
@@ -80,8 +80,7 @@ func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 
 func (cmap Format12) Encode(language uint16) []byte {
 	var ss []format12segment
-	keys := maps.Keys(cmap)
-	slices.Sort(keys)
+	keys := slices.Sorted(maps.Keys(cmap))
 	segStart := 0
 	for i := 1; i < len(keys); i++ {
 		if keys[i] != keys[i-1]+1 || cmap[keys[i]] != cmap[keys[i-1]]+1 {

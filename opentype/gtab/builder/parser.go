@@ -18,10 +18,9 @@ package builder
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
-
-	"golang.org/x/exp/maps"
 
 	"seehuhn.de/go/postscript/funit"
 
@@ -164,7 +163,7 @@ func (p *parser) readGsub1() *gtab.LookupTable {
 
 	// TODO(voss): be more clever in choosing format 1/2 subtables,
 	// or change the format so that the user has to make the decision.
-	cov := makeCoverageTable(maps.Keys(res))
+	cov := makeCoverageTable(slices.Collect(maps.Keys(res)))
 
 	isConstDelta := true
 	var delta glyph.ID
@@ -237,7 +236,7 @@ func (p *parser) readGsub2() *gtab.LookupTable {
 		p.fatal("no substitutions found")
 	}
 
-	cov := makeCoverageTable(maps.Keys(data))
+	cov := makeCoverageTable(slices.Collect(maps.Keys(data)))
 	repl := make([][]glyph.ID, len(cov))
 	for gid, i := range cov {
 		repl[i] = data[gid]
@@ -286,7 +285,7 @@ func (p *parser) readGsub3() *gtab.LookupTable {
 		p.fatal("no substitutions found")
 	}
 
-	cov := makeCoverageTable(maps.Keys(res))
+	cov := makeCoverageTable(slices.Collect(maps.Keys(res)))
 	repl := make([][]glyph.ID, len(cov))
 	for gid, i := range cov {
 		repl[i] = res[gid]
@@ -331,7 +330,7 @@ func (p *parser) readGsub4() *gtab.LookupTable {
 		p.optional(itemEOL)
 	}
 
-	cov := makeCoverageTable(maps.Keys(data))
+	cov := makeCoverageTable(slices.Collect(maps.Keys(data)))
 	repl := make([][]gtab.Ligature, len(cov))
 	for gid, i := range cov {
 		repl[i] = data[gid]
@@ -388,7 +387,7 @@ func (p *parser) readGpos1() *gtab.LookupTable {
 				}
 				p.optional(itemEOL)
 			}
-			cov := makeCoverageTable(maps.Keys(res))
+			cov := makeCoverageTable(slices.Collect(maps.Keys(res)))
 			adj := make([]*gtab.GposValueRecord, len(cov))
 			for gid, i := range cov {
 				adj[i] = res[gid]
@@ -569,7 +568,7 @@ func (p *parser) readGpos3() *gtab.LookupTable {
 			p.optional(itemEOL)
 		}
 
-		cov := makeCoverageTable(maps.Keys(data))
+		cov := makeCoverageTable(slices.Collect(maps.Keys(data)))
 		records := make([]gtab.EntryExitRecord, len(cov))
 		for gid, i := range cov {
 			records[i] = data[gid]
@@ -730,7 +729,7 @@ gsubLoop:
 				p.optional(itemEOL)
 			}
 
-			cov := makeCoverageTable(maps.Keys(res))
+			cov := makeCoverageTable(slices.Collect(maps.Keys(res)))
 
 			rules := make([][]*gtab.SeqRule, len(cov))
 			for gid, i := range cov {
@@ -807,7 +806,7 @@ gsubLoop:
 			lookup.Subtables = append(lookup.Subtables, subtable)
 
 			inputClasses = make(classdef.Table) // make sure to not change subtable.Input
-			maps.Clear(inputClassIdx)
+			clear(inputClassIdx)
 
 		case next.typ == itemSquareBracketOpen: // format 3
 			var input []coverage.Set
@@ -889,7 +888,7 @@ gsubLoop:
 				p.optional(itemEOL)
 			}
 
-			cov := makeCoverageTable(maps.Keys(res))
+			cov := makeCoverageTable(slices.Collect(maps.Keys(res)))
 
 			rules := make([][]*gtab.ChainedSeqRule, len(cov))
 			for gid, i := range cov {
@@ -1024,11 +1023,11 @@ gsubLoop:
 			lookup.Subtables = append(lookup.Subtables, subtable)
 
 			inputClasses = make(classdef.Table) // make sure to not change subtable.Input
-			maps.Clear(inputClassIdx)
+			clear(inputClassIdx)
 			backtrackClasses = make(classdef.Table) // make sure to not change subtable.Backtrack
-			maps.Clear(backtrackClassIdx)
+			clear(backtrackClassIdx)
 			lookaheadClasses = make(classdef.Table) // make sure to not change subtable.Lookahead
-			maps.Clear(lookaheadClassIdx)
+			clear(lookaheadClassIdx)
 
 		case nextType == itemSquareBracketOpen: // format 3
 			var input, backtrack, lookahead []coverage.Set

@@ -18,9 +18,9 @@ package gtab
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 
-	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/classdef"
@@ -351,8 +351,7 @@ func (l Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
 		seen[pair.Left] = true
 	}
 
-	firstGids := maps.Keys(seen)
-	slices.Sort(firstGids)
+	firstGids := slices.Sorted(maps.Keys(seen))
 	cov := coverage.Table{}
 	adjust := make([]map[glyph.ID]*PairAdjust, len(firstGids))
 	for i, gid := range firstGids {
@@ -433,8 +432,7 @@ func (l Gpos2_1) encode() []byte {
 		pairValueCount := len(adj)
 		buf = append(buf, byte(pairValueCount>>8), byte(pairValueCount))
 
-		keys := maps.Keys(adj)
-		slices.Sort(keys)
+		keys := slices.Sorted(maps.Keys(adj))
 		for _, secondGlyph := range keys {
 			buf = append(buf, byte(secondGlyph>>8), byte(secondGlyph))
 			buf = append(buf, adj[secondGlyph].First.encode(valueFormat1)...)

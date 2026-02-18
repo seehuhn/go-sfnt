@@ -22,11 +22,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 	"seehuhn.de/go/sfnt/mac"
 )
 
@@ -229,7 +229,7 @@ func (ss Table) Get(key Key) (Subtable, error) {
 
 func (ss Table) GetNoLang(platformID, encodingID uint16) (Subtable, error) {
 	// sort the keys to make the output deterministic
-	keys := maps.Keys(ss)
+	keys := slices.Collect(maps.Keys(ss))
 	sort.Slice(keys, func(i, j int) bool {
 		if keys[i].PlatformID != keys[j].PlatformID {
 			return keys[i].PlatformID < keys[j].PlatformID

@@ -19,7 +19,6 @@ package sfnt
 import (
 	"fmt"
 
-	"golang.org/x/exp/maps"
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/cff"
@@ -213,7 +212,7 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 	added := make(map[glyph.ID]struct{})
 	needsRun := true
 	for needsRun {
-		maps.Clear(added)
+		clear(added)
 
 		pos := 0
 		for pos < len(rules) {

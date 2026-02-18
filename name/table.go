@@ -18,10 +18,9 @@ package name
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
-
-	"golang.org/x/exp/maps"
 )
 
 // ID encodes the meaning of a given name string.
@@ -140,10 +139,9 @@ func (t *Table) String() string {
 	}
 
 	if t.Extra != nil {
-		keys := maps.Keys(t.Extra)
-		slices.Sort(keys)
+		keys := slices.Sorted(maps.Keys(t.Extra))
 		for _, nameID := range keys {
-			fmt.Fprintf(b, "%d: %q\n", nameID, t.VariationsPostScriptName)
+			fmt.Fprintf(b, "%d: %q\n", nameID, t.Extra[nameID])
 		}
 	}
 

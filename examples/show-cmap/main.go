@@ -19,10 +19,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"maps"
 	"os"
+	"slices"
 	"sort"
-
-	"golang.org/x/exp/maps"
 
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/header"
@@ -53,7 +53,7 @@ func tryFont(fname string) error {
 	}
 	fmt.Printf("%d subtables\n", len(subtables))
 
-	keys := maps.Keys(subtables)
+	keys := slices.Collect(maps.Keys(subtables))
 	sort.Slice(keys, func(i, j int) bool {
 		if keys[i].PlatformID != keys[j].PlatformID {
 			return keys[i].PlatformID < keys[j].PlatformID

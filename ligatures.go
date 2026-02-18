@@ -17,9 +17,9 @@
 package sfnt
 
 import (
+	"maps"
 	"slices"
 
-	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyph"
@@ -60,8 +60,7 @@ ligLoop:
 
 	// TODO(voss): merge this with the code in go-sfnt/examples/type1-to-otf/main.go
 
-	keys := maps.Keys(ll)
-	slices.Sort(keys)
+	keys := slices.Sorted(maps.Keys(ll))
 
 	cov := coverage.Table{}
 	var repl [][]gtab.Ligature

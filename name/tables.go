@@ -17,10 +17,11 @@
 package name
 
 import (
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
-	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
 )
 
@@ -29,7 +30,7 @@ type Tables map[string]*Table
 
 // Choose select the table which best matches the given language preferences.
 func (tt Tables) Choose(prefs ...language.Tag) (*Table, language.Confidence) {
-	keys := maps.Keys(tt)
+	keys := slices.Collect(maps.Keys(tt))
 	if len(keys) == 0 {
 		return nil, language.No
 	}

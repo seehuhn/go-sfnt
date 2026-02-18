@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -27,7 +28,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/exp/maps"
 	"golang.org/x/text/language"
 
 	"seehuhn.de/go/geom/path"
@@ -345,8 +345,7 @@ func makeLigatures(afm *afm.Metrics, name2gid map[string]glyph.ID) *gtab.Info {
 
 	// TODO(voss): merge this with the code in go-sfnt/ligatures.go
 
-	keys := maps.Keys(ll)
-	slices.Sort(keys)
+	keys := slices.Sorted(maps.Keys(ll))
 
 	cov := coverage.Table{}
 	var repl [][]gtab.Ligature

@@ -18,11 +18,11 @@ package builder
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
 
-	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/classdef"
@@ -198,8 +198,7 @@ func ExplainGpos(fontInfo *sfnt.Font) []string {
 				for _, firstGid := range firstGids {
 					idx := cov[firstGid]
 					row := adjust[idx]
-					secondGids := maps.Keys(row)
-					slices.Sort(secondGids)
+					secondGids := slices.Sorted(maps.Keys(row))
 					for _, secondGid := range secondGids {
 						if first {
 							ee.w.WriteRune(' ')

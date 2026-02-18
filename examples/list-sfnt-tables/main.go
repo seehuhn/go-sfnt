@@ -20,10 +20,11 @@ package main
 import (
 	"fmt"
 	"log"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 
-	"golang.org/x/exp/maps"
 	"seehuhn.de/go/sfnt/header"
 )
 
@@ -54,7 +55,7 @@ func main() {
 			fontType = "TrueType (Apple)"
 		}
 
-		names := maps.Keys(info.Toc)
+		names := slices.Collect(maps.Keys(info.Toc))
 		sort.Slice(names, func(i, j int) bool {
 			return info.Toc[names[i]].Offset < info.Toc[names[j]].Offset
 		})
