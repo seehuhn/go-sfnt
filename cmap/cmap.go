@@ -44,6 +44,9 @@ type Table map[Key][]byte
 // The returned subtables are guaranteed to be at least 10 bytes long
 // and to have a valid format value (0, 2, 4, 6, 8, 10, 12, 13 or 14)
 // in the first two bytes.
+// Individual subtables that are malformed are silently skipped,
+// but if no valid subtables remain, the first error is returned.
+// Structural errors in the table header always cause an immediate error.
 func Decode(data []byte) (Table, error) {
 	const minLength = 10 // length of an empty format 6 subtable
 
@@ -67,11 +70,15 @@ func Decode(data []byte) (Table, error) {
 	}
 	var segs []seg
 
+	var firstErr error
 	res := make(Table)
 	for i := range numTables {
 		platformID := uint16(data[4+i*8])<<8 | uint16(data[5+i*8])
 		if platformID > 4 {
-			return nil, errMalformedTable
+			if firstErr == nil {
+				firstErr = errMalformedTable
+			}
+			continue
 		}
 		encodingID := uint16(data[6+i*8])<<8 | uint16(data[7+i*8])
 
@@ -80,7 +87,10 @@ func Decode(data []byte) (Table, error) {
 			uint32(data[10+i*8])<<8 |
 			uint32(data[11+i*8])
 		if o < endOfHeader || o > endOfData-minLength {
-			return nil, errMalformedTable
+			if firstErr == nil {
+				firstErr = errMalformedTable
+			}
+			continue
 		}
 
 		var language uint16
@@ -94,7 +104,10 @@ func Decode(data []byte) (Table, error) {
 		case 8, 10, 12, 13:
 			checkLength = 12
 			if o > endOfData-checkLength {
-				return nil, errMalformedTable
+				if firstErr == nil {
+					firstErr = errMalformedTable
+				}
+				continue
 			}
 			length = uint32(data[o+4])<<24 |
 				uint32(data[o+5])<<16 |
@@ -107,10 +120,16 @@ func Decode(data []byte) (Table, error) {
 				uint32(data[o+4])<<8 |
 				uint32(data[o+5])
 		default:
-			return nil, errMalformedTable
+			if firstErr == nil {
+				firstErr = errMalformedTable
+			}
+			continue
 		}
 		if length < checkLength || length > endOfData-o {
-			return nil, errMalformedTable
+			if firstErr == nil {
+				firstErr = errMalformedTable
+			}
+			continue
 		}
 
 		if platformID != 1 {
@@ -124,7 +143,10 @@ func Decode(data []byte) (Table, error) {
 		if idx == len(segs) || o != segs[idx].start {
 			if idx > 0 && o < segs[idx-1].end ||
 				idx < len(segs) && o+length > segs[idx].start {
-				return nil, errMalformedTable
+				if firstErr == nil {
+					firstErr = errMalformedTable
+				}
+				continue
 			}
 			segs = slices.Insert(segs, idx, seg{o, o + length})
 		}
@@ -137,6 +159,9 @@ func Decode(data []byte) (Table, error) {
 		res[key] = data[o : o+length]
 	}
 
+	if len(res) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
 	return res, nil
 }
 

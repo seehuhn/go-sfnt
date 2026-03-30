@@ -150,7 +150,9 @@ func Read(r io.Reader) (*Font, error) {
 	if cmapData != nil {
 		cmapTable, err = cmap.Decode(cmapData)
 		if err != nil {
-			return nil, fmt.Errorf("cmap table: %w", err)
+			// treat a malformed cmap as if absent
+			cmapTable = nil
+			err = nil
 		}
 		cmapBest, _ = cmapTable.GetBest()
 	}
