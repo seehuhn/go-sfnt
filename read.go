@@ -453,12 +453,12 @@ func Read(r io.Reader) (*Font, error) {
 
 	if dir.Has("GDEF") {
 		gdefFd, err := dir.TableReader(rr, "GDEF")
-		if err != nil {
-			return nil, err
-		}
-		info.Gdef, err = gdef.Read(gdefFd)
-		if err != nil {
-			return nil, fmt.Errorf("GDEF table: %w", err)
+		if err == nil {
+			info.Gdef, err = gdef.Read(gdefFd)
+			if err != nil {
+				// skip malformed GDEF table
+				info.Gdef = nil
+			}
 		}
 	}
 
@@ -466,14 +466,15 @@ func Read(r io.Reader) (*Font, error) {
 	// "GSUB" table?
 	if dir.Has("GSUB") {
 		gsubFd, err := dir.TableReader(rr, "GSUB")
-		if err != nil {
-			return nil, err
+		if err == nil {
+			info.Gsub, err = gtab.Read(gsubFd, gtab.TypeGsub)
+			if err != nil {
+				// skip malformed GSUB table
+				info.Gsub = nil
+			}
 		}
-		info.Gsub, err = gtab.Read(gsubFd, gtab.TypeGsub)
-		if err != nil {
-			return nil, fmt.Errorf("GSUB table: %w", err)
-		}
-	} else if !info.IsFixedPitch() {
+	}
+	if info.Gsub == nil && !info.IsFixedPitch() {
 		cmap, _ := info.CMapTable.GetBest()
 		if cmap != nil {
 			info.Gsub = standardLigatures(cmap)
@@ -482,42 +483,40 @@ func Read(r io.Reader) (*Font, error) {
 
 	if dir.Has("GPOS") {
 		gposFd, err := dir.TableReader(rr, "GPOS")
-		if err != nil {
-			return nil, err
-		}
-		info.Gpos, err = gtab.Read(gposFd, gtab.TypeGpos)
-		if err != nil {
-			return nil, fmt.Errorf("GPOS table: %w", err)
-		}
-	} else if dir.Has("kern") {
-		kernFd, err := dir.TableReader(rr, "kern")
-		if err != nil {
-			return nil, err
-		}
-		kern, err := kern.Read(kernFd)
-		if err != nil {
-			return nil, fmt.Errorf("kern table: %w", err)
-		}
-
-		subtable := gtab.Gpos2_1{}
-		for pair, val := range kern {
-			subtable[pair] = &gtab.PairAdjust{
-				First: &gtab.GposValueRecord{XAdvance: val},
+		if err == nil {
+			info.Gpos, err = gtab.Read(gposFd, gtab.TypeGpos)
+			if err != nil {
+				// skip malformed GPOS table
+				info.Gpos = nil
 			}
 		}
-		info.Gpos = &gtab.Info{
-			ScriptList: map[language.Tag]*gtab.Features{
-				language.MustParse("und-Zzzz"): {Required: 0, Optional: []gtab.FeatureIndex{}},
-			},
-			FeatureList: []*gtab.Feature{
-				{Tag: "kern", Lookups: []gtab.LookupIndex{0}},
-			},
-			LookupList: []*gtab.LookupTable{
-				{
-					Meta:      &gtab.LookupMetaInfo{LookupType: 2},
-					Subtables: []gtab.Subtable{subtable},
-				},
-			},
+	}
+	if info.Gpos == nil && dir.Has("kern") {
+		kernFd, err := dir.TableReader(rr, "kern")
+		if err == nil {
+			kern, err := kern.Read(kernFd)
+			if err == nil {
+				subtable := gtab.Gpos2_1{}
+				for pair, val := range kern {
+					subtable[pair] = &gtab.PairAdjust{
+						First: &gtab.GposValueRecord{XAdvance: val},
+					}
+				}
+				info.Gpos = &gtab.Info{
+					ScriptList: map[language.Tag]*gtab.Features{
+						language.MustParse("und-Zzzz"): {Required: 0, Optional: []gtab.FeatureIndex{}},
+					},
+					FeatureList: []*gtab.Feature{
+						{Tag: "kern", Lookups: []gtab.LookupIndex{0}},
+					},
+					LookupList: []*gtab.LookupTable{
+						{
+							Meta:      &gtab.LookupMetaInfo{LookupType: 2},
+							Subtables: []gtab.Subtable{subtable},
+						},
+					},
+				}
+			}
 		}
 	}
 

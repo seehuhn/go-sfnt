@@ -101,20 +101,35 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		if err != nil {
 			return nil, err
 		}
-		ligAttach := make([][]anchor.Table, componentCount)
+		numAnchorOffsets := uint(componentCount) * uint(markClassCount)
+		if numAnchorOffsets > (65536-2)/2 {
+			return nil, &parser.InvalidFontError{
+				SubSystem: "sfnt/opentype/gtab",
+				Reason:    "GPOS5.1 table too large",
+			}
+		}
+		anchorOffsets := make([]uint16, numAnchorOffsets)
+		for k := range anchorOffsets {
+			anchorOffsets[k], err = p.ReadUint16()
+			if err != nil {
+				return nil, err
+			}
+		}
 
-		for j := 0; j < int(componentCount); j++ {
+		ligAttach := make([][]anchor.Table, componentCount)
+		for j := range ligAttach {
 			row := make([]anchor.Table, markClassCount)
-			for j := range row {
-				if offsets[j] == 0 {
+			for k := range row {
+				if anchorOffsets[k] == 0 {
 					continue
 				}
-				row[j], err = anchor.Read(p, ligAttachPos+int64(offsets[j]))
+				row[k], err = anchor.Read(p, ligAttachPos+int64(anchorOffsets[k]))
 				if err != nil {
 					return nil, err
 				}
 			}
-			ligAttach[i] = row
+			ligAttach[j] = row
+			anchorOffsets = anchorOffsets[markClassCount:]
 		}
 
 		ligArray[i] = ligAttach
