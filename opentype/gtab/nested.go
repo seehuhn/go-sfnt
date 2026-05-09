@@ -730,6 +730,12 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 			if err != nil {
 				return nil, err
 			}
+			if inputGlyphCount == 0 {
+				return nil, &parser.InvalidFontError{
+					SubSystem: "sfnt/opentype/gtab",
+					Reason:    "invalid input glyph count in ChainedSeqContext1",
+				}
+			}
 			inputSequence := make([]glyph.ID, inputGlyphCount-1)
 			for k := range inputSequence {
 				val, err := p.ReadUint16()
@@ -1054,6 +1060,12 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 			inputGlyphCount, err := p.ReadUint16()
 			if err != nil {
 				return nil, err
+			}
+			if inputGlyphCount == 0 {
+				return nil, &parser.InvalidFontError{
+					SubSystem: "sfnt/opentype/gtab",
+					Reason:    "invalid input glyph count in ChainedSeqContext2",
+				}
 			}
 			inputSequence := make([]uint16, inputGlyphCount-1)
 			for k := range inputSequence {

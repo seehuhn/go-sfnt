@@ -268,6 +268,9 @@ func (p *parser) readGsub3() *gtab.LookupTable {
 		}
 		p.required(itemArrow, "\"->\"")
 		to := p.readGlyphSet()
+		if len(to) == 0 {
+			p.fatal("expected at least one alternate at %s", p.readItem())
+		}
 
 		fromGid := from[0]
 		if _, ok := res[fromGid]; ok {

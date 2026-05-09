@@ -62,6 +62,14 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	} else {
 		mark1Array = mark1Array[:len(mark1Cov)]
 	}
+	for _, rec := range mark1Array {
+		if int(rec.Class) >= markClassCount {
+			return nil, &parser.InvalidFontError{
+				SubSystem: "sfnt/opentype/gtab",
+				Reason:    "mark class out of range",
+			}
+		}
+	}
 
 	mark2ArrayPos := subtablePos + mark2ArrayOffset
 	err = p.SeekPos(mark2ArrayPos)
@@ -197,6 +205,17 @@ func (l *Gpos6_1) encode() []byte {
 	mark1Count := len(l.Mark1Array)
 	markClassCount := l.countMarkClasses()
 	mark2Count := len(l.Mark2Array)
+
+	for _, row := range l.Mark2Array {
+		if len(row) != markClassCount {
+			panic("Gpos6_1: inconsistent Mark2Array row width")
+		}
+	}
+	for _, rec := range l.Mark1Array {
+		if int(rec.Class) >= markClassCount {
+			panic("Gpos6_1: mark class out of range")
+		}
+	}
 
 	total := 12
 	mark1CoverageOffset := total

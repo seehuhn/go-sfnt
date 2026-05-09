@@ -133,6 +133,72 @@ func TestGpos4_1(t *testing.T) {
 	}
 }
 
+// TestGpos4_1MarkClassOutOfRange checks that a mark record whose Class
+// is greater than or equal to markClassCount is rejected at read time
+// rather than triggering a panic later in apply. The byte layout is
+// hand-crafted because the encoder rejects this configuration.
+func TestGpos4_1MarkClassOutOfRange(t *testing.T) {
+	data := []byte{
+		// header
+		0x00, 0x01, // posFormat = 1
+		0x00, 0x0c, // markCoverageOffset = 12
+		0x00, 0x12, // baseCoverageOffset = 18
+		0x00, 0x01, // markClassCount = 1
+		0x00, 0x18, // markArrayOffset = 24
+		0x00, 0x24, // baseArrayOffset = 36
+		// markCov: format-1, count=1, gid=1
+		0x00, 0x01, 0x00, 0x01, 0x00, 0x01,
+		// baseCov: format-1, count=1, gid=2
+		0x00, 0x01, 0x00, 0x01, 0x00, 0x02,
+		// markArray
+		0x00, 0x01, // markCount = 1
+		0x00, 0x01, // class = 1 — INVALID, markClassCount = 1
+		0x00, 0x06, // markAnchorOffset = 6
+		0x00, 0x01, 0x00, 0x01, 0x00, 0x02, // mark anchor (format=1, X=1, Y=2)
+		// baseArray
+		0x00, 0x01, // baseCount = 1
+		0x00, 0x04, // baseAnchorOffset = 4
+		0x00, 0x01, 0x00, 0x03, 0x00, 0x04, // base anchor (format=1, X=3, Y=4)
+	}
+	p := parser.New(bytes.NewReader(data))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readGpos4_1(p, 0); err == nil {
+		t.Errorf("expected error for out-of-range mark class")
+	}
+}
+
+// TestGpos6_1MarkClassOutOfRange — analogous check for Gpos6_1.
+func TestGpos6_1MarkClassOutOfRange(t *testing.T) {
+	// Gpos6_1 has the same on-disk layout as Gpos4_1 (mark1 plays the role
+	// of mark, mark2 plays the role of base), so the bytes are identical.
+	data := []byte{
+		0x00, 0x01, // posFormat = 1
+		0x00, 0x0c, // mark1CoverageOffset = 12
+		0x00, 0x12, // mark2CoverageOffset = 18
+		0x00, 0x01, // markClassCount = 1
+		0x00, 0x18, // mark1ArrayOffset = 24
+		0x00, 0x24, // mark2ArrayOffset = 36
+		0x00, 0x01, 0x00, 0x01, 0x00, 0x01, // mark1Cov
+		0x00, 0x01, 0x00, 0x01, 0x00, 0x02, // mark2Cov
+		0x00, 0x01, // mark1Count = 1
+		0x00, 0x01, // class = 1 — INVALID
+		0x00, 0x06, // mark1AnchorOffset = 6
+		0x00, 0x01, 0x00, 0x01, 0x00, 0x02,
+		0x00, 0x01, // mark2Count = 1
+		0x00, 0x04, // mark2AnchorOffset = 4
+		0x00, 0x01, 0x00, 0x03, 0x00, 0x04,
+	}
+	p := parser.New(bytes.NewReader(data))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readGpos6_1(p, 0); err == nil {
+		t.Errorf("expected error for out-of-range mark class")
+	}
+}
+
 func FuzzGpos1_1(f *testing.F) {
 	l := &Gpos1_1{
 		Cov: map[glyph.ID]int{8: 0, 9: 1},

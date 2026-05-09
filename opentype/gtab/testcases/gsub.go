@@ -116,13 +116,6 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		In:   "AM",
 		Out:  "BM",
 	},
-	// If the list of replacements is empty, the lookup is ignored:
-	{ // harfbuzz: AAA, Mac: AAA
-		Name: "1_09",
-		Desc: `GSUB3: A -> []`,
-		In:   "AAA",
-		Out:  "AAA",
-	},
 
 	// GSUB4 replaces a sequence of glyphs with a single glyph.
 	// This is normally used for ligatures.

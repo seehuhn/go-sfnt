@@ -62,6 +62,14 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	} else {
 		markArray = markArray[:len(markCov)]
 	}
+	for _, rec := range markArray {
+		if int(rec.Class) >= markClassCount {
+			return nil, &parser.InvalidFontError{
+				SubSystem: "sfnt/opentype/gtab",
+				Reason:    "mark class out of range",
+			}
+		}
+	}
 
 	ligArrayPos := subtablePos + ligArrayOffset
 	err = p.SeekPos(ligArrayPos)

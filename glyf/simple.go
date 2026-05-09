@@ -71,9 +71,14 @@ func (sg SimpleGlyph) Unpack() (*SimpleUnpacked, error) {
 	}
 	buf = buf[2*numContours:]
 
+	last, err := validateEndPts(endPtsOfContours)
+	if err != nil {
+		return nil, err
+	}
+
 	var numPoints int
 	if numContours > 0 {
-		numPoints = int(endPtsOfContours[numContours-1]) + 1
+		numPoints = int(last) + 1
 	}
 
 	instructionLength := int(buf[0])<<8 | int(buf[1])
@@ -197,9 +202,18 @@ func (sg *SimpleGlyph) removePadding() error {
 	}
 	pos := 2 * numContours
 
+	var last uint16
+	for i := range numContours {
+		v := uint16(buf[2*i])<<8 | uint16(buf[2*i+1])
+		if i > 0 && v <= last {
+			return errInvalidGlyphData
+		}
+		last = v
+	}
+
 	var numPoints int
 	if numContours > 0 {
-		numPoints = (int(buf[pos-2])<<8 | int(buf[pos-1])) + 1
+		numPoints = int(last) + 1
 	}
 
 	instructionLength := int(buf[pos])<<8 | int(buf[pos+1])
@@ -587,6 +601,21 @@ const (
 	flagXSameOrPos = 0x10 // X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR
 	flagYSameOrPos = 0x20 // Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR
 )
+
+// validateEndPts checks that endPts is strictly increasing and returns the
+// last value, or 0 if endPts is empty. Since each value is the index of a
+// contour's last point, strict increase implies every contour has at least
+// one point.
+func validateEndPts(endPts []uint16) (uint16, error) {
+	var last uint16
+	for i, v := range endPts {
+		if i > 0 && v <= last {
+			return 0, errInvalidGlyphData
+		}
+		last = v
+	}
+	return last, nil
+}
 
 var errInvalidGlyphData = &parser.InvalidFontError{
 	SubSystem: "sfnt/glyf",

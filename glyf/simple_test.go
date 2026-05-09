@@ -173,6 +173,63 @@ func TestGlyphInfo_AsGlyph(t *testing.T) {
 	}
 }
 
+// TestUnpackMalformedEndPts checks that non-monotonic endPtsOfContours
+// values are rejected with an error rather than triggering a panic
+// during contour construction.
+func TestUnpackMalformedEndPts(t *testing.T) {
+	// flag 0x31 = flagOnCurve | flagXSameOrPos | flagYSameOrPos,
+	// so no x/y coordinate bytes are needed in the encoded payload.
+	cases := []struct {
+		name    string
+		numCont int16
+		encoded []byte
+	}{
+		{
+			name:    "decreasing",
+			numCont: 2,
+			encoded: []byte{
+				0x00, 0x0a, // endPtsOfContours[0] = 10
+				0x00, 0x05, // endPtsOfContours[1] =  5
+				0x00, 0x00, // instructionLength   =  0
+				0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+			},
+		},
+		{
+			name:    "equal",
+			numCont: 2,
+			encoded: []byte{
+				0x00, 0x05, // endPtsOfContours[0] = 5
+				0x00, 0x05, // endPtsOfContours[1] = 5
+				0x00, 0x00, // instructionLength  = 0
+				0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+			},
+		},
+		{
+			name:    "max in middle",
+			numCont: 3,
+			encoded: []byte{
+				0x00, 0x05, // endPtsOfContours[0] = 5
+				0x00, 0x0a, // endPtsOfContours[1] = 10
+				0x00, 0x03, // endPtsOfContours[2] =  3
+				0x00, 0x00, // instructionLength   =  0
+				0x31, 0x31, 0x31, 0x31,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sg := SimpleGlyph{NumContours: tc.numCont, Encoded: tc.encoded}
+			if _, err := sg.Unpack(); err == nil {
+				t.Errorf("expected error for malformed endPts, got nil")
+			}
+			// also verify that the public Path() surface does not panic
+			for range sg.Path() {
+				t.Errorf("malformed glyph yielded a path command")
+			}
+		})
+	}
+}
+
 func TestGlyphInfo_AsGlyph_EmptyContours(t *testing.T) {
 	info := &SimpleUnpacked{
 		Contours:     []Contour{},

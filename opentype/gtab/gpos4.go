@@ -62,6 +62,14 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	} else {
 		markArray = markArray[:len(markCov)]
 	}
+	for _, rec := range markArray {
+		if int(rec.Class) >= markClassCount {
+			return nil, &parser.InvalidFontError{
+				SubSystem: "sfnt/opentype/gtab",
+				Reason:    "mark class out of range",
+			}
+		}
+	}
 
 	baseArrayPos := subtablePos + baseArrayOffset
 	err = p.SeekPos(baseArrayPos)
@@ -199,6 +207,17 @@ func (l *Gpos4_1) encode() []byte {
 	markCount := len(l.MarkArray)
 	markClassCount := l.countMarkClasses()
 	baseCount := len(l.BaseArray)
+
+	for _, row := range l.BaseArray {
+		if len(row) != markClassCount {
+			panic("Gpos4_1: inconsistent BaseArray row width")
+		}
+	}
+	for _, rec := range l.MarkArray {
+		if int(rec.Class) >= markClassCount {
+			panic("Gpos4_1: mark class out of range")
+		}
+	}
 
 	total := 12
 	markCoverageOffset := total

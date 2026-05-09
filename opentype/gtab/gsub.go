@@ -250,6 +250,12 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
+	// The spec requires GlyphCount > 0, but harfbuzz and macOS silently
+	// ignore the lookup when it is zero (so a following lookup may apply).
+	// Drop those entries so apply doesn't have to know about them and so
+	// the in-memory struct round-trips through encode().
+	cov, repl = dropEmptyEntries(cov, repl)
+
 	res := &Gsub2_1{
 		Cov:  cov,
 		Repl: repl,
@@ -298,6 +304,11 @@ func (l *Gsub2_1) encodeLen() int {
 
 // encode implements the [Subtable] interface.
 func (l *Gsub2_1) encode() []byte {
+	for _, repl := range l.Repl {
+		if len(repl) == 0 {
+			panic("Gsub2_1: empty replacement sequence")
+		}
+	}
 	sequenceCount := len(l.Repl)
 	covOffs := 6 + 2*sequenceCount
 
@@ -335,6 +346,11 @@ func (l *Gsub2_1) encode() []byte {
 }
 
 // Gsub3_1 is an Alternate Substitution GSUB subtable (type 3, format 1).
+// Lookups of this type let the user choose between alternate glyphs for
+// a given input glyph. The original glyph must be contained in the
+// coverage table. The alternates are found by looking up the
+// `Alternates` table by the coverage index of the original GID.
+// Each alternate set must have at least one glyph.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#31-alternate-substitution-format-1
 type Gsub3_1 struct {
@@ -384,6 +400,11 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
+	// The spec requires GlyphCount > 0, but harfbuzz and macOS silently
+	// ignore the lookup when an alternate set is empty (so a following
+	// lookup may apply). Drop such entries on read.
+	cov, alt = dropEmptyEntries(cov, alt)
+
 	res := &Gsub3_1{
 		Cov:        cov,
 		Alternates: alt,
@@ -400,12 +421,7 @@ func (l *Gsub3_1) apply(ctx *Context, a, b int) int {
 		return -1
 	}
 
-	alt := l.Alternates[idx]
-	if len(alt) == 0 {
-		return -1 // TODO(voss): can this happen?
-	}
-
-	seq[a].GID = alt[0]
+	seq[a].GID = l.Alternates[idx][0]
 
 	return a + 1
 }
@@ -422,6 +438,11 @@ func (l *Gsub3_1) encodeLen() int {
 
 // encode implements the [Subtable] interface.
 func (l *Gsub3_1) encode() []byte {
+	for _, alt := range l.Alternates {
+		if len(alt) == 0 {
+			panic("Gsub3_1: empty alternate set")
+		}
+	}
 	alternateSetCount := len(l.Alternates)
 	covOffs := 6 + 2*alternateSetCount
 
@@ -527,6 +548,12 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			componentCount, err := p.ReadUint16()
 			if err != nil {
 				return nil, err
+			}
+			if componentCount == 0 {
+				return nil, &parser.InvalidFontError{
+					SubSystem: "sfnt/opentype/gtab",
+					Reason:    "ligature with zero component count",
+				}
 			}
 			componentGlyphIDs := make([]glyph.ID, componentCount-1)
 			for k := range componentGlyphIDs {
@@ -861,4 +888,39 @@ func (l *Gsub8_1) encode() []byte {
 	}
 
 	return buf
+}
+
+// dropEmptyEntries compacts items by removing empty inner slices and
+// returns a coverage table whose values index the compacted slice.
+// Glyphs that mapped to a dropped entry are deleted from the coverage,
+// remaining values are renumbered.
+//
+// Both inputs are mutated in place: cov is updated directly, and the
+// items slice's backing array is overwritten. The returned slice shares
+// the same backing array, so the input items value should not be used
+// after the call.
+func dropEmptyEntries(cov coverage.Table, items [][]glyph.ID) (coverage.Table, [][]glyph.ID) {
+	oldToNew := make([]int, len(items))
+	// out aliases the backing array of items. The loop reads items[i] before
+	// any append writes to that index, since len(out) <= i at all times.
+	out := items[:0]
+	for i, item := range items {
+		if len(item) == 0 {
+			oldToNew[i] = -1
+			continue
+		}
+		oldToNew[i] = len(out)
+		out = append(out, item)
+	}
+	if len(out) == len(items) {
+		return cov, items
+	}
+	for gid, idx := range cov {
+		if newIdx := oldToNew[idx]; newIdx < 0 {
+			delete(cov, gid)
+		} else {
+			cov[gid] = newIdx
+		}
+	}
+	return cov, out
 }
