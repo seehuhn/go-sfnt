@@ -465,9 +465,10 @@ func (d cffDict) sortedKeys() []dictOp {
 		keys = append(keys, k)
 	}
 	conv := func(op dictOp) int {
-		if op == opROS {
+		switch op {
+		case opROS:
 			return -1
-		} else if op == opSyntheticBase {
+		case opSyntheticBase:
 			return -2
 		}
 		return int(op)
@@ -528,8 +529,8 @@ func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInf
 	// TODO(voss): handle the font matrix
 
 	pdSize, pdOffs, ok := d.getPair(opPrivate)
-	if !ok || pdOffs < 4 || pdSize < 0 {
-		return nil, errors.New("cff: missing Private DICT")
+	if !ok || pdOffs < 4 || pdSize < 0 || int64(pdSize) > p.Size()-int64(pdOffs) {
+		return nil, errors.New("cff: invalid Private DICT")
 	}
 
 	err := p.SeekPos(int64(pdOffs))
@@ -567,7 +568,7 @@ func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInf
 	var subrs cffIndex
 	subrsIndexOffs := privateDict.getInt(opSubrs, 0)
 	if subrsIndexOffs > 0 {
-		subrs, err = readIndexAt(p, pdOffs+subrsIndexOffs, "Subrs")
+		subrs, err = readIndexAt(p, int64(pdOffs)+int64(subrsIndexOffs), "Subrs")
 		if err != nil {
 			return nil, err
 		}

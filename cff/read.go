@@ -127,7 +127,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 
 	// read the CharStrings INDEX
 	charStringsOffs := topDict.getInt(opCharStrings, 0)
-	charStrings, err := readIndexAt(p, charStringsOffs, "CharStrings")
+	charStrings, err := readIndexAt(p, int64(charStringsOffs), "CharStrings")
 	nGlyphs := len(charStrings)
 	if err != nil {
 		return nil, err
@@ -160,7 +160,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 		cff.ROS = ros
 
 		fdArrayOffs := topDict.getInt(opFDArray, 0)
-		fdArrayIndex, err := readIndexAt(p, fdArrayOffs, "Font DICT")
+		fdArrayIndex, err := readIndexAt(p, int64(fdArrayOffs), "Font DICT")
 		if err != nil {
 			return nil, err
 		} else if len(fdArrayIndex) > 256 {
@@ -302,10 +302,10 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	if !isCIDKeyed {
 		encodingOffs := topDict.getInt(opEncoding, 0)
 		var enc []glyph.ID
-		switch {
-		case encodingOffs == 0:
+		switch encodingOffs {
+		case 0:
 			enc = StandardEncoding(cff.Glyphs)
-		case encodingOffs == 1:
+		case 1:
 			enc = expertEncoding(cff.Glyphs)
 		default:
 			err = p.SeekPos(int64(encodingOffs))

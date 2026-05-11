@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"runtime"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -54,6 +55,44 @@ func TestGlyphBBoxPDF(t *testing.T) {
 	}
 	if math.Abs(bbox.URy-16_000) > 1e-7 {
 		t.Errorf("bbox.URy = %v, want 16", bbox.URy)
+	}
+}
+
+// TestReadBoundedPrivateDICTAllocation is a regression test for CWE-789:
+// a CFF Top DICT with a maliciously large Private DICT size operand must
+// not trigger an allocation disproportionate to the input size.
+func TestReadBoundedPrivateDICTAllocation(t *testing.T) {
+	// pdSize = 0x06400000 = 100 MiB.  Large enough to be unambiguously
+	// detected against the baseline of a few KiB of legitimate parser
+	// allocations, but small enough not to OOM CI when this test fails on
+	// unfixed code.
+	blob := []byte{
+		0x01, 0x00, 0x04, 0x01, // header (1.0, hdrSize=4, offSize=1)
+		0x00, 0x01, 0x01, 0x01, 0x02, 0x58, // Name INDEX = ["X"]
+		0x00, 0x01, 0x01, 0x01, 0x0E, // Top DICT INDEX header (offsets 1, 14)
+		0x1D, 0x00, 0x00, 0x00, 0x21, 0x11, // charStringsOffs=33, opCharStrings
+		0x1D, 0x06, 0x40, 0x00, 0x00, 0x8F, 0x12, // pdSize=100 MiB, pdOffs=4, opPrivate
+		0x00, 0x00, // String INDEX (empty)
+		0x00, 0x00, // Global Subr INDEX (empty)
+		0x00,                               // padding
+		0x00, 0x01, 0x01, 0x01, 0x02, 0x0E, // CharStrings INDEX = [endchar]
+	}
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	_, err := Read(bytes.NewReader(blob))
+	if err == nil {
+		t.Fatal("expected error for malicious CFF blob")
+	}
+
+	runtime.ReadMemStats(&after)
+	grew := after.TotalAlloc - before.TotalAlloc
+
+	const limit = 4 << 20 // 4 MiB
+	if grew > limit {
+		t.Errorf("parsing %d-byte input allocated %d bytes (limit %d)",
+			len(blob), grew, limit)
 	}
 }
 
