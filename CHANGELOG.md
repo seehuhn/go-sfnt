@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] (2026-05-11)
+
+### Changed
+- Minimum Go version raised to 1.25.
+
+### Fixed
+- GSUB/GPOS/GDEF readers now enforce a per-table memory budget, rejecting hostile fonts that alias offsets to amplify allocations from tiny inputs.
+- CFF reader bounds the Private DICT size against the remaining file size and uses 64-bit arithmetic for INDEX offsets, preventing oversized allocations and overflow on malformed input.
+- `glyf` simple glyphs with non-monotonic `endPtsOfContours` are rejected.
+- GPOS 4/5/6 mark records with out-of-range class indices are rejected.
+- GSUB 4 ligatures with zero components and ChainedSeqContext1/2 entries with zero input glyphs are rejected.
+- GSUB 2/3 silently drop empty replacement and alternate entries on read, matching HarfBuzz and macOS behaviour; the GSUB 3 builder rejects empty alternates.
+
 ## [0.7.1] (2026-03-31)
 
 ### Changed
