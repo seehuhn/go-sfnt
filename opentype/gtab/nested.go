@@ -31,7 +31,10 @@ type SeqLookup struct {
 }
 
 func readNested(p *parser.Parser, seqLookupCount int) ([]SeqLookup, error) {
-	res := make([]SeqLookup, seqLookupCount)
+	res, err := parser.AllocSlice[SeqLookup](p.Budget, seqLookupCount)
+	if err != nil {
+		return nil, err
+	}
 	for i := range res {
 		buf, err := p.ReadBytes(4)
 		if err != nil {
@@ -77,9 +80,13 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		seqRuleSetOffsets = seqRuleSetOffsets[:len(cov)]
 	}
 
+	rulesOuter, err := parser.AllocSlice[[]*SeqRule](p.Budget, len(seqRuleSetOffsets))
+	if err != nil {
+		return nil, err
+	}
 	res := &SeqContext1{
 		Cov:   cov,
-		Rules: make([][]*SeqRule, len(seqRuleSetOffsets)),
+		Rules: rulesOuter,
 	}
 
 	for i, seqRuleSetOffset := range seqRuleSetOffsets {
@@ -97,7 +104,10 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		if err != nil {
 			return nil, err
 		}
-		res.Rules[i] = make([]*SeqRule, len(seqRuleOffsets))
+		res.Rules[i], err = parser.AllocSlice[*SeqRule](p.Budget, len(seqRuleOffsets))
+		if err != nil {
+			return nil, err
+		}
 		for j, seqRuleOffset := range seqRuleOffsets {
 			err = p.SeekPos(base + int64(seqRuleOffset))
 			if err != nil {
@@ -116,7 +126,10 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 				}
 			}
 			seqLookupCount := int(buf[2])<<8 | int(buf[3])
-			inputSequence := make([]glyph.ID, glyphCount-1)
+			inputSequence, err := parser.AllocSlice[glyph.ID](p.Budget, glyphCount-1)
+			if err != nil {
+				return nil, err
+			}
 			for k := range inputSequence {
 				xk, err := p.ReadUint16()
 				if err != nil {
@@ -311,10 +324,14 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 	seqRuleSetCount := len(classSeqRuleSetOffsets)
 
+	rulesOuter, err := parser.AllocSlice[[]*ClassSeqRule](p.Budget, seqRuleSetCount)
+	if err != nil {
+		return nil, err
+	}
 	res := &SeqContext2{
 		Cov:   cov,
 		Input: classDef,
-		Rules: make([][]*ClassSeqRule, seqRuleSetCount),
+		Rules: rulesOuter,
 	}
 
 	total := 8 + 2*seqRuleSetCount
@@ -331,7 +348,10 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		if err != nil {
 			return nil, err
 		}
-		res.Rules[i] = make([]*ClassSeqRule, len(seqRuleOffsets))
+		res.Rules[i], err = parser.AllocSlice[*ClassSeqRule](p.Budget, len(seqRuleOffsets))
+		if err != nil {
+			return nil, err
+		}
 		total += 2 + 2*len(res.Rules[i])
 		for j, seqRuleOffset := range seqRuleOffsets {
 			err = p.SeekPos(base + int64(seqRuleOffset))
@@ -350,7 +370,10 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 				}
 			}
 			seqLookupCount := int(buf[2])<<8 | int(buf[3])
-			inputSequence := make([]uint16, glyphCount-1)
+			inputSequence, err := parser.AllocSlice[uint16](p.Budget, glyphCount-1)
+			if err != nil {
+				return nil, err
+			}
 			for k := range inputSequence {
 				xk, err := p.ReadUint16()
 				if err != nil {
@@ -540,7 +563,10 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 	seqLookupCount := int(buf[2])<<8 | int(buf[3])
-	coverageOffsets := make([]uint16, glyphCount)
+	coverageOffsets, err := parser.AllocSlice[uint16](p.Budget, glyphCount)
+	if err != nil {
+		return nil, err
+	}
 	for i := range coverageOffsets {
 		coverageOffsets[i], err = p.ReadUint16()
 		if err != nil {
@@ -553,7 +579,10 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	cov := make([]coverage.Set, glyphCount)
+	cov, err := parser.AllocSlice[coverage.Set](p.Budget, glyphCount)
+	if err != nil {
+		return nil, err
+	}
 	for i, offset := range coverageOffsets {
 		cov[i], err = coverage.ReadSet(p, subtablePos+int64(offset))
 		if err != nil {
@@ -690,7 +719,10 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 	total := 6 + 2*len(chainedSeqRuleSetOffsets)
 	total += cov.EncodeLen()
 
-	rules := make([][]*ChainedSeqRule, len(chainedSeqRuleSetOffsets))
+	rules, err := parser.AllocSlice[[]*ChainedSeqRule](p.Budget, len(chainedSeqRuleSetOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, chainedSeqRuleSetOffset := range chainedSeqRuleSetOffsets {
 		if chainedSeqRuleSetOffset == 0 {
 			continue
@@ -715,7 +747,10 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 		}
 		ruleSetSize := 2 + 2*len(chainedSeqRuleOffsets)
 
-		rules[i] = make([]*ChainedSeqRule, len(chainedSeqRuleOffsets))
+		rules[i], err = parser.AllocSlice[*ChainedSeqRule](p.Budget, len(chainedSeqRuleOffsets))
+		if err != nil {
+			return nil, err
+		}
 		for j, chainedSeqRuleOffset := range chainedSeqRuleOffsets {
 			err = p.SeekPos(base + int64(chainedSeqRuleOffset))
 			if err != nil {
@@ -736,7 +771,10 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 					Reason:    "invalid input glyph count in ChainedSeqContext1",
 				}
 			}
-			inputSequence := make([]glyph.ID, inputGlyphCount-1)
+			inputSequence, err := parser.AllocSlice[glyph.ID](p.Budget, int(inputGlyphCount)-1)
+			if err != nil {
+				return nil, err
+			}
 			for k := range inputSequence {
 				val, err := p.ReadUint16()
 				if err != nil {
@@ -1029,7 +1067,10 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 		chainedClassSeqRuleSetOffsets = chainedClassSeqRuleSetOffsets[:numClasses]
 	}
 
-	rules := make([][]*ChainedClassSeqRule, len(chainedClassSeqRuleSetOffsets))
+	rules, err := parser.AllocSlice[[]*ChainedClassSeqRule](p.Budget, len(chainedClassSeqRuleSetOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, chainedClassSeqRuleSetOffset := range chainedClassSeqRuleSetOffsets {
 		if chainedClassSeqRuleSetOffset == 0 {
 			continue
@@ -1046,7 +1087,10 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 			return nil, err
 		}
 
-		rules[i] = make([]*ChainedClassSeqRule, len(chainedClassSeqRuleOffsets))
+		rules[i], err = parser.AllocSlice[*ChainedClassSeqRule](p.Budget, len(chainedClassSeqRuleOffsets))
+		if err != nil {
+			return nil, err
+		}
 		for j, chainedClassSeqRuleOffset := range chainedClassSeqRuleOffsets {
 			err = p.SeekPos(base + int64(chainedClassSeqRuleOffset))
 			if err != nil {
@@ -1067,7 +1111,10 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 					Reason:    "invalid input glyph count in ChainedSeqContext2",
 				}
 			}
-			inputSequence := make([]uint16, inputGlyphCount-1)
+			inputSequence, err := parser.AllocSlice[uint16](p.Budget, int(inputGlyphCount)-1)
+			if err != nil {
+				return nil, err
+			}
 			for k := range inputSequence {
 				inputSequence[k], err = p.ReadUint16()
 				if err != nil {
@@ -1384,7 +1431,10 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 		return nil, err
 	}
 
-	backtrackCov := make([]coverage.Set, len(backtrackCoverageOffsets))
+	backtrackCov, err := parser.AllocSlice[coverage.Set](p.Budget, len(backtrackCoverageOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, offset := range backtrackCoverageOffsets {
 		backtrackCov[i], err = coverage.ReadSet(p, subtablePos+int64(offset))
 		if err != nil {
@@ -1392,7 +1442,10 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 		}
 	}
 
-	inputCov := make([]coverage.Set, len(inputCoverageOffsets))
+	inputCov, err := parser.AllocSlice[coverage.Set](p.Budget, len(inputCoverageOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, offset := range inputCoverageOffsets {
 		inputCov[i], err = coverage.ReadSet(p, subtablePos+int64(offset))
 		if err != nil {
@@ -1400,7 +1453,10 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 		}
 	}
 
-	lookaheadCov := make([]coverage.Set, len(lookaheadCoverageOffsets))
+	lookaheadCov, err := parser.AllocSlice[coverage.Set](p.Budget, len(lookaheadCoverageOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, offset := range lookaheadCoverageOffsets {
 		lookaheadCov[i], err = coverage.ReadSet(p, subtablePos+int64(offset))
 		if err != nil {

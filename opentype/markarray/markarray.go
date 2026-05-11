@@ -47,8 +47,14 @@ func Read(p *parser.Parser, pos int64, numMarks int) ([]Record, error) {
 		markCount = uint16(numMarks)
 	}
 
-	res := make([]Record, markCount)
-	offsets := make([]uint16, markCount)
+	res, err := parser.AllocSlice[Record](p.Budget, int(markCount))
+	if err != nil {
+		return nil, err
+	}
+	offsets, err := parser.AllocSlice[uint16](p.Budget, int(markCount))
+	if err != nil {
+		return nil, err
+	}
 	for i := 0; i < int(markCount); i++ {
 		res[i].Class, err = p.ReadUint16()
 		if err != nil {

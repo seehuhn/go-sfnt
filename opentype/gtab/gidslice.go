@@ -27,7 +27,10 @@ func readGIDSlice(p *parser.Parser) ([]glyph.ID, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := make([]glyph.ID, n)
+	res, err := parser.AllocSlice[glyph.ID](p.Budget, int(n))
+	if err != nil {
+		return nil, err
+	}
 	for i := range res {
 		val, err := p.ReadUint16()
 		if err != nil {

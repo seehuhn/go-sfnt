@@ -238,7 +238,10 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 
 	sequenceCount := len(sequenceOffsets)
-	repl := make([][]glyph.ID, sequenceCount)
+	repl, err := parser.AllocSlice[[]glyph.ID](p.Budget, sequenceCount)
+	if err != nil {
+		return nil, err
+	}
 	for i := range sequenceCount {
 		err := p.SeekPos(subtablePos + int64(sequenceOffsets[i]))
 		if err != nil {
@@ -380,7 +383,10 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 
 	alternateSetCount := len(alternateSetOffsets)
-	alt := make([][]glyph.ID, alternateSetCount)
+	alt, err := parser.AllocSlice[[]glyph.ID](p.Budget, alternateSetCount)
+	if err != nil {
+		return nil, err
+	}
 	for i := range alternateSetCount {
 		err := p.SeekPos(subtablePos + int64(alternateSetOffsets[i]))
 		if err != nil {
@@ -390,7 +396,10 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		if err != nil {
 			return nil, err
 		}
-		alt[i] = make([]glyph.ID, glyphCount)
+		alt[i], err = parser.AllocSlice[glyph.ID](p.Budget, int(glyphCount))
+		if err != nil {
+			return nil, err
+		}
 		for j := 0; j < int(glyphCount); j++ {
 			gid, err := p.ReadUint16()
 			if err != nil {
@@ -523,7 +532,10 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		ligatureSetOffsets = ligatureSetOffsets[:len(cov)]
 	}
 
-	repl := make([][]Ligature, len(ligatureSetOffsets))
+	repl, err := parser.AllocSlice[[]Ligature](p.Budget, len(ligatureSetOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, ligatureSetOffset := range ligatureSetOffsets {
 		ligatureSetPos := subtablePos + int64(ligatureSetOffset)
 		err := p.SeekPos(ligatureSetPos)
@@ -535,7 +547,10 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			return nil, err
 		}
 
-		repl[i] = make([]Ligature, len(ligatureOffsets))
+		repl[i], err = parser.AllocSlice[Ligature](p.Budget, len(ligatureOffsets))
+		if err != nil {
+			return nil, err
+		}
 		for j, ligatureOffset := range ligatureOffsets {
 			err = p.SeekPos(ligatureSetPos + int64(ligatureOffset))
 			if err != nil {
@@ -555,7 +570,10 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 					Reason:    "ligature with zero component count",
 				}
 			}
-			componentGlyphIDs := make([]glyph.ID, componentCount-1)
+			componentGlyphIDs, err := parser.AllocSlice[glyph.ID](p.Budget, int(componentCount)-1)
+			if err != nil {
+				return nil, err
+			}
 			for k := range componentGlyphIDs {
 				gid, err := p.ReadUint16()
 				if err != nil {
@@ -751,14 +769,20 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	backtrack := make([]coverage.Table, len(backtrackCoverageOffsets))
+	backtrack, err := parser.AllocSlice[coverage.Table](p.Budget, len(backtrackCoverageOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, offs := range backtrackCoverageOffsets {
 		backtrack[i], err = coverage.Read(p, subtablePos+int64(offs))
 		if err != nil {
 			return nil, err
 		}
 	}
-	lookahead := make([]coverage.Table, len(lookaheadCoverageOffsets))
+	lookahead, err := parser.AllocSlice[coverage.Table](p.Budget, len(lookaheadCoverageOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, offs := range lookaheadCoverageOffsets {
 		lookahead[i], err = coverage.Read(p, subtablePos+int64(offs))
 		if err != nil {

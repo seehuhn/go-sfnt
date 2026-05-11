@@ -89,7 +89,10 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 	// Array of offsets to LigatureAttach tables.  Offsets are from beginning
 	// of LigatureArray table, ordered by ligatureCoverage index.
-	offsets := make([]uint16, ligCount)
+	offsets, err := parser.AllocSlice[uint16](p.Budget, int(ligCount))
+	if err != nil {
+		return nil, err
+	}
 	for i := range offsets {
 		offsets[i], err = p.ReadUint16()
 		if err != nil {
@@ -97,7 +100,10 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	ligArray := make([][][]anchor.Table, ligCount)
+	ligArray, err := parser.AllocSlice[[][]anchor.Table](p.Budget, int(ligCount))
+	if err != nil {
+		return nil, err
+	}
 	for i := range ligArray {
 		ligAttachPos := ligArrayPos + int64(offsets[i])
 		err = p.SeekPos(ligAttachPos)
@@ -116,7 +122,10 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 				Reason:    "GPOS5.1 table too large",
 			}
 		}
-		anchorOffsets := make([]uint16, numAnchorOffsets)
+		anchorOffsets, err := parser.AllocSlice[uint16](p.Budget, int(numAnchorOffsets))
+		if err != nil {
+			return nil, err
+		}
 		for k := range anchorOffsets {
 			anchorOffsets[k], err = p.ReadUint16()
 			if err != nil {
@@ -124,9 +133,15 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			}
 		}
 
-		ligAttach := make([][]anchor.Table, componentCount)
+		ligAttach, err := parser.AllocSlice[[]anchor.Table](p.Budget, int(componentCount))
+		if err != nil {
+			return nil, err
+		}
 		for j := range ligAttach {
-			row := make([]anchor.Table, markClassCount)
+			row, err := parser.AllocSlice[anchor.Table](p.Budget, int(markClassCount))
+			if err != nil {
+				return nil, err
+			}
 			for k := range row {
 				if anchorOffsets[k] == 0 {
 					continue

@@ -86,6 +86,9 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 			}
 		}
 
+		if err := p.Budget.Charge(glyphCount * 24); err != nil {
+			return nil, err
+		}
 		res := make(Table, glyphCount)
 		for i := range glyphCount {
 			classValue, err := p.ReadUint16()
@@ -124,6 +127,9 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 			prevEnd = endGlyphID
 
 			if classValue != 0 {
+				if err := p.Budget.Charge((int(endGlyphID) - int(startGlyphID) + 1) * 24); err != nil {
+					return nil, err
+				}
 				for j := int(startGlyphID); j <= int(endGlyphID); j++ {
 					res[glyph.ID(j)] = classValue
 				}

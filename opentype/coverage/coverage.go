@@ -86,6 +86,10 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 		if err != nil {
 			return nil, err
 		}
+		// 24 bytes per map entry covers hashtable + value overhead
+		if err := p.Budget.Charge(int(glyphCount) * 24); err != nil {
+			return nil, err
+		}
 		prev := -1
 		for i := 0; i < int(glyphCount); i++ {
 			gid, err := p.ReadUint16()
@@ -130,6 +134,11 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 					SubSystem: "sfnt/opentype/coverage",
 					Reason:    "invalid coverage table (format 2)",
 				}
+			}
+			// charge each range up front so a range spanning thousands
+			// of glyph ids cannot blow past the budget unnoticed
+			if err := p.Budget.Charge((endGlyphID - startGlyphID + 1) * 24); err != nil {
+				return nil, err
 			}
 			for gid := startGlyphID; gid <= endGlyphID; gid++ {
 				table[glyph.ID(gid)] = pos

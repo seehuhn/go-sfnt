@@ -155,7 +155,10 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	coverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	valueFormat := uint16(buf[2])<<8 | uint16(buf[3])
 	valueCount := int(buf[4])<<8 | int(buf[5])
-	valueRecords := make([]*GposValueRecord, valueCount)
+	valueRecords, err := parser.AllocSlice[*GposValueRecord](p.Budget, valueCount)
+	if err != nil {
+		return nil, err
+	}
 	for i := range valueRecords {
 		valueRecords[i], err = readValueRecord(p, valueFormat)
 		if err != nil {
@@ -283,7 +286,10 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	valueFormat2 := uint16(buf[4])<<8 | uint16(buf[5])
 	pairSetCount := int(buf[6])<<8 | int(buf[7])
 
-	pairSetOffsets := make([]uint16, pairSetCount)
+	pairSetOffsets, err := parser.AllocSlice[uint16](p.Budget, pairSetCount)
+	if err != nil {
+		return nil, err
+	}
 	for i := range pairSetOffsets {
 		pairSetOffsets[i], err = p.ReadUint16()
 		if err != nil {
@@ -302,7 +308,10 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		cov.Prune(len(pairSetOffsets))
 	}
 
-	adjust := make([]map[glyph.ID]*PairAdjust, len(pairSetOffsets))
+	adjust, err := parser.AllocSlice[map[glyph.ID]*PairAdjust](p.Budget, len(pairSetOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i, offset := range pairSetOffsets {
 		err = p.SeekPos(subtablePos + int64(offset))
 		if err != nil {
@@ -310,6 +319,11 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 		pairValueCount, err := p.ReadUint16()
 		if err != nil {
+			return nil, err
+		}
+		// charge the map: rough estimate ~16 bytes per entry plus
+		// bucket overhead.  A flat 24 bytes per entry is generous.
+		if err := p.Budget.Charge(int(pairValueCount) * 24); err != nil {
 			return nil, err
 		}
 		adj := make(map[glyph.ID]*PairAdjust, pairValueCount)
@@ -511,7 +525,10 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			Reason:    "GPOS2.1 table too large",
 		}
 	}
-	records := make([]*PairAdjust, numRecords)
+	records, err := parser.AllocSlice[*PairAdjust](p.Budget, numRecords)
+	if err != nil {
+		return nil, err
+	}
 	for i := range numRecords {
 		first, err := readValueRecord(p, valueFormat1)
 		if err != nil {
@@ -541,7 +558,10 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	adjust := make([][]*PairAdjust, class1Count)
+	adjust, err := parser.AllocSlice[[]*PairAdjust](p.Budget, int(class1Count))
+	if err != nil {
+		return nil, err
+	}
 	for i := 0; i < int(class1Count); i++ {
 		adjust[i] = records[i*int(class2Count) : (i+1)*int(class2Count)]
 	}
@@ -686,7 +706,10 @@ func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	coverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	entryExitCount := int(buf[2])<<8 | int(buf[3])
 
-	offsets := make([]uint16, 2*entryExitCount)
+	offsets, err := parser.AllocSlice[uint16](p.Budget, 2*entryExitCount)
+	if err != nil {
+		return nil, err
+	}
 	for i := range offsets {
 		offsets[i], err = p.ReadUint16()
 		if err != nil {
@@ -694,7 +717,10 @@ func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	records := make([]EntryExitRecord, entryExitCount)
+	records, err := parser.AllocSlice[EntryExitRecord](p.Budget, entryExitCount)
+	if err != nil {
+		return nil, err
+	}
 	for i := range records {
 		if offsets[2*i] != 0 {
 			records[i].Entry, err = anchor.Read(p, subtablePos+int64(offsets[2*i]))

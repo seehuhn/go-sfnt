@@ -48,6 +48,7 @@ func (table *Table) IsMark(gid glyph.ID) bool {
 // Read reads the GDEF table.
 func Read(r parser.ReadSeekSizer) (*Table, error) {
 	p := parser.New(r)
+	p.Budget = parser.NewBudget(p.Size())
 	buf, err := p.ReadBytes(12)
 	if err != nil {
 		return nil, err
@@ -116,7 +117,10 @@ func Read(r parser.ReadSeekSizer) (*Table, error) {
 			}
 		}
 		markGlyphSetCount := uint16(buf[2])<<8 | uint16(buf[3])
-		coverageOffsets := make([]uint32, markGlyphSetCount)
+		coverageOffsets, err := parser.AllocSlice[uint32](p.Budget, int(markGlyphSetCount))
+		if err != nil {
+			return nil, err
+		}
 		for i := range coverageOffsets {
 			coverageOffsets[i], err = p.ReadUint32()
 			if err != nil {
@@ -124,7 +128,10 @@ func Read(r parser.ReadSeekSizer) (*Table, error) {
 			}
 		}
 
-		table.MarkGlyphSets = make([]coverage.Set, markGlyphSetCount)
+		table.MarkGlyphSets, err = parser.AllocSlice[coverage.Set](p.Budget, int(markGlyphSetCount))
+		if err != nil {
+			return nil, err
+		}
 		for i := range table.MarkGlyphSets {
 			table.MarkGlyphSets[i], err = coverage.ReadSet(p, pos+int64(coverageOffsets[i]))
 			if err != nil {

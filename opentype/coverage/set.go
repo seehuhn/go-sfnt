@@ -66,6 +66,11 @@ func ReadSet(p *parser.Parser, pos int64) (Set, error) {
 		if err != nil {
 			return nil, err
 		}
+		// 16 bytes per entry approximates the amortised hashtable overhead
+		// for map[glyph.ID]bool, where each entry carries only a few bytes.
+		if err := p.Budget.Charge(int(glyphCount) * 16); err != nil {
+			return nil, err
+		}
 		for i := 0; i < int(glyphCount); i++ {
 			gid, err := p.ReadUint16()
 			if err != nil {
@@ -98,6 +103,11 @@ func ReadSet(p *parser.Parser, pos int64) (Set, error) {
 					SubSystem: "sfnt/opentype/coverage",
 					Reason:    "invalid coverage table (format 2)",
 				}
+			}
+			// charge each range up front: 16 bytes per entry approximates
+			// the per-entry overhead of map[glyph.ID]bool
+			if err := p.Budget.Charge((endGlyphID - startGlyphID + 1) * 16); err != nil {
+				return nil, err
 			}
 			for gid := startGlyphID; gid <= endGlyphID; gid++ {
 				table[glyph.ID(gid)] = true

@@ -95,7 +95,10 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			Reason:    "GPOS6.1 table too large",
 		}
 	}
-	offsets := make([]uint16, numOffsets)
+	offsets, err := parser.AllocSlice[uint16](p.Budget, int(numOffsets))
+	if err != nil {
+		return nil, err
+	}
 	for i := range offsets {
 		offsets[i], err = p.ReadUint16()
 		if err != nil {
@@ -103,9 +106,15 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	mark2Array := make([][]anchor.Table, mark2Count)
+	mark2Array, err := parser.AllocSlice[[]anchor.Table](p.Budget, int(mark2Count))
+	if err != nil {
+		return nil, err
+	}
 	for i := range mark2Array {
-		row := make([]anchor.Table, markClassCount)
+		row, err := parser.AllocSlice[anchor.Table](p.Budget, int(markClassCount))
+		if err != nil {
+			return nil, err
+		}
 		for j := range row {
 			if offsets[j] == 0 {
 				continue

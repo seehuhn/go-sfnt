@@ -188,7 +188,10 @@ func readLangSysTable(p *parser.Parser, pos int64) (*Features, error) {
 		}
 	}
 
-	featureIndices := make([]FeatureIndex, featureIndexCount)
+	featureIndices, err := parser.AllocSlice[FeatureIndex](p.Budget, int(featureIndexCount))
+	if err != nil {
+		return nil, err
+	}
 	for i := 0; i < int(featureIndexCount); i++ {
 		idx, err := p.ReadUint16()
 		if err != nil {

@@ -178,7 +178,11 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 		return nil, err
 	}
 
-	res := make(LookupList, len(lookupOffsets))
+	resSlice, err := parser.AllocSlice[*LookupTable](p.Budget, len(lookupOffsets))
+	if err != nil {
+		return nil, err
+	}
+	res := LookupList(resSlice)
 
 	numLookups := 0
 	numSubTables := 0
@@ -230,7 +234,10 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 			MarkFilteringSet: markFilteringSet,
 		}
 
-		subtables := make([]Subtable, subTableCount)
+		subtables, err := parser.AllocSlice[Subtable](p.Budget, int(subTableCount))
+		if err != nil {
+			return nil, err
+		}
 		for j, subtableOffset := range subtableOffsets {
 			subtable, err := sr(p, lookupTablePos+int64(subtableOffset), meta)
 			if err != nil {
