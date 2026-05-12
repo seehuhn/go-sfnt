@@ -21,10 +21,12 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/device"
 	"seehuhn.de/go/sfnt/opentype/markarray"
 	"seehuhn.de/go/sfnt/parser"
 )
@@ -169,6 +171,52 @@ func TestGpos4_1MarkClassOutOfRange(t *testing.T) {
 	}
 }
 
+func TestGpos5_1(t *testing.T) {
+	l1 := &Gpos5_1{
+		MarkCov: coverage.Table{10: 0, 11: 1},
+		LigCov:  coverage.Table{20: 0, 21: 1},
+		MarkArray: []markarray.Record{
+			{Class: 0, Table: anchor.Table{X: 1, Y: 2}},
+			{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
+		},
+		LigArray: [][][]anchor.Table{
+			// ligature 20: two components, two mark classes
+			{
+				{
+					{X: 10, Y: 20}, // comp 0, class 0
+					{X: 30, Y: 40}, // comp 0, class 1
+				},
+				{
+					{X: 50, Y: 60}, // comp 1, class 0
+					{},             // comp 1, class 1 (NULL)
+				},
+			},
+			// ligature 21: one component, two mark classes
+			{
+				{
+					{},              // comp 0, class 0 (NULL)
+					{X: 70, Y: -10}, // comp 0, class 1
+				},
+			},
+		},
+	}
+	data := l1.encode()
+	if len(data) != l1.encodeLen() {
+		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), l1.encodeLen())
+	}
+	p := parser.New(bytes.NewReader(data))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := readGpos5_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(l1, l2); d != "" {
+		t.Errorf("round-trip mismatch (-want +got):\n%s", d)
+	}
+}
+
 // TestGpos6_1MarkClassOutOfRange — analogous check for Gpos6_1.
 func TestGpos6_1MarkClassOutOfRange(t *testing.T) {
 	// Gpos6_1 has the same on-disk layout as Gpos4_1 (mark1 plays the role
@@ -252,14 +300,26 @@ func FuzzGpos2_1(f *testing.F) {
 				XAdvance: -10,
 			},
 			Second: &GposValueRecord{
-				XPlacement:        1,
-				YPlacement:        2,
-				XAdvance:          3,
-				YAdvance:          4,
-				XPlacementDevOffs: 5,
-				YPlacementDevOffs: 6,
-				XAdvanceDevOffs:   7,
-				YAdvanceDevOffs:   8,
+				XPlacement: 1,
+				YPlacement: 2,
+				XAdvance:   3,
+				YAdvance:   4,
+				XPlacementDev: &device.Table{
+					StartSize: 8, EndSize: 11,
+					Deltas: []int8{-1, 0, 1, 2}, DeltaFormat: 2,
+				},
+				YPlacementDev: &device.Table{
+					StartSize: 9, EndSize: 9,
+					Deltas: []int8{1}, DeltaFormat: 1,
+				},
+				XAdvanceDev: &device.Table{
+					OuterIndex: 7, InnerIndex: 3,
+					DeltaFormat: device.VariationIndexFormat,
+				},
+				YAdvanceDev: &device.Table{
+					StartSize: 10, EndSize: 12,
+					Deltas: []int8{0, 1, -1}, DeltaFormat: 3,
+				},
 			},
 		},
 	}
@@ -419,4 +479,180 @@ func FuzzGpos6_1(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 6, 1, readGpos6_1, data)
 	})
+}
+
+// TestCountMarkClassesCatchesInconsistency confirms that
+// countMarkClasses validates structural invariants for Gpos4_1, Gpos5_1
+// and Gpos6_1, so both encodeLen and encode see the same panic instead
+// of encodeLen happily returning a size for unencodable data.
+func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
+	t.Run("Gpos4_1 inconsistent BaseArray row width", func(t *testing.T) {
+		l := &Gpos4_1{
+			MarkCov:   coverage.Table{1: 0},
+			BaseCov:   coverage.Table{2: 0, 3: 1},
+			MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
+			BaseArray: [][]anchor.Table{
+				{{X: 1}, {X: 2}}, // width 2
+				{{X: 3}},         // width 1 — inconsistent
+			},
+		}
+		assertPanics(t, func() { _ = l.encodeLen() })
+	})
+
+	t.Run("Gpos4_1 mark class out of range", func(t *testing.T) {
+		l := &Gpos4_1{
+			MarkCov:   coverage.Table{1: 0},
+			BaseCov:   coverage.Table{2: 0},
+			MarkArray: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
+			BaseArray: [][]anchor.Table{{{X: 1}}}, // markClassCount = 1
+		}
+		assertPanics(t, func() { _ = l.encodeLen() })
+	})
+
+	t.Run("Gpos5_1 inconsistent LigArray row width", func(t *testing.T) {
+		l := &Gpos5_1{
+			MarkCov:   coverage.Table{1: 0},
+			LigCov:    coverage.Table{2: 0, 3: 1},
+			MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
+			LigArray: [][][]anchor.Table{
+				{{{X: 1}, {X: 2}}}, // width 2
+				{{{X: 3}}},         // width 1 — inconsistent
+			},
+		}
+		assertPanics(t, func() { _ = l.encodeLen() })
+	})
+
+	t.Run("Gpos5_1 mark class out of range", func(t *testing.T) {
+		l := &Gpos5_1{
+			MarkCov:   coverage.Table{1: 0},
+			LigCov:    coverage.Table{2: 0},
+			MarkArray: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
+			LigArray:  [][][]anchor.Table{{{{X: 1}}}}, // markClassCount = 1
+		}
+		assertPanics(t, func() { _ = l.encodeLen() })
+	})
+
+	t.Run("Gpos6_1 inconsistent Mark2Array row width", func(t *testing.T) {
+		l := &Gpos6_1{
+			Mark1Cov:   coverage.Table{1: 0},
+			Mark2Cov:   coverage.Table{2: 0, 3: 1},
+			Mark1Array: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
+			Mark2Array: [][]anchor.Table{
+				{{X: 1}, {X: 2}}, // width 2
+				{{X: 3}},         // width 1 — inconsistent
+			},
+		}
+		assertPanics(t, func() { _ = l.encodeLen() })
+	})
+
+	t.Run("Gpos6_1 mark class out of range", func(t *testing.T) {
+		l := &Gpos6_1{
+			Mark1Cov:   coverage.Table{1: 0},
+			Mark2Cov:   coverage.Table{2: 0},
+			Mark1Array: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
+			Mark2Array: [][]anchor.Table{{{X: 1}}}, // markClassCount = 1
+		}
+		assertPanics(t, func() { _ = l.encodeLen() })
+	})
+}
+
+// TestSubtableSizeOverflow confirms that the encoder panics when a
+// subtable's offsets would no longer fit in uint16, instead of
+// silently truncating offsets and producing corrupt output.
+func TestSubtableSizeOverflow(t *testing.T) {
+	// A Gpos2_2 with class1Count=200, class2Count=200 and a 4-byte
+	// PairValueRecord (XPlacement on both sides) produces 200*200*4 =
+	// 160 000 bytes of records before any header/coverage/classdef —
+	// well past the 64 KiB uint16 limit.
+	const n = 200
+	oneAdj := &PairAdjust{
+		First:  &GposValueRecord{XPlacement: 1},
+		Second: &GposValueRecord{XPlacement: 1},
+	}
+	adj := make([][]*PairAdjust, n)
+	for i := range adj {
+		adj[i] = make([]*PairAdjust, n)
+		for j := range adj[i] {
+			adj[i][j] = oneAdj
+		}
+	}
+	l := &Gpos2_2{
+		Cov:    coverage.Set{1: true},
+		Class1: classdef.Table{1: 1},
+		Class2: classdef.Table{1: 1},
+		Adjust: adj,
+	}
+	assertPanics(t, func() { _ = l.encode() })
+}
+
+// TestDevicePoolDeduplicates confirms that GPOS encoders content-
+// dedupe Device/VariationIndex tables: a subtable that references the
+// same VariationIndex from many value records emits exactly one copy.
+//
+// Concretely, build a Gpos1_2 whose 16 adjustments all point at the
+// same VariationIndex.  Without dedup the encoded subtable carries 16
+// copies of the 6-byte table; with dedup it carries one.
+func TestDevicePoolDeduplicates(t *testing.T) {
+	shared := &device.Table{
+		OuterIndex:  3,
+		InnerIndex:  7,
+		DeltaFormat: device.VariationIndexFormat,
+	}
+	const n = 16
+	adjusts := make([]*GposValueRecord, n)
+	cov := coverage.Table{}
+	for i := range adjusts {
+		adjusts[i] = &GposValueRecord{
+			XAdvance:    funit.Int16(i + 1),
+			XAdvanceDev: shared,
+		}
+		cov[glyph.ID(i+1)] = i
+	}
+	l := &Gpos1_2{Cov: cov, Adjust: adjusts}
+
+	encoded := l.encode()
+	if len(encoded) != l.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(encoded), l.encodeLen())
+	}
+
+	// Count occurrences of the shared VariationIndex's encoded bytes
+	// inside the subtable.  The dedup'd subtable contains exactly one
+	// copy; pre-fix it would have contained n.
+	needle := shared.Encode()
+	count := bytes.Count(encoded, needle)
+	if count != 1 {
+		t.Errorf("expected 1 copy of shared VariationIndex, found %d (subtable size %d)",
+			count, len(encoded))
+	}
+
+	// Re-read and confirm every record still points at a content-
+	// equivalent VariationIndex.
+	p := parser.New(bytes.NewReader(encoded))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readGpos1_2(p, 0)
+	if err != nil {
+		t.Fatalf("re-read failed: %v", err)
+	}
+	for i, adj := range got.(*Gpos1_2).Adjust {
+		if adj.XAdvanceDev == nil {
+			t.Errorf("adjust %d lost its VariationIndex", i)
+			continue
+		}
+		if d := cmp.Diff(shared, adj.XAdvanceDev); d != "" {
+			t.Errorf("adjust %d VariationIndex mismatch (-want +got):\n%s", i, d)
+		}
+	}
+}
+
+// assertPanics runs fn and reports a t.Errorf if fn does not panic.
+func assertPanics(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Errorf("expected panic, got none")
+		}
+	}()
+	fn()
 }

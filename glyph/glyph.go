@@ -35,9 +35,10 @@ type Pair struct {
 // Info contains layout information for a single glyph.
 // All dimensions are in the font's glyph space units.
 type Info struct {
-	GID     ID
-	Text    []rune
-	XOffset funit.Int16 // TODO(voss): convert to float64
-	YOffset funit.Int16 // TODO(voss): convert to float64
-	Advance funit.Int16 // TODO(voss): convert to float64
+	GID      ID
+	Text     []rune
+	XOffset  funit.Int16 // TODO(voss): convert to float64
+	YOffset  funit.Int16 // TODO(voss): convert to float64
+	Advance  funit.Int16 // horizontal advance; TODO(voss): convert to float64
+	YAdvance funit.Int16 // vertical advance, used only in vertical layout
 }

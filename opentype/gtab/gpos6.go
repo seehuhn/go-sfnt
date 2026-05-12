@@ -176,22 +176,42 @@ func (l *Gpos6_1) apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
+// countMarkClasses returns the markClassCount for this subtable.  It also
+// validates the structural invariants the encoder depends on: every row
+// in Mark2Array must have width markClassCount, and every Mark1Array
+// record's Class must be < markClassCount.  Both encodeLen and encode
+// call this, so inconsistent input is caught on the first pass instead
+// of leaving encodeLen happily returning a size for unencodable data.
 func (l *Gpos6_1) countMarkClasses() int {
+	var count int
 	if len(l.Mark2Array) > 0 {
-		return len(l.Mark2Array[0])
+		count = len(l.Mark2Array[0])
+	} else {
+		var maxClass uint16
+		for _, rec := range l.Mark1Array {
+			if rec.Class > maxClass {
+				maxClass = rec.Class
+			}
+		}
+		count = int(maxClass) + 1
 	}
-
-	var maxClass uint16
-	for _, rec := range l.Mark1Array {
-		if rec.Class > maxClass {
-			maxClass = rec.Class
+	for _, row := range l.Mark2Array {
+		if len(row) != count {
+			panic("Gpos6_1: inconsistent Mark2Array row width")
 		}
 	}
-	return int(maxClass) + 1
+	for _, rec := range l.Mark1Array {
+		if int(rec.Class) >= count {
+			panic("Gpos6_1: mark class out of range")
+		}
+	}
+	return count
 }
 
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos6_1) encodeLen() int {
+	// invoke for its consistency-check side effects
+	_ = l.countMarkClasses()
 	total := 12
 	total += l.Mark1Cov.EncodeLen()
 	total += l.Mark2Cov.EncodeLen()
@@ -215,17 +235,6 @@ func (l *Gpos6_1) encode() []byte {
 	markClassCount := l.countMarkClasses()
 	mark2Count := len(l.Mark2Array)
 
-	for _, row := range l.Mark2Array {
-		if len(row) != markClassCount {
-			panic("Gpos6_1: inconsistent Mark2Array row width")
-		}
-	}
-	for _, rec := range l.Mark1Array {
-		if int(rec.Class) >= markClassCount {
-			panic("Gpos6_1: mark class out of range")
-		}
-	}
-
 	total := 12
 	mark1CoverageOffset := total
 	total += l.Mark1Cov.EncodeLen()
@@ -243,6 +252,7 @@ func (l *Gpos6_1) encode() []byte {
 			}
 		}
 	}
+	checkSubtableSize16("Gpos6_1", total)
 	res := make([]byte, 0, total)
 
 	res = append(res,

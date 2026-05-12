@@ -45,6 +45,7 @@ type Info struct {
 // The function may read r beyond the end of the table.
 func Read(r parser.ReadSeekSizer) (*Info, error) {
 	p := parser.New(r)
+	p.Budget = parser.NewBudget(p.Size())
 
 	post := &postEnc{}
 	if err := binary.Read(p, binary.BigEndian, post); err != nil {
@@ -71,7 +72,10 @@ func Read(r parser.ReadSeekSizer) (*Info, error) {
 
 		var names []string
 
-		info.Names = make([]string, numGlyphs)
+		info.Names, err = parser.AllocSlice[string](p.Budget, numGlyphs)
+		if err != nil {
+			return nil, err
+		}
 		nMac := len(macRoman)
 		for i, idx := range glyphNameIndex {
 			idx := int(idx)

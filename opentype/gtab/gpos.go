@@ -28,6 +28,22 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
+// checkSubtableSize16 panics if total exceeds the uint16 range.
+//
+// All internal offsets in a GPOS or GSUB subtable (coverage tables,
+// classdefs, mark/base/lig array offsets, Device-table offsets, …) are
+// stored as Offset16 values relative to the subtable start.  Once the
+// laid-out subtable grows past 0xFFFF bytes, those offsets truncate
+// silently and the encoded bytes point at the wrong data.  Callers must
+// split the subtable themselves; the library has no way to do it for
+// them.
+func checkSubtableSize16(name string, total int) {
+	if total > 0xFFFF {
+		panic(fmt.Sprintf("sfnt/gtab: %s subtable too large (%d bytes); "+
+			"split the lookup so each subtable fits in 64 KiB", name, total))
+	}
+}
+
 // readGposSubtable reads a GPOS subtable.
 // This function can be used as the SubtableReader argument to readLookupList().
 func readGposSubtable(p *parser.Parser, pos int64, meta *LookupMetaInfo) (Subtable, error) {
@@ -88,7 +104,7 @@ func readGpos1_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 	coverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	valueFormat := uint16(buf[2])<<8 | uint16(buf[3])
-	valueRecord, err := readValueRecord(p, valueFormat)
+	valueRecord, err := readValueRecord(p, valueFormat, subtablePos)
 	if err != nil {
 		return nil, err
 	}
@@ -119,23 +135,35 @@ func (l *Gpos1_1) apply(ctx *Context, a, b int) int {
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos1_1) encodeLen() int {
 	format := l.Adjust.getFormat()
-	return 6 + l.Adjust.encodeLen(format) + l.Cov.EncodeLen()
+	devStart := 6 + valueRecordEncodeLen(format) + l.Cov.EncodeLen()
+	pool := newDevicePool(devStart)
+	pool.addAll(l.Adjust)
+	return devStart + pool.len()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gpos1_1) encode() []byte {
 	format := l.Adjust.getFormat()
-	vrLen := l.Adjust.encodeLen(format)
-	coverageOffs := 6 + vrLen
-	total := coverageOffs + l.Cov.EncodeLen()
+	coverageOffs := 6 + valueRecordEncodeLen(format)
+	devStart := coverageOffs + l.Cov.EncodeLen()
+
+	pool := newDevicePool(devStart)
+	var devOffsets [4]uint16
+	for i, d := range l.Adjust.deviceTables() {
+		devOffsets[i] = pool.add(d)
+	}
+	total := devStart + pool.len()
+	checkSubtableSize16("Gpos1_1", total)
+
 	buf := make([]byte, 0, total)
 	buf = append(buf,
 		0, 1, // format
 		byte(coverageOffs>>8), byte(coverageOffs),
 		byte(format>>8), byte(format),
 	)
-	buf = append(buf, l.Adjust.encode(format)...)
+	buf = append(buf, l.Adjust.encode(format, devOffsets)...)
 	buf = append(buf, l.Cov.Encode()...)
+	buf = append(buf, pool.bytes()...)
 	return buf
 }
 
@@ -160,7 +188,7 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 	for i := range valueRecords {
-		valueRecords[i], err = readValueRecord(p, valueFormat)
+		valueRecords[i], err = readValueRecord(p, valueFormat, subtablePos)
 		if err != nil {
 			return nil, err
 		}
@@ -200,12 +228,10 @@ func (l *Gpos1_2) encodeLen() int {
 	for _, adj := range l.Adjust {
 		valueFormat |= adj.getFormat()
 	}
-	total := 8
-	if len(l.Adjust) > 0 {
-		total += l.Adjust[0].encodeLen(valueFormat) * len(l.Adjust)
-	}
-	total += l.Cov.EncodeLen()
-	return total
+	devStart := 8 + valueRecordEncodeLen(valueFormat)*len(l.Adjust) + l.Cov.EncodeLen()
+	pool := newDevicePool(devStart)
+	pool.addAll(l.Adjust...)
+	return devStart + pool.len()
 }
 
 // encode implements the [Subtable] interface.
@@ -215,12 +241,20 @@ func (l *Gpos1_2) encode() []byte {
 		valueFormat |= adj.getFormat()
 	}
 	valueCount := len(l.Adjust)
-	total := 8
-	if len(l.Adjust) > 0 {
-		total += l.Adjust[0].encodeLen(valueFormat) * valueCount
+	vrLen := valueRecordEncodeLen(valueFormat)
+
+	coverageOffset := 8 + vrLen*valueCount
+	devStart := coverageOffset + l.Cov.EncodeLen()
+
+	pool := newDevicePool(devStart)
+	perRecOffs := make([][4]uint16, valueCount)
+	for i, adj := range l.Adjust {
+		for k, d := range adj.deviceTables() {
+			perRecOffs[i][k] = pool.add(d)
+		}
 	}
-	coverageOffset := total
-	total += l.Cov.EncodeLen()
+	total := devStart + pool.len()
+	checkSubtableSize16("Gpos1_2", total)
 
 	buf := make([]byte, 0, total)
 	buf = append(buf,
@@ -229,10 +263,11 @@ func (l *Gpos1_2) encode() []byte {
 		byte(valueFormat>>8), byte(valueFormat),
 		byte(valueCount>>8), byte(valueCount),
 	)
-	for _, adj := range l.Adjust {
-		buf = append(buf, adj.encode(valueFormat)...)
+	for i, adj := range l.Adjust {
+		buf = append(buf, adj.encode(valueFormat, perRecOffs[i])...)
 	}
 	buf = append(buf, l.Cov.Encode()...)
+	buf = append(buf, pool.bytes()...)
 	return buf
 }
 
@@ -332,11 +367,11 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			if err != nil {
 				return nil, err
 			}
-			first, err := readValueRecord(p, valueFormat1)
+			first, err := readValueRecord(p, valueFormat1, subtablePos)
 			if err != nil {
 				return nil, err
 			}
-			second, err := readValueRecord(p, valueFormat2)
+			second, err := readValueRecord(p, valueFormat2, subtablePos)
 			if err != nil {
 				return nil, err
 			}
@@ -384,8 +419,6 @@ func (l Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
 func (l Gpos2_1) encodeLen() int {
 	cov, adjust := l.CovAndAdjust()
 
-	total := 10 + 2*len(adjust)
-	total += cov.EncodeLen()
 	var valueFormat1, valueFormat2 uint16
 	for _, adj := range adjust {
 		for _, v := range adj {
@@ -393,14 +426,20 @@ func (l Gpos2_1) encodeLen() int {
 			valueFormat2 |= v.Second.getFormat()
 		}
 	}
+	vr1Len := valueRecordEncodeLen(valueFormat1)
+	vr2Len := valueRecordEncodeLen(valueFormat2)
+
+	devStart := 10 + 2*len(adjust) + cov.EncodeLen()
 	for _, adj := range adjust {
-		total += 2 + 2*len(adj)
+		devStart += 2 + (2+vr1Len+vr2Len)*len(adj)
+	}
+	pool := newDevicePool(devStart)
+	for _, adj := range adjust {
 		for _, v := range adj {
-			total += v.First.encodeLen(valueFormat1)
-			total += v.Second.encodeLen(valueFormat2)
+			pool.addAll(v.First, v.Second)
 		}
 	}
-	return total
+	return devStart + pool.len()
 }
 
 // encode implements the [Subtable] interface.
@@ -408,9 +447,6 @@ func (l Gpos2_1) encode() []byte {
 	cov, adjust := l.CovAndAdjust()
 
 	pairSetCount := len(adjust)
-	total := 10 + 2*pairSetCount
-	coverageOffset := total
-	total += cov.EncodeLen()
 	var valueFormat1, valueFormat2 uint16
 	for _, adj := range adjust {
 		for _, v := range adj {
@@ -418,15 +454,41 @@ func (l Gpos2_1) encode() []byte {
 			valueFormat2 |= v.Second.getFormat()
 		}
 	}
+	vr1Len := valueRecordEncodeLen(valueFormat1)
+	vr2Len := valueRecordEncodeLen(valueFormat2)
+
+	headerLen := 10 + 2*pairSetCount
+	coverageOffset := headerLen
+	covLen := cov.EncodeLen()
 	pairSetOffsets := make([]uint16, pairSetCount)
+	pos := coverageOffset + covLen
+	pairKeys := make([][]glyph.ID, pairSetCount)
 	for i, adj := range adjust {
-		pairSetOffsets[i] = uint16(total)
-		total += 2 + 2*len(adj)
-		for _, v := range adj {
-			total += v.First.encodeLen(valueFormat1)
-			total += v.Second.encodeLen(valueFormat2)
-		}
+		pairSetOffsets[i] = uint16(pos)
+		pos += 2 + (2+vr1Len+vr2Len)*len(adj)
+		pairKeys[i] = slices.Sorted(maps.Keys(adj))
 	}
+	devStart := pos
+	pool := newDevicePool(devStart)
+	type devOff struct {
+		first, second [4]uint16
+	}
+	pairDev := make([][]devOff, pairSetCount)
+	for i, adj := range adjust {
+		row := make([]devOff, len(pairKeys[i]))
+		for j, g := range pairKeys[i] {
+			v := adj[g]
+			for k, d := range v.First.deviceTables() {
+				row[j].first[k] = pool.add(d)
+			}
+			for k, d := range v.Second.deviceTables() {
+				row[j].second[k] = pool.add(d)
+			}
+		}
+		pairDev[i] = row
+	}
+	total := devStart + pool.len()
+	checkSubtableSize16("Gpos2_1", total)
 
 	buf := make([]byte, 0, total)
 	buf = append(buf,
@@ -442,17 +504,18 @@ func (l Gpos2_1) encode() []byte {
 
 	buf = append(buf, cov.Encode()...)
 
-	for _, adj := range adjust {
+	for i, adj := range adjust {
 		pairValueCount := len(adj)
 		buf = append(buf, byte(pairValueCount>>8), byte(pairValueCount))
 
-		keys := slices.Sorted(maps.Keys(adj))
-		for _, secondGlyph := range keys {
+		for j, secondGlyph := range pairKeys[i] {
+			v := adj[secondGlyph]
 			buf = append(buf, byte(secondGlyph>>8), byte(secondGlyph))
-			buf = append(buf, adj[secondGlyph].First.encode(valueFormat1)...)
-			buf = append(buf, adj[secondGlyph].Second.encode(valueFormat2)...)
+			buf = append(buf, v.First.encode(valueFormat1, pairDev[i][j].first)...)
+			buf = append(buf, v.Second.encode(valueFormat2, pairDev[i][j].second)...)
 		}
 	}
+	buf = append(buf, pool.bytes()...)
 
 	return buf
 }
@@ -530,11 +593,11 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 	for i := range numRecords {
-		first, err := readValueRecord(p, valueFormat1)
+		first, err := readValueRecord(p, valueFormat1, subtablePos)
 		if err != nil {
 			return nil, err
 		}
-		second, err := readValueRecord(p, valueFormat2)
+		second, err := readValueRecord(p, valueFormat2, subtablePos)
 		if err != nil {
 			return nil, err
 		}
@@ -583,8 +646,7 @@ func (l *Gpos2_2) encodeLen() int {
 			valueFormat2 |= v.Second.getFormat()
 		}
 	}
-	var vr *GposValueRecord
-	recLen := vr.encodeLen(valueFormat1) + vr.encodeLen(valueFormat2)
+	recLen := valueRecordEncodeLen(valueFormat1) + valueRecordEncodeLen(valueFormat2)
 
 	class1Count := len(l.Adjust)
 	var class2Count int
@@ -592,12 +654,17 @@ func (l *Gpos2_2) encodeLen() int {
 		class2Count = len(l.Adjust[0])
 	}
 
-	total := 16
-	total += class1Count * class2Count * recLen
-	total += l.Cov.ToTable().EncodeLen()
-	total += l.Class1.AppendLen()
-	total += l.Class2.AppendLen()
-	return total
+	devStart := 16 + class1Count*class2Count*recLen
+	devStart += l.Cov.ToTable().EncodeLen()
+	devStart += l.Class1.AppendLen()
+	devStart += l.Class2.AppendLen()
+	pool := newDevicePool(devStart)
+	for _, row := range l.Adjust {
+		for _, adj := range row {
+			pool.addAll(adj.First, adj.Second)
+		}
+	}
+	return devStart + pool.len()
 }
 
 // encode implements the [Subtable] interface.
@@ -609,8 +676,7 @@ func (l *Gpos2_2) encode() []byte {
 			valueFormat2 |= v.Second.getFormat()
 		}
 	}
-	var vr *GposValueRecord
-	recLen := vr.encodeLen(valueFormat1) + vr.encodeLen(valueFormat2)
+	recLen := valueRecordEncodeLen(valueFormat1) + valueRecordEncodeLen(valueFormat2)
 
 	class1Count := len(l.Adjust)
 	var class2Count int
@@ -618,14 +684,33 @@ func (l *Gpos2_2) encode() []byte {
 		class2Count = len(l.Adjust[0])
 	}
 
-	total := 16
-	total += class1Count * class2Count * recLen
-	coverageOffset := total
-	total += l.Cov.ToTable().EncodeLen()
-	classDef1Offset := total
-	total += l.Class1.AppendLen()
-	classDef2Offset := total
-	total += l.Class2.AppendLen()
+	recordsLen := class1Count * class2Count * recLen
+	coverageOffset := 16 + recordsLen
+	covLen := l.Cov.ToTable().EncodeLen()
+	classDef1Offset := coverageOffset + covLen
+	cls1Len := l.Class1.AppendLen()
+	classDef2Offset := classDef1Offset + cls1Len
+	cls2Len := l.Class2.AppendLen()
+	devStart := classDef2Offset + cls2Len
+
+	pool := newDevicePool(devStart)
+	type devOff struct {
+		first, second [4]uint16
+	}
+	cellDev := make([][]devOff, class1Count)
+	for ci, row := range l.Adjust {
+		cellDev[ci] = make([]devOff, len(row))
+		for cj, adj := range row {
+			for k, d := range adj.First.deviceTables() {
+				cellDev[ci][cj].first[k] = pool.add(d)
+			}
+			for k, d := range adj.Second.deviceTables() {
+				cellDev[ci][cj].second[k] = pool.add(d)
+			}
+		}
+	}
+	total := devStart + pool.len()
+	checkSubtableSize16("Gpos2_2", total)
 
 	res := make([]byte, 0, total)
 	res = append(res,
@@ -638,15 +723,16 @@ func (l *Gpos2_2) encode() []byte {
 		byte(class1Count>>8), byte(class1Count),
 		byte(class2Count>>8), byte(class2Count),
 	)
-	for _, row := range l.Adjust {
-		for _, adj := range row {
-			res = append(res, adj.First.encode(valueFormat1)...)
-			res = append(res, adj.Second.encode(valueFormat2)...)
+	for ci, row := range l.Adjust {
+		for cj, adj := range row {
+			res = append(res, adj.First.encode(valueFormat1, cellDev[ci][cj].first)...)
+			res = append(res, adj.Second.encode(valueFormat2, cellDev[ci][cj].second)...)
 		}
 	}
 	res = append(res, l.Cov.ToTable().Encode()...)
 	res = l.Class1.Append(res)
 	res = l.Class2.Append(res)
+	res = append(res, pool.bytes()...)
 
 	return res
 }
@@ -788,6 +874,7 @@ func (l *Gpos3_1) encode() []byte {
 	}
 	coverageOffset := total
 	total += l.Cov.EncodeLen()
+	checkSubtableSize16("Gpos3_1", total)
 
 	res := make([]byte, 0, total)
 

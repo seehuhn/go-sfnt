@@ -39,6 +39,7 @@ type Info map[glyph.Pair]funit.Int16
 // Read reads the "kern" table.
 func Read(r parser.ReadSeekSizer) (Info, error) {
 	p := parser.New(r)
+	p.Budget = parser.NewBudget(p.Size())
 
 	version, err := p.ReadUint16()
 	if err != nil {
@@ -89,6 +90,10 @@ func Read(r parser.ReadSeekSizer) (Info, error) {
 
 		nPairs, err := p.ReadUint16()
 		if err != nil {
+			return nil, err
+		}
+		// rough budget charge for map growth: ~24 bytes per entry
+		if err := p.Budget.Charge(int(nPairs) * 24); err != nil {
 			return nil, err
 		}
 		err = p.Discard(6) // skip searchRange, entrySelector and rangeShift

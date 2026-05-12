@@ -172,12 +172,159 @@ func (l *Gpos5_1) apply(ctx *Context, a, b int) int {
 	return -1
 }
 
-// encode implements the [Subtable] interface.
-func (l *Gpos5_1) encode() []byte {
-	panic("not implemented")
+// countMarkClasses returns the markClassCount for this subtable.  It also
+// validates the structural invariants the encoder depends on: every row
+// in every LigArray ligature must have width markClassCount, and every
+// MarkArray record's Class must be < markClassCount.  Both encodeLen and
+// encode call this, so inconsistent input is caught on the first pass
+// instead of leaving encodeLen happily returning a size for unencodable
+// data.
+func (l *Gpos5_1) countMarkClasses() int {
+	var count int
+	derived := false
+	for _, lig := range l.LigArray {
+		if len(lig) > 0 {
+			count = len(lig[0])
+			derived = true
+			break
+		}
+	}
+	if !derived {
+		var maxClass uint16
+		for _, rec := range l.MarkArray {
+			if rec.Class > maxClass {
+				maxClass = rec.Class
+			}
+		}
+		count = int(maxClass) + 1
+	}
+	for _, lig := range l.LigArray {
+		for _, row := range lig {
+			if len(row) != count {
+				panic("Gpos5_1: inconsistent LigArray row width")
+			}
+		}
+	}
+	for _, rec := range l.MarkArray {
+		if int(rec.Class) >= count {
+			panic("Gpos5_1: mark class out of range")
+		}
+	}
+	return count
 }
 
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos5_1) encodeLen() int {
-	panic("not implemented")
+	markClassCount := l.countMarkClasses()
+	total := 12
+	total += l.MarkCov.EncodeLen()
+	total += l.LigCov.EncodeLen()
+	total += 2 + (4+6)*len(l.MarkArray)
+	total += 2 + 2*len(l.LigArray)
+	for _, lig := range l.LigArray {
+		total += 2 + 2*len(lig)*markClassCount
+		for _, row := range lig {
+			for _, rec := range row {
+				if !rec.IsEmpty() {
+					total += 6
+				}
+			}
+		}
+	}
+	return total
+}
+
+// encode implements the [Subtable] interface.
+func (l *Gpos5_1) encode() []byte {
+	markCount := len(l.MarkArray)
+	ligCount := len(l.LigArray)
+	markClassCount := l.countMarkClasses()
+
+	total := 12
+	markCoverageOffset := total
+	total += l.MarkCov.EncodeLen()
+	ligCoverageOffset := total
+	total += l.LigCov.EncodeLen()
+	markArrayOffset := total
+	total += 2 + (4+6)*markCount
+	ligArrayOffset := total
+
+	// lig array section: count + per-lig offsets + per-LigatureAttach blocks
+	ligArrayLen := 2 + 2*ligCount
+	ligAttachOffs := make([]uint16, ligCount)
+	for i, lig := range l.LigArray {
+		ligAttachOffs[i] = uint16(ligArrayLen)
+		ligArrayLen += 2 + 2*len(lig)*markClassCount
+		for _, row := range lig {
+			for _, rec := range row {
+				if !rec.IsEmpty() {
+					ligArrayLen += 6
+				}
+			}
+		}
+	}
+	total += ligArrayLen
+	checkSubtableSize16("Gpos5_1", total)
+
+	res := make([]byte, 0, total)
+	res = append(res,
+		0, 1, // posFormat
+		byte(markCoverageOffset>>8), byte(markCoverageOffset),
+		byte(ligCoverageOffset>>8), byte(ligCoverageOffset),
+		byte(markClassCount>>8), byte(markClassCount),
+		byte(markArrayOffset>>8), byte(markArrayOffset),
+		byte(ligArrayOffset>>8), byte(ligArrayOffset),
+	)
+
+	res = append(res, l.MarkCov.Encode()...)
+	res = append(res, l.LigCov.Encode()...)
+
+	// mark array
+	res = append(res,
+		byte(markCount>>8), byte(markCount),
+	)
+	offs := 2 + 4*markCount
+	for _, rec := range l.MarkArray {
+		res = append(res,
+			byte(rec.Class>>8), byte(rec.Class),
+			byte(offs>>8), byte(offs),
+		)
+		offs += 6
+	}
+	for _, rec := range l.MarkArray {
+		res = rec.Append(res)
+	}
+
+	// lig array
+	res = append(res,
+		byte(ligCount>>8), byte(ligCount),
+	)
+	for _, off := range ligAttachOffs {
+		res = append(res, byte(off>>8), byte(off))
+	}
+	for _, lig := range l.LigArray {
+		componentCount := len(lig)
+		res = append(res, byte(componentCount>>8), byte(componentCount))
+		anchorOff := 2 + 2*componentCount*markClassCount
+		for _, row := range lig {
+			for _, rec := range row {
+				if rec.IsEmpty() {
+					res = append(res, 0, 0)
+					continue
+				}
+				res = append(res, byte(anchorOff>>8), byte(anchorOff))
+				anchorOff += 6
+			}
+		}
+		for _, row := range lig {
+			for _, rec := range row {
+				if rec.IsEmpty() {
+					continue
+				}
+				res = rec.Append(res)
+			}
+		}
+	}
+
+	return res
 }

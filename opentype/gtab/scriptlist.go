@@ -110,7 +110,7 @@ func (info ScriptListInfo) readScriptTable(script otfScript, p *parser.Parser, p
 	defaultLangSysOffset := uint16(data[0])<<8 | uint16(data[1])
 	langSysCount := uint16(data[2])<<8 | uint16(data[3])
 
-	if defaultLangSysOffset > 0 && defaultLangSysOffset < 4+6*langSysCount {
+	if defaultLangSysOffset > 0 && int(defaultLangSysOffset) < 4+6*int(langSysCount) {
 		return &parser.InvalidFontError{
 			SubSystem: "sfnt/gtab",
 			Reason:    "invalid defaultLangSysOffset",
