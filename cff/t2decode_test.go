@@ -17,10 +17,15 @@
 package cff
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
 	"testing"
+
+	"seehuhn.de/go/sfnt/parser"
 )
 
 func TestRoll(t *testing.T) {
@@ -34,6 +39,127 @@ func TestRoll(t *testing.T) {
 			break
 		}
 	}
+}
+
+// TestCharStringBudget verifies that a fan-out subroutine bomb is
+// rejected by the per-charstring budget charge rather than executed
+// to completion (which would take many CPU-hours).  The payload mirrors
+// the proof-of-concept in the security report: ten global subroutines
+// where gsubr 0..8 each call the next subroutine 47 times before
+// returning, and gsubr 9 is a single return byte.
+func TestCharStringBudget(t *testing.T) {
+	const fanOut = 47
+
+	gsubrs := buildSubrBomb(fanOut)
+	info := &decodeInfo{
+		gsubr:  gsubrs,
+		budget: parser.NewBudget(0),
+	}
+
+	// glyph body: push gsubr 0; callgsubr; endchar
+	glyphBody := []byte{pushGsubrIdx(0), byte(t2callgsubr), byte(t2endchar)}
+
+	_, err := info.decodeCharString(glyphBody)
+	if !errors.Is(err, parser.ErrBudgetExceeded) {
+		t.Errorf("expected ErrBudgetExceeded, got %v", err)
+	}
+}
+
+// TestReadSubrBombBudgeted is the end-to-end counterpart of
+// TestCharStringBudget: it constructs a complete (and otherwise valid)
+// CFF byte stream whose Global Subr INDEX is the fan-out bomb, and
+// asserts that Read returns ErrBudgetExceeded.  This protects the
+// wiring in cff.Read that hands the parser budget to the decoders;
+// without that wiring the decoders would run with a nil budget and
+// the bomb would execute 47^9 ~= 10^15 calls.
+func TestReadSubrBombBudgeted(t *testing.T) {
+	blob := buildSubrBombCFF()
+	_, err := Read(bytes.NewReader(blob))
+	if !errors.Is(err, parser.ErrBudgetExceeded) {
+		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	}
+}
+
+// buildSubrBombCFF assembles a one-glyph CFF font whose Global Subr
+// INDEX contains the same fan-out bomb as TestCharStringBudget: gsubr
+// 0..8 each call the next subroutine 47 times before returning, and
+// gsubr 9 is a single return byte.  The lone CharString invokes gsubr 0.
+func buildSubrBombCFF() []byte {
+	const fanOut = 47
+
+	gsubrs := buildSubrBomb(fanOut)
+	gsubrEnc := gsubrs.encode()
+
+	// charstring: push gsubr 0; callgsubr; endchar
+	charStringsEnc := cffIndex{{pushGsubrIdx(0), byte(t2callgsubr), byte(t2endchar)}}.encode()
+
+	nameIdxEnc := cffIndex{[]byte("X")}.encode()
+	stringIdxEnc := cffIndex{}.encode()
+
+	// Top DICT, with all integer operands encoded as int32 (0x1D + 4
+	// bytes) so the dict size is independent of the offset values:
+	//   charStringsOffs(5) + opCharStrings(1)          =  6
+	//   pdSize(5) + pdOffs(5) + opPrivate(1)           = 11
+	const topDictSize = 17
+	// Top DICT INDEX header: count(2) + offSize(1) + 2 offsets(2)    = 5
+	const topDictIdxSize = 5 + topDictSize // = 22
+
+	charStringsOffs := int32(4 + len(nameIdxEnc) + topDictIdxSize + len(stringIdxEnc) + len(gsubrEnc))
+	pdSize := int32(0)
+	pdOffs := int32(4) // any valid offset works when pdSize == 0
+
+	topDict := &bytes.Buffer{}
+	writeDictInt32(topDict, charStringsOffs)
+	topDict.WriteByte(0x11) // opCharStrings
+	writeDictInt32(topDict, pdSize)
+	writeDictInt32(topDict, pdOffs)
+	topDict.WriteByte(0x12) // opPrivate
+	if topDict.Len() != topDictSize {
+		panic(fmt.Sprintf("top dict size = %d, want %d", topDict.Len(), topDictSize))
+	}
+
+	out := &bytes.Buffer{}
+	out.Write([]byte{0x01, 0x00, 0x04, 0x01}) // header: v1.0, hdrSize=4, offSize=1
+	out.Write(nameIdxEnc)
+	// Top DICT INDEX with a single entry of topDictSize bytes.
+	out.Write([]byte{0x00, 0x01, 0x01, 0x01, byte(1 + topDictSize)})
+	out.Write(topDict.Bytes())
+	out.Write(stringIdxEnc)
+	out.Write(gsubrEnc)
+	out.Write(charStringsEnc)
+	return out.Bytes()
+}
+
+func writeDictInt32(buf *bytes.Buffer, v int32) {
+	buf.WriteByte(0x1D)
+	binary.Write(buf, binary.BigEndian, v)
+}
+
+// buildSubrBomb returns a 10-entry global-subroutine INDEX where
+// gsubr 0..8 each invoke the next subroutine fanOut times before
+// returning, and gsubr 9 is a single return byte.  Executing the
+// chain without budget enforcement would take fanOut^9 calls.
+func buildSubrBomb(fanOut int) cffIndex {
+	gsubrs := make(cffIndex, 10)
+	for i := range 9 {
+		body := make([]byte, 0, fanOut*2+1)
+		for range fanOut {
+			body = append(body, pushGsubrIdx(i+1), byte(t2callgsubr))
+		}
+		body = append(body, byte(t2return))
+		gsubrs[i] = body
+	}
+	gsubrs[9] = []byte{byte(t2return)}
+	return gsubrs
+}
+
+// pushGsubrIdx returns the one-byte type 2 integer-push opcode that
+// pushes the biased value selecting global subroutine idx, assuming
+// the small-fontset bias (107, used when nSubrs < 1240).  The encoding
+// is byte(value + 139) for values in [-107, 107].
+func pushGsubrIdx(idx int) byte {
+	const gsubrBias = 107
+	return byte(idx - gsubrBias + 139)
 }
 
 func FuzzT2Decode(f *testing.F) {

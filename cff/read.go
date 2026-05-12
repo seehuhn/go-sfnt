@@ -35,6 +35,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	}
 
 	p := parser.New(r)
+	p.Budget = parser.NewBudget(p.Size())
 
 	// section 0: header
 	x, err := p.ReadUint32()
@@ -187,6 +188,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 				gsubr:        gsubrs,
 				defaultWidth: pInfo.defaultWidth,
 				nominalWidth: pInfo.nominalWidth,
+				budget:       p.Budget,
 			})
 		}
 
@@ -271,6 +273,7 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 			gsubr:        gsubrs,
 			defaultWidth: pInfo.defaultWidth,
 			nominalWidth: pInfo.nominalWidth,
+			budget:       p.Budget,
 		})
 	}
 

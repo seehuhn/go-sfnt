@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+
+	"seehuhn.de/go/sfnt/parser"
 )
 
 type decodeInfo struct {
@@ -27,6 +29,12 @@ type decodeInfo struct {
 	gsubr        cffIndex
 	defaultWidth float64
 	nominalWidth float64
+	// budget bounds the total bytes of charstring code processed
+	// across the whole CFF parse.  Each charstring body is charged
+	// its byte length before execution, so amplification via repeated
+	// subroutine calls is reflected as repeated charges and trips the
+	// budget.  A nil budget skips all charges (see parser.Budget.Charge).
+	budget *parser.Budget
 }
 
 type ccStage int
@@ -39,6 +47,10 @@ const (
 
 // decodeCharString returns the commands for the given charstring.
 func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
+	if err := info.budget.Charge(len(code)); err != nil {
+		return nil, err
+	}
+
 	res := &Glyph{
 		Width: info.defaultWidth,
 	}
@@ -617,6 +629,9 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					code, err = getSubr(info.gsubr, biased)
 				}
 				if err != nil {
+					return nil, err
+				}
+				if err := info.budget.Charge(len(code)); err != nil {
 					return nil, err
 				}
 
