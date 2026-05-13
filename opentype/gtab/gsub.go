@@ -630,7 +630,7 @@ ligLoop:
 		lig := &ligSet[j]
 
 		matchPos = matchPos[:0]
-		skipPos = matchPos[:0]
+		skipPos = skipPos[:0]
 		text = text[:0]
 
 		matchPos = append(matchPos, a)

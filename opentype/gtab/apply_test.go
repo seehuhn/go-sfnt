@@ -64,6 +64,58 @@ func TestLigature(t *testing.T) {
 	}
 }
 
+// TestGsub4_1LigLoopAliasing exercises the case where ligLoop iterates
+// past j == 0 and the matching attempt contains both a skip and a match
+// in its inner loop.  A previous version of Gsub4_1.apply reused the
+// matchPos backing array for skipPos via `skipPos = matchPos[:0]`, so
+// the two slices aliased on iterations after the first and silently
+// corrupted each other's contents.
+func TestGsub4_1LigLoopAliasing(t *testing.T) {
+	const A glyph.ID = 10
+	const M glyph.ID = 20
+	const X glyph.ID = 30
+	const Y glyph.ID = 40
+
+	// LigatureSet for A with two entries: a longer one that fails to
+	// match, followed by a shorter one that succeeds while skipping two
+	// marks.  The first attempt populates matchPos with a non-nil
+	// backing array, so the second attempt's reslice exposes the alias.
+	subst := &Gsub4_1{
+		Cov: coverage.Table{A: 0},
+		Repl: [][]Ligature{
+			{
+				{In: []glyph.ID{A, A, A}, Out: X}, // AAAA -> X (fails)
+				{In: []glyph.ID{A}, Out: Y},       // AA   -> Y (succeeds)
+			},
+		},
+	}
+	lookupList := []*LookupTable{
+		{
+			Meta: &LookupMetaInfo{
+				LookupType:  4,
+				LookupFlags: IgnoreMarks,
+			},
+			Subtables: []Subtable{subst},
+		},
+	}
+	gdefTable := &gdef.Table{
+		GlyphClass: classdef.Table{
+			A: gdef.GlyphClassBase,
+			M: gdef.GlyphClassMark,
+		},
+	}
+
+	// Input A M M A: the second ligature matches A at position 0 and A
+	// at position 3, with M at positions 1 and 2 moved past the
+	// ligature glyph in the output.
+	in := []glyph.Info{{GID: A}, {GID: M}, {GID: M}, {GID: A}}
+	got := NewContext(lookupList, gdefTable, []LookupIndex{0}).Apply(in)
+	want := []glyph.Info{{GID: Y}, {GID: M}, {GID: M}}
+	if d := cmp.Diff(want, got); d != "" {
+		t.Errorf("unexpected result (-want +got):\n%s", d)
+	}
+}
+
 // TestGsub8ReverseOrder verifies that GSUB type 8 lookups are applied
 // right-to-left.  The rule "A -> B with backtrack {A}" applied to the
 // sequence [A, A, A] yields [A, B, B] when processed in reverse

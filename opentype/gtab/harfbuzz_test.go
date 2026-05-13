@@ -45,7 +45,7 @@ func TestGsubHarfbuzz(t *testing.T) {
 	cleanup := strings.NewReplacer("[", "", "|", "", "]", "", "\n", "")
 
 	for testIdx, test := range testcases.Gsub {
-		if !strings.HasPrefix(test.Name, "6_") {
+		if !strings.HasPrefix(test.Name, "6_") && test.Name != "1_15" {
 			continue
 		}
 		t.Run(test.Name, func(t *testing.T) {

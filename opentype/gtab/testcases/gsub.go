@@ -155,6 +155,17 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		In:   "AMA",
 		Out:  "AMA",
 	},
+	// A LigatureSet where the first entry fails to match and the second
+	// succeeds with marks skipped inside its inner loop.  This exercises
+	// ligLoop past j == 0 with both skipPos and matchPos appended to in
+	// the matching attempt.
+	{ // harfbuzz: YMM, Mac: YMM
+		Name: "1_15",
+		Desc: `GSUB4: -marks "AAAA" -> "X", "AA" -> "Y"`,
+		In:   "AMMA",
+		Out:  "YMM",
+		Text: "AAMM",
+	},
 
 	// ------------------------------------------------------------------
 	// SECTION 2: recursive lookups
