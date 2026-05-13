@@ -60,9 +60,10 @@ func TestGpos(t *testing.T) {
 				pos := 0
 				for _, r := range test.in {
 					gid := cmap.Lookup(r)
-					if r == '>' {
+					switch r {
+					case '>':
 						ax = pos
-					} else if r == '<' {
+					case '<':
 						bx = pos
 					}
 					pos += int(fontInfo.GlyphWidth(gid))
@@ -169,9 +170,10 @@ func FuzzGpos(f *testing.F) {
 			pos := 0
 			for _, r := range in {
 				gid := cmap.Lookup(r)
-				if r == '>' {
+				switch r {
+				case '>':
 					ax = pos
-				} else if r == '<' {
+				case '<':
 					bx = pos
 				}
 				pos += int(fontInfo.GlyphWidth(gid))
@@ -205,7 +207,7 @@ func FuzzGpos(f *testing.F) {
 		}
 		lookups := gpos.FindLookups(language.AmericanEnglish, nil)
 		e := gtab.NewContext(gpos.LookupList, gdefTable, lookups)
-		seq = e.Apply(seq)
+		e.Apply(seq)
 
 		// TODO(voss): put some plausibility checks here.
 	})
