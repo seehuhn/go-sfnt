@@ -74,23 +74,56 @@ func (ctx *Context) Apply(seq []glyph.Info) []glyph.Info {
 		ctx.lookup = ctx.ll[lookupIndex]
 		ctx.keep = newKeepFunc(ctx.ll[lookupIndex].Meta, ctx.gdef)
 
-		pos := 0
-		// TODO(voss): GSUB 8.1 subtables are applied in reverse order.
-		for pos < len(ctx.seq) {
-			oldTodo := len(ctx.seq) - pos
-			pos = ctx.applyAtRecursively(pos)
-
-			// Make sure that every step makes some progress.
-			// TODO(voss): Is this needed?
-			newTodo := len(ctx.seq) - pos
-			if newTodo >= oldTodo {
-				pos = len(ctx.seq) - oldTodo + 1
-			}
-			oldTodo = newTodo
+		if isReverseLookup(ctx.lookup) {
+			ctx.applyReverse()
+		} else {
+			ctx.applyForward()
 		}
 		seq = ctx.seq
 	}
 	return seq
+}
+
+// isReverseLookup reports whether the lookup must be applied right-to-left.
+// Only GSUB type 8 (Reverse Chaining Contextual Single Substitution) has this
+// requirement.  All subtables in a lookup share the same type, so inspecting
+// the first one is sufficient.
+func isReverseLookup(l *LookupTable) bool {
+	if len(l.Subtables) == 0 {
+		return false
+	}
+	_, ok := l.Subtables[0].(*Gsub8_1)
+	return ok
+}
+
+// applyForward walks ctx.seq left-to-right, applying ctx.lookup at each
+// position.
+func (ctx *Context) applyForward() {
+	pos := 0
+	for pos < len(ctx.seq) {
+		next := ctx.applyAtRecursively(pos)
+		// Every Subtable.apply returns either -1 or a + k with k >= 1, and
+		// applyAtRecursively preserves that invariant under nested actions.
+		// The guard catches inconsistent in-memory data (e.g. a Gsub2_1 with
+		// an empty replacement list) that would otherwise hang the loop.
+		if next <= pos {
+			next = pos + 1
+		}
+		pos = next
+	}
+}
+
+// applyReverse walks ctx.seq right-to-left, applying ctx.lookup at each
+// position.  Used for GSUB type 8 subtables, which are strictly 1-for-1 and
+// never push nested actions onto ctx.stack, so applying at each position and
+// decrementing by one is correct without consulting the return value.
+func (ctx *Context) applyReverse() {
+	for pos := len(ctx.seq) - 1; pos >= 0; pos-- {
+		if !ctx.keep.Keep(ctx.seq[pos].GID) {
+			continue
+		}
+		ctx.applyAt(ctx.lookup.Subtables, pos, len(ctx.seq))
+	}
 }
 
 // applyAtRecursively applies a single lookup to the given glyphs at position

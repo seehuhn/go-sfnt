@@ -113,6 +113,9 @@ func (p *parser) parse() (lookups gtab.LookupList) {
 		case isIdentifier(item, "GSUB6"):
 			l := p.readChainedSeqCtx(6)
 			lookups = append(lookups, l)
+		case isIdentifier(item, "GSUB8"):
+			l := p.readGsub8()
+			lookups = append(lookups, l)
 		case isIdentifier(item, "GPOS1"):
 			l := p.readGpos1()
 			lookups = append(lookups, l)
@@ -345,6 +348,72 @@ func (p *parser) readGsub4() *gtab.LookupTable {
 	}
 	return &gtab.LookupTable{
 		Meta:      &gtab.LookupMetaInfo{LookupType: 4, LookupFlags: flags},
+		Subtables: []gtab.Subtable{subtable},
+	}
+}
+
+// readGsub8 reads a Reverse Chaining Contextual Single Substitution lookup.
+// Syntax:
+//
+//	GSUB8: [b2] [b1] | A -> X, C -> Z | [l1] [l2]
+//
+// The backtrack and lookahead positions are written in reading order
+// (left-to-right), with `|` separating them from the substitution list.
+// Either sequence may be empty.
+func (p *parser) readGsub8() *gtab.LookupTable {
+	p.optional(itemColon)
+	p.optional(itemEOL)
+	flags := p.readLookupFlags()
+
+	// backtrack coverages, written left-to-right
+	var backtrack []coverage.Table
+	for {
+		if p.optional(itemBar) {
+			break
+		}
+		backtrack = append(backtrack, makeCoverageTable(p.readGlyphSet()))
+	}
+
+	// input -> substitute pairs sharing the same context
+	res := make(map[glyph.ID]glyph.ID)
+	for {
+		from := p.readGlyph()
+		p.required(itemArrow, "\"->\"")
+		to := p.readGlyph()
+		if _, ok := res[from]; ok {
+			p.fatal("duplicate mapping for GID %d", from)
+		}
+		res[from] = to
+		if !p.optional(itemComma) {
+			break
+		}
+		p.optional(itemEOL)
+	}
+	p.required(itemBar, "|")
+
+	// lookahead coverages, written left-to-right
+	var lookahead []coverage.Table
+	for {
+		if p.peek().typ != itemSquareBracketOpen {
+			break
+		}
+		lookahead = append(lookahead, makeCoverageTable(p.readGlyphSet()))
+	}
+
+	cov := makeCoverageTable(slices.Collect(maps.Keys(res)))
+	substitutes := make([]glyph.ID, len(cov))
+	for gid, idx := range cov {
+		substitutes[idx] = res[gid]
+	}
+
+	subtable := &gtab.Gsub8_1{
+		Input:              cov,
+		Backtrack:          rev(backtrack),
+		Lookahead:          lookahead,
+		SubstituteGlyphIDs: substitutes,
+	}
+	return &gtab.LookupTable{
+		Meta:      &gtab.LookupMetaInfo{LookupType: 8, LookupFlags: flags},
 		Subtables: []gtab.Subtable{subtable},
 	}
 }

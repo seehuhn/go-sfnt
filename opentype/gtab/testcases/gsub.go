@@ -1266,4 +1266,35 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		In:  "ALAMALMLA",
 		Out: "ALAXALXLA",
 	},
+
+	// ------------------------------------------------------------------
+	// SECTION 6: reverse chaining contextual single substitution (GSUB 8).
+	// These rules must be applied right-to-left across the glyph string.
+
+	// Context-free GSUB8 behaves like GSUB1 and is direction-insensitive.
+	{
+		Name: "6_01",
+		Desc: `GSUB8: | A -> B |`,
+		In:   "AAA",
+		Out:  "BBB",
+	},
+	// Backtrack [A]: at each A, substitute if preceded by A.  Reverse
+	// processing sees the original glyph at position p-1 (not yet rewritten),
+	// so AAA -> ABB.  Left-to-right would give ABA.
+	{
+		Name: "6_02",
+		Desc: `GSUB8: [A] | A -> B |`,
+		In:   "AAA",
+		Out:  "ABB",
+	},
+	// Lookahead [A]: at each A, substitute if followed by A.  Reverse
+	// processing rewrites position p+1 before reaching p, so the second A
+	// becomes B and the lookahead at position 0 sees B instead of A.
+	// Result: ABA.  Left-to-right would give BBA.
+	{
+		Name: "6_03",
+		Desc: `GSUB8: | A -> B | [A]`,
+		In:   "AAA",
+		Out:  "ABA",
+	},
 } // END OF TEST CASES
