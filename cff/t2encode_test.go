@@ -28,6 +28,7 @@ import (
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 func TestRoundTrip(t *testing.T) {
@@ -291,7 +292,7 @@ func TestType2EncodeNumber(t *testing.T) {
 	// The decoder for Type 2 number is buried inside the CFF parser.  For
 	// testing, we encode integers into arguments of a moveto command in a
 	// charstring, and then use the decoder to this charstring.
-	info := &decodeInfo{}
+	info := &decodeInfo{budget: parser.NewBudget(0)}
 	for _, test := range cases {
 		enc := encodeNumber(test)
 
@@ -320,7 +321,7 @@ func TestType2EncodeInt(t *testing.T) {
 	// The decoder for Type 2 integers is buried inside the CFF parser.  For
 	// testing, we encode integers into arguments of a moveto command in a
 	// charstring, and then use the decoder to this charstring.
-	info := &decodeInfo{}
+	info := &decodeInfo{budget: parser.NewBudget(0)}
 	for i := -2000; i <= 2000; i += 2 {
 		var code []byte
 		code = append(code, encodeInt(funit.Int16(i))...)
@@ -340,7 +341,7 @@ func TestType2EncodeInt(t *testing.T) {
 }
 
 func TestType2EncodeGlyphs(t *testing.T) {
-	info := &decodeInfo{}
+	info := &decodeInfo{budget: parser.NewBudget(0)}
 	g1 := NewGlyph("", 500)
 	g1.MoveTo(0, 0)
 	g1.CurveTo(0, 1, 2, 31000, 3, 4)

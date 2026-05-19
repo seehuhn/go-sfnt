@@ -171,6 +171,7 @@ func FuzzT2Decode(f *testing.F) {
 			gsubr:        cffIndex{},
 			defaultWidth: 500,
 			nominalWidth: 666,
+			budget:       parser.NewBudget(0),
 		}
 		g1, err := info.decodeCharString(data1)
 		if err != nil {

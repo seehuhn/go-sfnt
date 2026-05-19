@@ -28,10 +28,12 @@ const bufferSize = 1024
 type Parser struct {
 	r ReadSeekSizer
 
-	// Budget, if non-nil, bounds the total memory a single table parse
-	// may allocate.  Table-level entry points (e.g. gtab.Read) attach
-	// a budget sized for the table; downstream readers route slice and
-	// map allocations through it.  A nil Budget disables the check.
+	// Budget bounds the total memory a single table parse may
+	// allocate.  [New] initialises Budget to [NewBudget](r.Size());
+	// callers may replace it to impose a tighter cap.  Downstream
+	// readers route slice and map allocations through it.
+	//
+	// Budget must not be nil; any nil-budget operation panics.
 	Budget *membudget.Budget
 
 	buf       []byte
@@ -47,10 +49,12 @@ type ReadSeekSizer interface {
 	Size() int64
 }
 
-// New allocates a new Parser.
+// New allocates a new Parser.  The returned parser carries a default
+// [Budget] sized for r; callers may replace it to impose a tighter cap.
 func New(r ReadSeekSizer) *Parser {
 	p := &Parser{
-		r: r,
+		r:      r,
+		Budget: NewBudget(r.Size()),
 	}
 	err := p.SeekPos(0)
 	if err != nil {
@@ -146,7 +150,7 @@ func (p *Parser) ReadUint32() (uint32, error) {
 }
 
 // ReadUint16Slice reads a length followed by a sequence of uint16 values.
-// The allocated slice is charged against p.Budget when set.
+// The allocated slice is charged against p.Budget.
 func (p *Parser) ReadUint16Slice() ([]uint16, error) {
 	n, err := p.ReadUint16()
 	if err != nil {

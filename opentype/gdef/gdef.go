@@ -49,7 +49,6 @@ func (table *Table) IsMark(gid glyph.ID) bool {
 // Read reads the GDEF table.
 func Read(r parser.ReadSeekSizer) (*Table, error) {
 	p := parser.New(r)
-	p.Budget = parser.NewBudget(p.Size())
 	buf, err := p.ReadBytes(12)
 	if err != nil {
 		return nil, err

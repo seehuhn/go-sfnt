@@ -39,7 +39,6 @@ type Info map[glyph.Pair]funit.Int16
 // Read reads the "kern" table.
 func Read(r parser.ReadSeekSizer) (Info, error) {
 	p := parser.New(r)
-	p.Budget = parser.NewBudget(p.Size())
 
 	version, err := p.ReadUint16()
 	if err != nil {

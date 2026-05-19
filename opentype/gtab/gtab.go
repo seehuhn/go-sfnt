@@ -84,7 +84,6 @@ func Read(r parser.ReadSeekSizer, tp Type) (*Info, error) {
 
 func readGtab(r parser.ReadSeekSizer, tp Type, sr subtableReader) (*Info, error) {
 	p := parser.New(r)
-	p.Budget = parser.NewBudget(p.Size())
 
 	var header struct {
 		MajorVersion      uint16

@@ -35,7 +35,6 @@ func Read(r parser.ReadSeekSizer) (*Font, error) {
 	}
 
 	p := parser.New(r)
-	p.Budget = parser.NewBudget(p.Size())
 
 	// section 0: header
 	x, err := p.ReadUint32()

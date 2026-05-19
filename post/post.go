@@ -46,7 +46,6 @@ type Info struct {
 // The function may read r beyond the end of the table.
 func Read(r parser.ReadSeekSizer) (*Info, error) {
 	p := parser.New(r)
-	p.Budget = parser.NewBudget(p.Size())
 
 	post := &postEnc{}
 	if err := binary.Read(p, binary.BigEndian, post); err != nil {
