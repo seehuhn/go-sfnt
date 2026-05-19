@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] (2026-05-19)
+
+### Added
+- GSUB/GPOS subsetting covers the subtable types that previously
+  panicked (Gsub1_2/2_1/3_1/8_1, every contextual subtable,
+  Gpos1_2/2_2/3_1/4_1/5_1/6_1, GDEF), with round-trip and fuzz tests.
+- New `opentype/device` package for Device and VariationIndex tables;
+  `GposValueRecord` stores `*device.Table` directly, with content
+  deduplication at encode time.
+- `glyph.Info.YAdvance` field carries vertical advance from GPOS.
+
+### Changed
+- Memory-budget primitives (`Budget`, `AllocSlice`, `ErrBudgetExceeded`)
+  moved to the new sibling module `seehuhn.de/go/membudget`.  Only the
+  sfnt-specific `NewBudget` sizing helper remains in the parser
+  package; `Parser.Budget` is retyped to `*membudget.Budget`,
+  initialised by `parser.New` to a sized default, and may no longer
+  be nil.
+- GSUB type 8 (Reverse Chaining Contextual Single Substitution) is
+  now applied right-to-left as required by the OpenType spec; the
+  driver dispatches forward vs reverse based on the first subtable
+  type.
+
+### Fixed
+- CFF charstring decoder charges the parser budget for each
+  charstring body and each `callsubr`/`callgsubr` invocation, so
+  high-fan-out subroutine bombs trip `ErrExceeded` before they can
+  amplify into ~10^15 calls.
+- GSUB 4.1 ligature retries no longer alias the match and skip
+  position slices to the same backing array; ligature loops with
+  multiple alternatives now produce the correct output.
+- Subset encoder no longer silently truncates offsets when a
+  subtable exceeds 64 KiB; it panics with a clear message instead.
+- `scriptlist`: `uint16` overflow in `defaultLangSysOffset` bounds.
+
 ## [0.7.2] (2026-05-11)
 
 ### Changed
