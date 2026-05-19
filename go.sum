@@ -8,5 +8,7 @@ seehuhn.de/go/dag v0.0.0-20250630092703-dd0e13308cb3 h1:92lIrrSNr7FAJj4PIXyPrpxX
 seehuhn.de/go/dag v0.0.0-20250630092703-dd0e13308cb3/go.mod h1:se0NAaAL9aI9pRBRK0EvlY3572GJTsF0J7RwMXEiKz4=
 seehuhn.de/go/geom v0.7.2 h1:O0n2fy5lig1N3NgkFHCLvcG4Ts+yVOWoa2i3s29aw9A=
 seehuhn.de/go/geom v0.7.2/go.mod h1:NPJJeujL8PVGhuu13AH7pVchWn6CSexDqwdZOFB3Zq8=
+seehuhn.de/go/membudget v0.0.0-20260519060552-123d42cba316 h1:R2Ybq809+yq7keVLtQE3ziqDqa0RbyF4Hdd9DFIYCfA=
+seehuhn.de/go/membudget v0.0.0-20260519060552-123d42cba316/go.mod h1:iDiUmeAojPjk77vwdxBBBEF7bFuwz/ggMjEuACvU8UQ=
 seehuhn.de/go/postscript v0.7.2 h1:TYFodUV37WU1itNgLQeLuyZPyIz/yIJ8wkneiHOoaGk=
 seehuhn.de/go/postscript v0.7.2/go.mod h1:KaUVIjdz4aSlqmhQmQk2ByHUJzDozwkN285Zxsn+Tig=

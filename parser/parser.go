@@ -18,6 +18,8 @@ package parser
 
 import (
 	"io"
+
+	"seehuhn.de/go/membudget"
 )
 
 const bufferSize = 1024
@@ -30,7 +32,7 @@ type Parser struct {
 	// may allocate.  Table-level entry points (e.g. gtab.Read) attach
 	// a budget sized for the table; downstream readers route slice and
 	// map allocations through it.  A nil Budget disables the check.
-	Budget *Budget
+	Budget *membudget.Budget
 
 	buf       []byte
 	from      int64
@@ -150,7 +152,7 @@ func (p *Parser) ReadUint16Slice() ([]uint16, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := AllocSlice[uint16](p.Budget, int(n))
+	res, err := membudget.AllocSlice[uint16](p.Budget, int(n))
 	if err != nil {
 		return nil, err
 	}

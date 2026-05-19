@@ -18,6 +18,7 @@
 package markarray
 
 import (
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/parser"
 )
@@ -47,11 +48,11 @@ func Read(p *parser.Parser, pos int64, numMarks int) ([]Record, error) {
 		markCount = uint16(numMarks)
 	}
 
-	res, err := parser.AllocSlice[Record](p.Budget, int(markCount))
+	res, err := membudget.AllocSlice[Record](p.Budget, int(markCount))
 	if err != nil {
 		return nil, err
 	}
-	offsets, err := parser.AllocSlice[uint16](p.Budget, int(markCount))
+	offsets, err := membudget.AllocSlice[uint16](p.Budget, int(markCount))
 	if err != nil {
 		return nil, err
 	}

@@ -8,5 +8,6 @@ require (
 	golang.org/x/text v0.35.0
 	seehuhn.de/go/dag v0.0.0-20250630092703-dd0e13308cb3
 	seehuhn.de/go/geom v0.7.2
+	seehuhn.de/go/membudget v0.0.0-20260519060552-123d42cba316
 	seehuhn.de/go/postscript v0.7.2
 )

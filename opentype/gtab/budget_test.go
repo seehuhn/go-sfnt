@@ -28,6 +28,7 @@ import (
 	"errors"
 	"testing"
 
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/parser"
@@ -106,8 +107,8 @@ func TestSeqContext2BombBudgeted(t *testing.T) {
 	// 1024×1024 = ~1M aliased rules expanded from a few KiB of input.
 	sub := makeAliasedSeqContext2(1024, 1024)
 	_, err := budgetedReadSeqContext2(t, sub)
-	if !errors.Is(err, parser.ErrBudgetExceeded) {
-		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	if !errors.Is(err, membudget.ErrExceeded) {
+		t.Fatalf("err = %v, want ErrExceeded", err)
 	}
 }
 
@@ -158,8 +159,8 @@ func TestGsub4_1BombBudgeted(t *testing.T) {
 		t.Fatalf("format: %d, err: %v", format, err)
 	}
 	_, err = readGsub4_1(p, 0)
-	if !errors.Is(err, parser.ErrBudgetExceeded) {
-		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	if !errors.Is(err, membudget.ErrExceeded) {
+		t.Fatalf("err = %v, want ErrExceeded", err)
 	}
 }
 
@@ -180,8 +181,8 @@ func TestCoverageFormat2BombBudgeted(t *testing.T) {
 	// which exceeds the 1MiB base + small input-proportional add.
 	p.Budget = parser.NewBudget(int64(len(data)))
 	_, err := coverage.Read(p, 0)
-	if !errors.Is(err, parser.ErrBudgetExceeded) {
-		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	if !errors.Is(err, membudget.ErrExceeded) {
+		t.Fatalf("err = %v, want ErrExceeded", err)
 	}
 }
 
@@ -199,7 +200,7 @@ func TestClassdefFormat2BombBudgeted(t *testing.T) {
 	p := parser.New(bytes.NewReader(data))
 	p.Budget = parser.NewBudget(int64(len(data)))
 	_, err := classdef.Read(p, 0)
-	if !errors.Is(err, parser.ErrBudgetExceeded) {
-		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	if !errors.Is(err, membudget.ErrExceeded) {
+		t.Fatalf("err = %v, want ErrExceeded", err)
 	}
 }

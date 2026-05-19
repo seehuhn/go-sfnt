@@ -17,19 +17,13 @@
 package parser
 
 import (
-	"errors"
-	"unsafe"
+	"seehuhn.de/go/membudget"
 )
 
-// Memory-budget tuning constants.  See NewBudget for how they combine.
+// sfnt-specific budget sizing.  See [NewBudget] for how the constants
+// combine.
 const (
-	// perAllocOverhead is the fixed cost added to every charge, to
-	// account for slice-header and heap-block overhead.  Without this
-	// surcharge an attacker can amplify input size by issuing many
-	// tiny allocations, each costing far more than its payload.
-	perAllocOverhead = 32
-
-	// budgetBase is the minimum budget any caller starts with,
+	// budgetBase is the minimum budget any table parse starts with,
 	// independent of input size, so tiny tables can still parse.
 	budgetBase = 1 << 20 // 1 MiB
 
@@ -42,20 +36,10 @@ const (
 	budgetHardCap = 128 << 20 // 128 MiB
 )
 
-// ErrBudgetExceeded is returned by Budget.Charge when an allocation
-// would push the budget below zero.
-var ErrBudgetExceeded = errors.New("sfnt: memory budget exceeded")
-
-// Budget tracks the remaining memory budget for a single table parse.
-// Callers that do not opt in to budget tracking can pass a nil *Budget;
-// in that case every charge succeeds.
-type Budget struct {
-	remaining int64
-}
-
-// NewBudget returns a Budget sized for a table of tableSize bytes.
-// The returned budget grows with tableSize up to a hard cap.
-func NewBudget(tableSize int64) *Budget {
+// NewBudget returns a [*membudget.Budget] sized for parsing a table of
+// tableSize bytes.  The returned budget grows with tableSize up to a
+// hard cap.
+func NewBudget(tableSize int64) *membudget.Budget {
 	if tableSize < 0 {
 		tableSize = 0
 	}
@@ -63,60 +47,5 @@ func NewBudget(tableSize int64) *Budget {
 	if add < 0 || add > budgetHardCap {
 		add = budgetHardCap
 	}
-	return &Budget{remaining: budgetBase + add}
-}
-
-// Remaining returns the number of bytes still available in the budget.
-// A nil receiver returns 0.
-func (b *Budget) Remaining() int64 {
-	if b == nil {
-		return 0
-	}
-	return b.remaining
-}
-
-// Charge subtracts (bytes + perAllocOverhead) from the budget.  A nil
-// receiver is a no-op (callers without budget tracking pass through).
-// On exhaustion the budget is left unchanged and ErrBudgetExceeded is
-// returned.
-func (b *Budget) Charge(bytes int) error {
-	if b == nil {
-		return nil
-	}
-	if bytes < 0 {
-		return ErrBudgetExceeded
-	}
-	cost := int64(bytes) + perAllocOverhead
-	if cost < int64(bytes) { // overflow guard
-		return ErrBudgetExceeded
-	}
-	if b.remaining < cost {
-		return ErrBudgetExceeded
-	}
-	b.remaining -= cost
-	return nil
-}
-
-// Slice charges b for a slice of n elements of T and, if the charge
-// succeeds, returns make([]T, n).  A nil budget skips the check and
-// always allocates.
-//
-// For slice, map, or interface element types, only the header size is
-// charged here; the referenced elements must be charged separately when
-// allocated.
-func AllocSlice[T any](b *Budget, n int) ([]T, error) {
-	var zero T
-	size := int(unsafe.Sizeof(zero))
-	if n < 0 {
-		return nil, ErrBudgetExceeded
-	}
-	// overflow-safe multiplication for the byte count
-	bytes := n * size
-	if size != 0 && bytes/size != n {
-		return nil, ErrBudgetExceeded
-	}
-	if err := b.Charge(bytes); err != nil {
-		return nil, err
-	}
-	return make([]T, n), nil
+	return membudget.New(budgetBase + add)
 }

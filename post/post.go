@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/parser"
@@ -72,7 +73,7 @@ func Read(r parser.ReadSeekSizer) (*Info, error) {
 
 		var names []string
 
-		info.Names, err = parser.AllocSlice[string](p.Budget, numGlyphs)
+		info.Names, err = membudget.AllocSlice[string](p.Budget, numGlyphs)
 		if err != nil {
 			return nil, err
 		}

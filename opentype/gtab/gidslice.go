@@ -17,6 +17,7 @@
 package gtab
 
 import (
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
 )
@@ -27,7 +28,7 @@ func readGIDSlice(p *parser.Parser) ([]glyph.ID, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := parser.AllocSlice[glyph.ID](p.Budget, int(n))
+	res, err := membudget.AllocSlice[glyph.ID](p.Budget, int(n))
 	if err != nil {
 		return nil, err
 	}

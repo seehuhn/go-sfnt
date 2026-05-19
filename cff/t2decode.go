@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"math"
 
-	"seehuhn.de/go/sfnt/parser"
+	"seehuhn.de/go/membudget"
 )
 
 type decodeInfo struct {
@@ -33,8 +33,8 @@ type decodeInfo struct {
 	// across the whole CFF parse.  Each charstring body is charged
 	// its byte length before execution, so amplification via repeated
 	// subroutine calls is reflected as repeated charges and trips the
-	// budget.  A nil budget skips all charges (see parser.Budget.Charge).
-	budget *parser.Budget
+	// budget.  A nil budget skips all charges (see [membudget.Budget.Charge]).
+	budget *membudget.Budget
 }
 
 type ccStage int

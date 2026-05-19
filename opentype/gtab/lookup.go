@@ -21,6 +21,7 @@ import (
 	"sort"
 
 	"golang.org/x/text/language"
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -178,7 +179,7 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 		return nil, err
 	}
 
-	resSlice, err := parser.AllocSlice[*LookupTable](p.Budget, len(lookupOffsets))
+	resSlice, err := membudget.AllocSlice[*LookupTable](p.Budget, len(lookupOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +235,7 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 			MarkFilteringSet: markFilteringSet,
 		}
 
-		subtables, err := parser.AllocSlice[Subtable](p.Budget, int(subTableCount))
+		subtables, err := membudget.AllocSlice[Subtable](p.Budget, int(subTableCount))
 		if err != nil {
 			return nil, err
 		}

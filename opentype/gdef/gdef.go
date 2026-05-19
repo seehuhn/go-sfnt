@@ -20,6 +20,7 @@ package gdef
 import (
 	"fmt"
 
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
@@ -117,7 +118,7 @@ func Read(r parser.ReadSeekSizer) (*Table, error) {
 			}
 		}
 		markGlyphSetCount := uint16(buf[2])<<8 | uint16(buf[3])
-		coverageOffsets, err := parser.AllocSlice[uint32](p.Budget, int(markGlyphSetCount))
+		coverageOffsets, err := membudget.AllocSlice[uint32](p.Budget, int(markGlyphSetCount))
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +129,7 @@ func Read(r parser.ReadSeekSizer) (*Table, error) {
 			}
 		}
 
-		table.MarkGlyphSets, err = parser.AllocSlice[coverage.Set](p.Budget, int(markGlyphSetCount))
+		table.MarkGlyphSets, err = membudget.AllocSlice[coverage.Set](p.Budget, int(markGlyphSetCount))
 		if err != nil {
 			return nil, err
 		}

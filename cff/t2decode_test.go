@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -60,23 +61,23 @@ func TestCharStringBudget(t *testing.T) {
 	glyphBody := []byte{pushGsubrIdx(0), byte(t2callgsubr), byte(t2endchar)}
 
 	_, err := info.decodeCharString(glyphBody)
-	if !errors.Is(err, parser.ErrBudgetExceeded) {
-		t.Errorf("expected ErrBudgetExceeded, got %v", err)
+	if !errors.Is(err, membudget.ErrExceeded) {
+		t.Errorf("expected ErrExceeded, got %v", err)
 	}
 }
 
 // TestReadSubrBombBudgeted is the end-to-end counterpart of
 // TestCharStringBudget: it constructs a complete (and otherwise valid)
 // CFF byte stream whose Global Subr INDEX is the fan-out bomb, and
-// asserts that Read returns ErrBudgetExceeded.  This protects the
+// asserts that Read returns ErrExceeded.  This protects the
 // wiring in cff.Read that hands the parser budget to the decoders;
 // without that wiring the decoders would run with a nil budget and
 // the bomb would execute 47^9 ~= 10^15 calls.
 func TestReadSubrBombBudgeted(t *testing.T) {
 	blob := buildSubrBombCFF()
 	_, err := Read(bytes.NewReader(blob))
-	if !errors.Is(err, parser.ErrBudgetExceeded) {
-		t.Fatalf("err = %v, want ErrBudgetExceeded", err)
+	if !errors.Is(err, membudget.ErrExceeded) {
+		t.Fatalf("err = %v, want ErrExceeded", err)
 	}
 }
 
