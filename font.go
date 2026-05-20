@@ -92,20 +92,20 @@ type Font struct {
 	LicenseURL string
 	PermUse    os2.Permissions
 
-	// TODO(voss): remove this in favour of FontMatrix
 	UnitsPerEm uint16
+
+	// metrics in font design units (UnitsPerEm)
+	Ascent             funit.Int16
+	Descent            funit.Int16 // negative
+	LineGap            funit.Int16 // LineGap = Leading - Ascent + Descent
+	CapHeight          funit.Int16
+	XHeight            funit.Int16
+	UnderlinePosition  funit.Float64 // negative
+	UnderlineThickness funit.Float64
 
 	FontMatrix matrix.Matrix
 
-	Ascent    funit.Int16
-	Descent   funit.Int16 // negative
-	LineGap   funit.Int16 // LineGap = Leading - Ascent + Descent
-	CapHeight funit.Int16
-	XHeight   funit.Int16
-
-	ItalicAngle        float64       // Italic angle (degrees counterclockwise from vertical)
-	UnderlinePosition  funit.Float64 // Underline position (negative)
-	UnderlineThickness funit.Float64 // Underline thickness
+	ItalicAngle float64 // degrees counterclockwise from vertical
 
 	// Outlines contains the glyph data of the font.
 	// This must be one of [*glyf.Outlines] or [*cff.Outlines].
