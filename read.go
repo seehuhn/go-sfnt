@@ -33,6 +33,7 @@ import (
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyf"
+	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
@@ -222,8 +223,16 @@ func Read(r io.Reader) (*Font, error) {
 		if numGlyphs != 0 && len(cffInfo.Glyphs) != numGlyphs {
 			return nil, errors.New("sfnt: cff glyph count mismatch")
 		} else if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
+			// hmtx widths are in UnitsPerEm.  Convert to CFF design units
+			// (which is what cff.Glyph.Width holds) using each glyph's effective
+			// font matrix.  For the typical case (UnitsPerEm == 1/FontMatrix[0])
+			// this is a no-op.
+			upm := deriveUnitsPerEm(cffInfo.Outlines, cffInfo.FontInfo, headInfo)
 			for i, w := range hmtxInfo.Widths {
-				cffInfo.Glyphs[i].Width = float64(w)
+				q := cffInfo.Outlines.GlyphAdvanceScale(cffInfo.FontInfo.FontMatrix, glyph.ID(i))
+				if d := q * upm; d != 0 {
+					cffInfo.Glyphs[i].Width = float64(w) / d
+				}
 			}
 		}
 	case header.ScalerTypeTrueType, header.ScalerTypeApple:
@@ -338,13 +347,7 @@ func Read(r io.Reader) (*Font, error) {
 		info.PermUse = os2Info.PermUse
 	}
 
-	if headInfo != nil {
-		info.UnitsPerEm = headInfo.UnitsPerEm
-	} else if fontInfo != nil && fontInfo.FontMatrix[0] != 0 {
-		info.UnitsPerEm = uint16(math.Round(1 / fontInfo.FontMatrix[0]))
-	} else {
-		info.UnitsPerEm = 1000
-	}
+	info.UnitsPerEm = uint16(math.Round(deriveUnitsPerEm(Outlines, fontInfo, headInfo)))
 	if fontInfo != nil {
 		info.FontMatrix = fontInfo.FontMatrix
 	} else {
@@ -543,4 +546,25 @@ func getCFFVersion(fontInfo *type1.FontInfo) (head.Version, bool) {
 		return 0, false
 	}
 	return v, true
+}
+
+// deriveUnitsPerEm picks the best available source for UnitsPerEm.  The head
+// table wins when present; otherwise we derive it from the CFF FontMatrix.
+// For CID-keyed CFF the top FontMatrix is typically the identity, so we
+// compose with FD 0's per-FD matrix to recover a sensible scale.  Fallback
+// is the conventional 1000.
+func deriveUnitsPerEm(outlines Outlines, fontInfo *type1.FontInfo, headInfo *head.Info) float64 {
+	if headInfo != nil {
+		return float64(headInfo.UnitsPerEm)
+	}
+	if fontInfo != nil {
+		fm := fontInfo.FontMatrix
+		if cffOutlines, ok := outlines.(*cff.Outlines); ok {
+			fm = cffOutlines.GlyphMatrix(fm, 0)
+		}
+		if fm[0] != 0 {
+			return 1 / fm[0]
+		}
+	}
+	return 1000
 }

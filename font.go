@@ -293,19 +293,23 @@ func (f *Font) Widths() []float64 {
 
 // WidthsPDF returns the advance widths of the glyphs in the font,
 // in PDF text space units.
+//
+// For CID-keyed CFF fonts, per-FD font matrices are composed with the
+// top-level font matrix.
 func (f *Font) WidthsPDF() []float64 {
 	widths := make([]float64, f.NumGlyphs())
-	switch outlines := f.Outlines.(type) {
+	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		for gid, g := range outlines.Glyphs {
-			widths[gid] = g.Width * f.FontMatrix[0]
+		for gid, g := range o.Glyphs {
+			q := o.GlyphAdvanceScale(f.FontMatrix, glyph.ID(gid))
+			widths[gid] = g.Width * q
 		}
 		return widths
 	case *glyf.Outlines:
-		if outlines.Widths == nil {
+		if o.Widths == nil {
 			return nil
 		}
-		for gid, w := range outlines.Widths {
+		for gid, w := range o.Widths {
 			widths[gid] = float64(w) / float64(f.UnitsPerEm)
 		}
 	default:
@@ -314,7 +318,8 @@ func (f *Font) WidthsPDF() []float64 {
 	return widths
 }
 
-// WidthsMapPDF returns a map of glyph names to advance widths in PDF text space units.
+// WidthsMapPDF returns a map of glyph names to advance widths in PDF glyph
+// space units (1/1000th of a text space unit).
 //
 // If the font does not contain CFF outlines or is CID-keyed, nil is returned.
 func (f *Font) WidthsMapPDF() map[string]float64 {
@@ -323,11 +328,7 @@ func (f *Font) WidthsMapPDF() map[string]float64 {
 		return nil
 	}
 
-	q := f.FontMatrix[0]
-	if math.Abs(f.FontMatrix[3]) > 1e-6 {
-		q -= f.FontMatrix[1] * f.FontMatrix[2] / f.FontMatrix[3]
-	}
-	q *= 1000
+	q := o.GlyphAdvanceScale(f.FontMatrix, 0) * 1000
 
 	widths := make(map[string]float64)
 	for _, glyph := range o.Glyphs {
@@ -357,6 +358,20 @@ func (f *Font) GlyphBBoxes() []funit.Rect16 {
 	return extents
 }
 
+// GlyphBBoxesPDF returns per-glyph bounding boxes in PDF glyph space units
+// (1/1000 of a text space unit).
+//
+// For CID-keyed CFF fonts, per-FD font matrices are composed with the
+// top-level font matrix.
+func (f *Font) GlyphBBoxesPDF() []rect.Rect {
+	n := f.NumGlyphs()
+	extents := make([]rect.Rect, n)
+	for i := range n {
+		extents[i] = f.Outlines.GlyphBBoxPDF(f.FontMatrix, glyph.ID(i))
+	}
+	return extents
+}
+
 // GlyphWidth returns the advance width of the glyph with the given glyph ID,
 // in font design units.
 func (f *Font) GlyphWidth(gid glyph.ID) float64 {
@@ -377,18 +392,7 @@ func (f *Font) GlyphWidth(gid glyph.ID) float64 {
 func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		var fm matrix.Matrix
-		if o.IsCIDKeyed() {
-			fm = o.FontMatrices[o.FDSelect(gid)].Mul(f.FontMatrix)
-		} else {
-			fm = f.FontMatrix
-		}
-
-		q := fm[0]
-		if math.Abs(fm[3]) > 1e-6 {
-			q -= fm[1] * fm[2] / fm[3]
-		}
-
+		q := o.GlyphAdvanceScale(f.FontMatrix, gid)
 		return o.Glyphs[gid].Width * (q * 1000)
 
 	case *glyf.Outlines:
@@ -452,11 +456,15 @@ func (f *Font) GlyphName(gid glyph.ID) string {
 
 // IsFixedPitch returns true if all glyphs in the font have the same width.
 func (f *Font) IsFixedPitch() bool {
-	ww := f.Widths()
+	ww := f.WidthsPDF()
 	if len(ww) == 0 {
 		return false
 	}
 
+	// Two widths count as equal if they round to the same hmtx UnitsPerEm
+	// value.  WidthsPDF is in text space units (1 em), so the threshold is
+	// half a UnitsPerEm step.
+	tol := 0.5 / float64(f.UnitsPerEm)
 	var width float64
 	for _, w := range ww {
 		if w == 0 {
@@ -464,7 +472,7 @@ func (f *Font) IsFixedPitch() bool {
 		}
 		if width == 0 {
 			width = w
-		} else if math.Abs(width-w) >= 0.5 {
+		} else if math.Abs(width-w) >= tol {
 			return false
 		}
 	}

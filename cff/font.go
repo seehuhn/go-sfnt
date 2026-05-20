@@ -19,14 +19,11 @@ package cff
 import (
 	"math"
 
-	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
 )
-
-// TODO(voss): implement support for font matrices
 
 // Font stores a CFF font.
 type Font struct {
@@ -74,17 +71,20 @@ func (f *Font) Widths() []float64 {
 
 // WidthsPDF returns the advance widths of the glyphs in the font,
 // in PDF glyph space units (1/1000th of a text space unit).
+//
+// For CID-keyed fonts, per-FD font matrices are composed with the
+// top-level font matrix.
 func (f *Font) WidthsPDF() []float64 {
 	widths := make([]float64, f.NumGlyphs())
-	q := f.FontMatrix[0] * 1000
-	for gid, glyph := range f.Glyphs {
-		widths[gid] = glyph.Width * q
+	for gid := range f.Glyphs {
+		q := f.Outlines.GlyphAdvanceScale(f.FontInfo.FontMatrix, glyph.ID(gid))
+		widths[gid] = f.Glyphs[gid].Width * (q * 1000)
 	}
 	return widths
 }
 
-// WidthsMapPDF returns a map from glyph names to advance widths in PDF text
-// space units.
+// WidthsMapPDF returns a map from glyph names to advance widths in PDF glyph
+// space units (1/1000th of a text space unit).
 //
 // If the font uses CIDFont operators, nil is returned (because there are no
 // glyph names).
@@ -93,11 +93,7 @@ func (f *Font) WidthsMapPDF() map[string]float64 {
 		return nil
 	}
 
-	q := f.FontMatrix[0]
-	if math.Abs(f.FontMatrix[3]) > 1e-6 {
-		q -= f.FontMatrix[1] * f.FontMatrix[2] / f.FontMatrix[3]
-	}
-	q *= 1000
+	q := f.Outlines.GlyphAdvanceScale(f.FontInfo.FontMatrix, 0) * 1000
 
 	widths := make(map[string]float64)
 	for _, glyph := range f.Glyphs {
@@ -108,18 +104,7 @@ func (f *Font) WidthsMapPDF() map[string]float64 {
 
 // GlyphWidthPDF returns the advance width of a glyph in PDF glyph space units.
 func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
-	var fm matrix.Matrix
-	if f.IsCIDKeyed() {
-		fm = f.FontMatrices[f.FDSelect(gid)].Mul(f.FontInfo.FontMatrix)
-	} else {
-		fm = f.FontInfo.FontMatrix
-	}
-
-	q := fm[0]
-	if math.Abs(fm[3]) > 1e-6 {
-		q -= fm[1] * fm[2] / fm[3]
-	}
-
+	q := f.Outlines.GlyphAdvanceScale(f.FontInfo.FontMatrix, gid)
 	return f.Glyphs[gid].Width * (q * 1000)
 }
 

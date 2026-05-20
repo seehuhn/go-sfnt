@@ -17,6 +17,7 @@
 package sfnt
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"testing"
@@ -26,6 +27,8 @@ import (
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/header"
+	"seehuhn.de/go/sfnt/hmtx"
 )
 
 // TestFDSelect tests that the FDSelect function in subsetted fonts is correct.
@@ -88,5 +91,154 @@ func TestFDSelect(t *testing.T) {
 					i, o.Glyphs[gid].Name, gid, 10*int(cid)+1, fd.StdHW)
 			}
 		}
+	}
+}
+
+// TestCIDPerFDMatrixRoundTrip checks that a CID-keyed CFF font whose FDs
+// use distinct FontMatrices survives an OpenType round-trip with correct
+// hmtx widths.  The hmtx table is in UnitsPerEm; before per-FD matrices
+// were composed in WidthsPDF/makeHmtx, hmtx widths were emitted in
+// FD-local CFF units instead, and glyphs in any FD whose matrix differed
+// from the typical 1/1000 had wrong advances.
+//
+// A pure round-trip would be symmetrically broken (read inverts write), so
+// this test inspects the intermediate hmtx table to confirm the encoded
+// widths are in UnitsPerEm.  The glyph widths in CFF design units are
+// also checked after re-reading.
+func TestCIDPerFDMatrixRoundTrip(t *testing.T) {
+	// FD 0: standard 1/1000 matrix.
+	// FD 1: 2/1000 matrix -- a CFF design unit in FD 1 spans twice as much
+	// text space as a CFF design unit in FD 0.
+	o := &cff.Outlines{
+		ROS: &cid.SystemInfo{
+			Registry:   "Test",
+			Ordering:   "Identity",
+			Supplement: 0,
+		},
+		Private: []*type1.PrivateDict{
+			{StdHW: 50},
+			{StdHW: 50},
+		},
+		FontMatrices: []matrix.Matrix{
+			{0.001, 0, 0, 0.001, 0, 0},
+			{0.002, 0, 0, 0.002, 0, 0},
+		},
+		FDSelect: func(gid glyph.ID) int {
+			return int(gid) & 1
+		},
+	}
+	// Width values chosen so that every glyph advances 0.5 em in text space,
+	// i.e. hmtx widths should all be 500 for UnitsPerEm = 1000.
+	cffWidths := []float64{500, 250, 500, 250}
+	for i, w := range cffWidths {
+		g := cff.NewGlyph(fmt.Sprintf("c%d", i), w)
+		g.MoveTo(0, 0)
+		g.LineTo(w, 0)
+		g.LineTo(w, 100)
+		g.LineTo(0, 100)
+		o.Glyphs = append(o.Glyphs, g)
+	}
+	o.GIDToCID = []cid.CID{0, 1, 2, 3}
+
+	src := &Font{
+		FamilyName: "Test",
+		UnitsPerEm: 1000,
+		FontMatrix: matrix.Identity,
+		Ascent:     800,
+		Descent:    -200,
+		Outlines:   o,
+	}
+
+	var buf bytes.Buffer
+	if _, err := src.Write(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	// inspect intermediate hmtx
+	dir, err := header.Read(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hheaData, err := dir.ReadTableBytes(bytes.NewReader(buf.Bytes()), "hhea")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hmtxData, err := dir.ReadTableBytes(bytes.NewReader(buf.Bytes()), "hmtx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hm, err := hmtx.Decode(hheaData, hmtxData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for gid := range cffWidths {
+		// expected = round(text-space advance * UnitsPerEm) = 0.5 * 1000
+		if hm.Widths[gid] != 500 {
+			t.Errorf("hmtx[%d] = %d, want 500", gid, hm.Widths[gid])
+		}
+	}
+
+	// round-trip
+	dst, err := Read(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dstOutlines, ok := dst.Outlines.(*cff.Outlines)
+	if !ok {
+		t.Fatalf("expected CFF outlines after round trip, got %T", dst.Outlines)
+	}
+	if !dstOutlines.IsCIDKeyed() {
+		t.Fatal("CID-keyed structure lost on round trip")
+	}
+	for gid, want := range cffWidths {
+		if got := dstOutlines.Glyphs[gid].Width; math.Abs(got-want) > 0.5 {
+			t.Errorf("gid %d: CFF width %g, want %g", gid, got, want)
+		}
+	}
+
+	// per-glyph PDF advance preserved
+	for gid := range cffWidths {
+		want := src.GlyphWidthPDF(glyph.ID(gid))
+		got := dst.GlyphWidthPDF(glyph.ID(gid))
+		if math.Abs(got-want) > 0.5 {
+			t.Errorf("gid %d: GlyphWidthPDF = %g, want %g", gid, got, want)
+		}
+	}
+}
+
+// TestIsFixedPitchCIDPerFDMatrix checks that IsFixedPitch sees through
+// per-FD font matrices: glyphs whose CFF design-unit widths differ but
+// whose text-space advances are equal must count as fixed pitch.
+func TestIsFixedPitchCIDPerFDMatrix(t *testing.T) {
+	o := &cff.Outlines{
+		ROS: &cid.SystemInfo{Registry: "T", Ordering: "I"},
+		Private: []*type1.PrivateDict{
+			{StdHW: 50},
+			{StdHW: 50},
+		},
+		FontMatrices: []matrix.Matrix{
+			{0.001, 0, 0, 0.001, 0, 0},
+			{0.002, 0, 0, 0.002, 0, 0},
+		},
+		FDSelect: func(gid glyph.ID) int { return int(gid) & 1 },
+	}
+	for i, w := range []float64{500, 250, 500, 250} {
+		o.Glyphs = append(o.Glyphs, cff.NewGlyph(fmt.Sprintf("c%d", i), w))
+	}
+	o.GIDToCID = []cid.CID{0, 1, 2, 3}
+	f := &Font{
+		FamilyName: "Test",
+		UnitsPerEm: 1000,
+		FontMatrix: matrix.Identity,
+		Outlines:   o,
+	}
+	if !f.IsFixedPitch() {
+		t.Errorf("IsFixedPitch=false, want true (all glyphs advance 0.5 em)")
+	}
+
+	// Sanity check: a varying-width version should be detected as variable.
+	o.Glyphs[2].Width = 600
+	if f.IsFixedPitch() {
+		t.Errorf("IsFixedPitch=true, want false (gid 2 advances 0.6 em)")
 	}
 }

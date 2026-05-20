@@ -19,7 +19,9 @@ package cff
 import (
 	"testing"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/sfnt/glyph"
 )
 
@@ -148,5 +150,21 @@ func TestPathInvalidGID(t *testing.T) {
 
 	if len(cmds) != 0 {
 		t.Errorf("got %d commands for invalid GID, want 0", len(cmds))
+	}
+}
+
+// TestGlyphMatrixMissingFD verifies that GlyphMatrix falls back to the
+// supplied top matrix when a malformed CID-keyed font selects an FD that
+// has no per-FD matrix, rather than panicking.
+func TestGlyphMatrixMissingFD(t *testing.T) {
+	top := matrix.Matrix{0.002, 0, 0, 0.002, 0, 0}
+	o := &Outlines{
+		ROS:          &cid.SystemInfo{Registry: "x", Ordering: "y"},
+		FontMatrices: nil, // malformed: CID-keyed but no per-FD matrices
+		FDSelect:     func(glyph.ID) int { return 0 },
+	}
+	got := o.GlyphMatrix(top, 0)
+	if got != top {
+		t.Errorf("GlyphMatrix with missing FD: got %v, want %v", got, top)
 	}
 }

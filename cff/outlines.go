@@ -17,6 +17,8 @@
 package cff
 
 import (
+	"math"
+
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
@@ -33,7 +35,7 @@ import (
 // There are two cases:
 //   - For a simple font, Encoding is used, and ROS, GIDToCID, and FontMatrices
 //     must be nil.  In this case FDSelect always returns 0.
-//   - For CID-keyed fonts, ROS, GIDToCID, and FontMatrices are in used,
+//   - For CID-keyed fonts, ROS, GIDToCID, and FontMatrices are in use,
 //     and Encoding must be nil.
 type Outlines struct {
 	Glyphs []*Glyph
@@ -174,12 +176,43 @@ func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {
 //
 // If the glyph is blank, the zero rectangle is returned.
 func (o *Outlines) GlyphBBoxPDF(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
-	if o.IsCIDKeyed() {
-		M = o.FontMatrices[o.FDSelect(gid)].Mul(M)
-	}
-	M = M.Mul(matrix.Scale(1000, 1000))
-
+	M = o.GlyphMatrix(M, gid).Mul(matrix.Scale(1000, 1000))
 	return o.GlyphBBox(M, gid)
+}
+
+// GlyphMatrix returns the effective font matrix for the given glyph,
+// composing any per-FD matrix with the supplied top-level font matrix.
+// For non-CID-keyed fonts, or when the selected FD has no per-FD matrix
+// (a malformed font), the top matrix is returned unchanged.
+func (o *Outlines) GlyphMatrix(top matrix.Matrix, gid glyph.ID) matrix.Matrix {
+	if !o.IsCIDKeyed() {
+		return top
+	}
+	return o.FDMatrix(o.FDSelect(gid), top)
+}
+
+// FDMatrix returns the effective font matrix for FD index fd, composing the
+// per-FD matrix with the supplied top-level font matrix.  If the font has no
+// per-FD matrices, the top matrix is returned unchanged.
+func (o *Outlines) FDMatrix(fd int, top matrix.Matrix) matrix.Matrix {
+	if fd >= 0 && fd < len(o.FontMatrices) {
+		return o.FontMatrices[fd].Mul(top)
+	}
+	return top
+}
+
+// GlyphAdvanceScale returns the scalar factor that converts a glyph's
+// CFF design-unit advance width to text space units.  It accounts for any
+// per-FD font matrix as well as shear in the supplied top-level matrix.
+//
+// Multiply by 1000 to obtain PDF glyph space units.
+func (o *Outlines) GlyphAdvanceScale(top matrix.Matrix, gid glyph.ID) float64 {
+	fm := o.GlyphMatrix(top, gid)
+	q := fm[0]
+	if math.Abs(fm[3]) > 1e-6 {
+		q -= fm[1] * fm[2] / fm[3]
+	}
+	return q
 }
 
 func (o *Outlines) IsBlank(gid glyph.ID) bool {

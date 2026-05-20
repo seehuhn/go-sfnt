@@ -17,6 +17,8 @@
 package sfnt
 
 import (
+	"math"
+
 	"golang.org/x/text/language"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/cmap"
@@ -25,12 +27,16 @@ import (
 )
 
 // A Layouter can turn a string into a sequence of glyphs.
+//
+// The Layouter assumes the underlying font is not mutated after the layouter
+// has been created.
 type Layouter struct {
-	font *Font
-	cmap cmap.Subtable
-	gsub *gtab.Context
-	gpos *gtab.Context
-	buf  []glyph.Info
+	font     *Font
+	cmap     cmap.Subtable
+	gsub     *gtab.Context
+	gpos     *gtab.Context
+	buf      []glyph.Info
+	advances []funit.Int16 // base advance per gid, in UnitsPerEm
 }
 
 // NewLayouter creates a new layouter for the given cmap and lookups.
@@ -58,11 +64,23 @@ func (f *Font) NewLayouter(lang language.Tag, gsubFeatures, gposFeatures map[str
 		gpos = gtab.NewContext(f.Gpos.LookupList, f.Gdef, gposLookups)
 	}
 
+	// Pre-compute per-glyph base advances in UnitsPerEm.  GPOS value records
+	// are in UnitsPerEm too, so the two combine cleanly; this also keeps
+	// CID-keyed CFF fonts with per-FD matrices from mixing FD-local units
+	// with UnitsPerEm units at layout time.
+	n := f.NumGlyphs()
+	upm := float64(f.UnitsPerEm)
+	advances := make([]funit.Int16, n)
+	for i := range n {
+		advances[i] = funit.Int16(math.Round(f.GlyphWidthPDF(glyph.ID(i)) * upm / 1000))
+	}
+
 	return &Layouter{
-		font: f,
-		cmap: cmap,
-		gsub: gsub,
-		gpos: gpos,
+		font:     f,
+		cmap:     cmap,
+		gsub:     gsub,
+		gpos:     gpos,
+		advances: advances,
 	}, nil
 }
 
@@ -84,11 +102,11 @@ func (l *Layouter) Layout(s string) []glyph.Info {
 		seq = l.gsub.Apply(seq)
 	}
 
-	font := l.font
+	gdef := l.font.Gdef
 	for i := range seq {
 		gid := seq[i].GID
-		if !font.Gdef.IsMark(gid) {
-			seq[i].Advance = funit.Int16(font.GlyphWidth(gid)) // TODO(voss)
+		if int(gid) < len(l.advances) && !gdef.IsMark(gid) {
+			seq[i].Advance = l.advances[gid]
 		}
 	}
 

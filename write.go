@@ -191,14 +191,29 @@ func (f *Font) makeHead(locaFormat int16) []byte {
 }
 
 func (f *Font) makeHmtx() ([]byte, []byte) {
+	// The hmtx table stores widths and bboxes in UnitsPerEm units.  For CFF
+	// outlines that requires applying the (possibly per-FD) font matrix; the
+	// PDF helpers handle this, so derive UnitsPerEm values from there.
+	upm := float64(f.UnitsPerEm)
 	widths := make([]funit.Int16, f.NumGlyphs())
-	for i, w := range f.Widths() {
-		widths[i] = funit.Int16(w)
+	for i, w := range f.WidthsPDF() {
+		widths[i] = funit.Int16(math.Round(w * upm))
+	}
+
+	bboxScale := upm / 1000
+	extents := make([]funit.Rect16, f.NumGlyphs())
+	for i, b := range f.GlyphBBoxesPDF() {
+		extents[i] = funit.Rect16{
+			LLx: funit.Int16(math.Round(b.LLx * bboxScale)),
+			LLy: funit.Int16(math.Round(b.LLy * bboxScale)),
+			URx: funit.Int16(math.Round(b.URx * bboxScale)),
+			URy: funit.Int16(math.Round(b.URy * bboxScale)),
+		}
 	}
 
 	hmtxInfo := &hmtx.Info{
 		Widths:       widths,
-		GlyphExtents: f.GlyphBBoxes(),
+		GlyphExtents: extents,
 		Ascent:       f.Ascent,
 		Descent:      f.Descent,
 		LineGap:      f.LineGap,
@@ -209,12 +224,13 @@ func (f *Font) makeHmtx() ([]byte, []byte) {
 }
 
 func (f *Font) makeOS2() []byte {
+	// OS/2 xAvgCharWidth is in UnitsPerEm units.
+	upm := float64(f.UnitsPerEm)
 	avgGlyphWidth := 0
 	count := 0
-	ww := f.Widths()
-	for _, w := range ww {
+	for _, w := range f.WidthsPDF() {
 		if w > 0 {
-			avgGlyphWidth += int(w)
+			avgGlyphWidth += int(math.Round(w * upm))
 			count++
 		}
 	}
