@@ -18,6 +18,7 @@ package sfnt
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"maps"
 	"math"
@@ -51,7 +52,11 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 
 	tableData["OS/2"] = f.makeOS2()
 	tableData["name"] = f.makeName()
-	tableData["post"] = f.makePost()
+	postData, err := f.makePost()
+	if err != nil {
+		return 0, err
+	}
+	tableData["post"] = postData
 
 	var locaFormat int16
 	var scalerType uint32
@@ -98,9 +103,14 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 }
 
 // WriteTrueTypePDF writes the binary form of a TrueType font to the given
-// writer.  Only the tables needed for PDF embedding are included.
+// writer.  The output contains the tables required by PDF (head, hhea, hmtx,
+// loca, maxp, glyf, and cmap when present), any tables in
+// outlines.Tables (typically cvt, fpgm, prep, gasp), and a "post" table
+// when outlines.Names is non-nil.  The "name", "OS/2", "GSUB", "GPOS",
+// "GDEF", and "kern" tables are omitted, as they are not required for
+// PDF embedding.
 //
-// if the font does not use TrueType outlines, the function panics.
+// If the font does not use TrueType outlines, the function panics.
 //
 // The optional arguments, if given, must be a sequence of pairs of strings and
 // byte slices.  Each pair is interpreted as the name of a table and the
@@ -127,6 +137,14 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 	tableData["maxp"] = maxpInfo.Encode()
 
 	tableData["head"] = f.makeHead(enc.LocaFormat)
+
+	if outlines.Names != nil {
+		postData, err := f.makePost()
+		if err != nil {
+			return 0, err
+		}
+		tableData["post"] = postData
+	}
 
 	for i := 0; i+1 < len(extraTables); i += 2 {
 		tableData[extraTables[i].(string)] = extraTables[i+1].([]byte)
@@ -298,7 +316,7 @@ func (f *Font) makeName() []byte {
 	return nameInfo.Encode(1)
 }
 
-func (f *Font) makePost() []byte {
+func (f *Font) makePost() ([]byte, error) {
 	r := func(x funit.Float64) funit.Int16 {
 		return funit.Int16(math.Round(float64(x)))
 	}
@@ -308,10 +326,14 @@ func (f *Font) makePost() []byte {
 		UnderlineThickness: r(f.UnderlineThickness),
 		IsFixedPitch:       f.IsFixedPitch(),
 	}
-	if outlines, ok := f.Outlines.(*glyf.Outlines); ok {
+	if outlines, ok := f.Outlines.(*glyf.Outlines); ok && outlines.Names != nil {
+		if len(outlines.Names) != f.NumGlyphs() {
+			return nil, fmt.Errorf("sfnt: glyph name count %d does not match glyph count %d",
+				len(outlines.Names), f.NumGlyphs())
+		}
 		postInfo.Names = outlines.Names
 	}
-	return postInfo.Encode()
+	return postInfo.Encode(), nil
 }
 
 func (f *Font) makeCFF(outlines *cff.Outlines) ([]byte, error) {
