@@ -18,10 +18,29 @@ package header
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 )
+
+// A table whose offset+length overflows uint32 must be rejected. The real span
+// lies far beyond the end of the file, but a naive uint32 sum wraps to a small
+// value that spuriously passes the "extends beyond EOF" check.
+func TestReadTableOffsetOverflow(t *testing.T) {
+	data := make([]byte, 256)
+	binary.BigEndian.PutUint32(data[0:], ScalerTypeTrueType)
+	binary.BigEndian.PutUint16(data[4:], 1) // numTables
+
+	rec := data[12:28]
+	copy(rec[0:], "test")                            // tag
+	binary.BigEndian.PutUint32(rec[8:], 0xFFFFFF00)  // offset
+	binary.BigEndian.PutUint32(rec[12:], 0x00000200) // length; sum wraps to 0x100
+
+	if _, err := Read(bytes.NewReader(data)); err == nil {
+		t.Error("accepted table with offset+length overflowing uint32")
+	}
+}
 
 func FuzzTables(f *testing.F) {
 	buf := &bytes.Buffer{}

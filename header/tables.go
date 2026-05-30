@@ -85,8 +85,8 @@ func Read(r io.ReaderAt) (*Info, error) {
 		Toc:        make(map[string]Record, numTables),
 	}
 	type alloc struct {
-		Start uint32
-		End   uint32
+		Start uint64
+		End   uint64
 	}
 	var coverage []alloc
 	for i := range numTables {
@@ -117,8 +117,8 @@ func Read(r io.ReaderAt) (*Info, error) {
 			Length: length,
 		}
 		coverage = append(coverage, alloc{
-			Start: offset,
-			End:   offset + length,
+			Start: uint64(offset),
+			End:   uint64(offset) + uint64(length),
 		})
 	}
 	if len(h.Toc) == 0 {
