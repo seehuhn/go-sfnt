@@ -195,9 +195,12 @@ func (f *Font) makeHmtx() ([]byte, []byte) {
 	// outlines that requires applying the (possibly per-FD) font matrix; the
 	// PDF helpers handle this, so derive UnitsPerEm values from there.
 	upm := float64(f.UnitsPerEm)
-	widths := make([]funit.Int16, f.NumGlyphs())
+	widths := make([]funit.Uint16, f.NumGlyphs())
 	for i, w := range f.WidthsPDF() {
-		widths[i] = funit.Int16(math.Round(w * upm))
+		// advance widths are UFWORD; clamp to the representable range
+		v := math.Round(w * upm)
+		v = max(0, min(v, 0xFFFF))
+		widths[i] = funit.Uint16(v)
 	}
 
 	bboxScale := upm / 1000

@@ -788,7 +788,7 @@ func (s *subsetter) SubsetGlyf(oldOutlines *glyf.Outlines) *glyf.Outlines {
 		newOutlines.Glyphs[newGid] = oldOutlines.Glyphs[oldGid].FixComponents(s.newGid)
 	}
 
-	newOutlines.Widths = make([]funit.Int16, len(s.glyphs))
+	newOutlines.Widths = make([]funit.Uint16, len(s.glyphs))
 	for newGid, oldGid := range s.glyphs {
 		newOutlines.Widths[newGid] = oldOutlines.Widths[oldGid]
 	}

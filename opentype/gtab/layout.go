@@ -39,7 +39,22 @@ type Context struct {
 	stack []*nested
 
 	scratch []int
+
+	// maxLen caps the length of seq during substitution.  GSUB multiple
+	// substitution and contextual lookups can grow the sequence, and a
+	// malformed or malicious font can make it grow without bound; applying
+	// lookups stops once seq reaches this limit.
+	maxLen int
 }
+
+const (
+	// seqExpansionFactor and seqExpansionMin bound how far GSUB may grow a
+	// glyph sequence relative to its original length.  The limit is generous
+	// for any real font but stops the unbounded glyph explosion a malformed
+	// font can otherwise trigger.
+	seqExpansionFactor = 64
+	seqExpansionMin    = 1 << 16
+)
 
 type nested struct {
 	// InputPos gives the glyph positions for the matched input sequence,
@@ -65,6 +80,7 @@ func NewContext(ll LookupList, gdef *gdef.Table, lookups []LookupIndex) *Context
 //
 // This is the main entry-point for external users of GSUB and GPOS tables.
 func (ctx *Context) Apply(seq []glyph.Info) []glyph.Info {
+	ctx.maxLen = max(len(seq)*seqExpansionFactor, seqExpansionMin)
 	for _, lookupIndex := range ctx.lookups {
 		if int(lookupIndex) >= len(ctx.ll) {
 			continue
@@ -101,6 +117,11 @@ func isReverseLookup(l *LookupTable) bool {
 func (ctx *Context) applyForward() {
 	pos := 0
 	for pos < len(ctx.seq) {
+		// stop once the sequence has grown past the expansion limit, so a
+		// malformed font cannot drive substitution into an unbounded loop
+		if len(ctx.seq) > ctx.maxLen {
+			break
+		}
 		next := ctx.applyAtRecursively(pos)
 		// Every Subtable.apply returns either -1 or a + k with k >= 1, and
 		// applyAtRecursively preserves that invariant under nested actions.
@@ -178,6 +199,12 @@ func (ctx *Context) applyAtRecursively(pos int) int {
 			ctx.keep = oldKeep
 		}
 	}
+
+	// Hitting the numActions limit leaves nested actions on the stack.  They
+	// belong to this position only; discard them so they cannot accumulate
+	// across positions, where fixStackInsert would then make each
+	// substitution cost grow without bound.
+	ctx.stack = ctx.stack[:0]
 
 	return next
 }

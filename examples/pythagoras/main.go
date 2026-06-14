@@ -84,7 +84,7 @@ func main() {
 	// Create the glyphs
 	glyphs := createPythagorasGlyphs()
 
-	widths := make([]funit.Int16, len(glyphs))
+	widths := make([]funit.Uint16, len(glyphs))
 	for i := range widths {
 		widths[i] = unitsPerEm
 	}

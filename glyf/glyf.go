@@ -40,7 +40,7 @@ type Outlines struct {
 	Glyphs Glyphs
 
 	// Widths contains the glyph widths, indexed by glyph ID.
-	Widths []funit.Int16
+	Widths []funit.Uint16
 
 	// Names, if non-nil, contains the glyph names.
 	Names []string

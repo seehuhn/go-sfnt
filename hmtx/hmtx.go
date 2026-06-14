@@ -73,7 +73,7 @@ import (
 
 // Info contains information from the "hhea" and "hmtx" tables.
 type Info struct {
-	Widths       []funit.Int16
+	Widths       []funit.Uint16
 	GlyphExtents []funit.Rect16
 	LSB          []funit.Int16
 
@@ -114,8 +114,8 @@ func Decode(hheaData, hmtxData []byte) (*Info, error) {
 	}
 
 	numHorMetrics := int(hheaEnc.NumOfLongHorMetrics)
-	var prevWidth funit.Int16
-	var widths []funit.Int16
+	var prevWidth funit.Uint16
+	var widths []funit.Uint16
 	var lsbs []funit.Int16
 	for i := 0; len(hmtxData) > 0; i++ {
 		width := prevWidth
@@ -123,7 +123,7 @@ func Decode(hheaData, hmtxData []byte) (*Info, error) {
 			if len(hmtxData) < 2 {
 				return nil, fmt.Errorf("hmtx too short")
 			}
-			width = funit.Int16(hmtxData[0])<<8 | funit.Int16(hmtxData[1])
+			width = funit.Uint16(hmtxData[0])<<8 | funit.Uint16(hmtxData[1])
 			hmtxData = hmtxData[2:]
 			prevWidth = width
 		}
@@ -195,7 +195,7 @@ func (info *Info) Encode() (hheaData []byte, hmtxData []byte) {
 			if ext.IsZero() {
 				continue
 			}
-			rsb := info.Widths[i] - ext.URx
+			rsb := funit.Int16(int(info.Widths[i]) - int(ext.URx))
 			if first || rsb < hhea.MinRightSideBearing {
 				hhea.MinRightSideBearing = rsb
 			}
@@ -339,7 +339,7 @@ type binaryHhea struct {
 	Ascent              funit.Int16
 	Descent             funit.Int16
 	LineGap             funit.Int16
-	AdvanceWidthMax     funit.Int16
+	AdvanceWidthMax     funit.Uint16
 	MinLeftSideBearing  funit.Int16
 	MinRightSideBearing funit.Int16
 	XMaxExtent          funit.Int16

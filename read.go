@@ -235,6 +235,14 @@ func Read(r io.Reader) (*Font, error) {
 				}
 			}
 		}
+
+		// advance widths are stored unsigned in hmtx; snap a negative
+		// CFF charstring width to zero so it survives a write/read cycle
+		for _, g := range cffInfo.Glyphs {
+			if g.Width < 0 {
+				g.Width = 0
+			}
+		}
 	case header.ScalerTypeTrueType, header.ScalerTypeApple:
 		if headInfo == nil {
 			return nil, &header.ErrMissing{TableName: "head"}
@@ -277,7 +285,7 @@ func Read(r io.Reader) (*Font, error) {
 			return nil, errors.New("sfnt: ttf glyph count mismatch")
 		}
 
-		var widths []funit.Int16
+		var widths []funit.Uint16
 		if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
 			widths = hmtxInfo.Widths
 		}

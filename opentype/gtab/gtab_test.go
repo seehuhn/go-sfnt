@@ -209,6 +209,11 @@ func doFuzz(t *testing.T, lookupType, lookupFormat uint16,
 	}
 
 	p = parser.New(bytes.NewReader(data2))
+	// The re-encoded form may be slightly smaller than data1, which would give
+	// it a smaller input-proportional budget; since it decodes to the same
+	// structure that already fit in data1's budget, reuse that allowance so a
+	// budget boundary does not turn a faithful round trip into a failure.
+	p.Budget = parser.NewBudget(int64(len(data1)))
 	format, err = p.ReadUint16()
 	if err != nil {
 		t.Fatal(err)

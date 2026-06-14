@@ -149,14 +149,21 @@ func FuzzFont(f *testing.F) {
 			d := math.Max(math.Abs(x1), math.Abs(x2)) * 1e-8
 			return math.Abs(x2-x1) <= d
 		})
-		// CFF glyph widths get constrained to funit.Int16 precision through hmtx
+		// CFF glyph widths are constrained to the hmtx table's precision, which
+		// stores advance widths as integers in font design units (UnitsPerEm).
+		// At UnitsPerEm != 1000 a CFF-glyph-space width therefore round-trips to
+		// the nearest representable value, so compare the quantised hmtx widths
+		// rather than the raw glyph-space widths.
+		upm := float64(font1.UnitsPerEm)
+		toHmtx := func(w float64) int {
+			// mirror makeHmtx: quantise and clamp to the UFWORD range
+			return int(max(0, min(math.Round(w*upm/1000), 0xFFFF)))
+		}
 		cmpGlyphWidth := cmp.Comparer(func(g1, g2 *cff.Glyph) bool {
 			if g1.Name != g2.Name {
 				return false
 			}
-			// Width precision is limited by hmtx funit.Int16 conversion
-			w1, w2 := g1.Width, g2.Width
-			return funit.Int16(w1) == funit.Int16(w2)
+			return toHmtx(g1.Width) == toHmtx(g2.Width)
 		})
 		if diff := cmp.Diff(font1, font2, cmpFDSelectFn, cmpFloat, cmpGlyphWidth); diff != "" {
 			t.Errorf("different (-old +new):\n%s", diff)

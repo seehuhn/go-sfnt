@@ -9,5 +9,5 @@ require (
 	seehuhn.de/go/dag v0.0.0-20250630092703-dd0e13308cb3
 	seehuhn.de/go/geom v0.7.3
 	seehuhn.de/go/membudget v0.7.3
-	seehuhn.de/go/postscript v0.7.3
+	seehuhn.de/go/postscript v0.7.4-0.20260614080914-d917e609d363
 )

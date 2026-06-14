@@ -27,7 +27,7 @@ import (
 
 func TestRoundtrip(t *testing.T) {
 	i1 := &Info{
-		Widths: []funit.Int16{100, 200, 300, 300},
+		Widths: []funit.Uint16{100, 200, 300, 300},
 		GlyphExtents: []funit.Rect16{
 			{LLx: 10, LLy: 0, URx: 90, URy: 100},
 			{LLx: 20, LLy: 0, URx: 200, URy: 100},
@@ -65,9 +65,27 @@ func TestRoundtrip(t *testing.T) {
 	}
 }
 
+// TestLargeWidths checks that advance widths in the upper half of the UFWORD
+// range survive a round trip.  These values do not fit in a signed 16-bit
+// integer and were previously decoded as negative.
+func TestLargeWidths(t *testing.T) {
+	i1 := &Info{
+		Widths: []funit.Uint16{0, 32768, 50000, 65535},
+		LSB:    []funit.Int16{0, 0, 0, 0},
+	}
+	hhea, hmtx := i1.Encode()
+	i2, err := Decode(hhea, hmtx)
+	if err != nil {
+		t.Fatalf("error decoding hmtx: %v", err)
+	}
+	if !reflect.DeepEqual(i1.Widths, i2.Widths) {
+		t.Errorf("widths differ: %d vs %d", i1.Widths, i2.Widths)
+	}
+}
+
 func TestLengths(t *testing.T) {
 	info := &Info{
-		Widths: []funit.Int16{100, 200, 300, 300, 300},
+		Widths: []funit.Uint16{100, 200, 300, 300, 300},
 		GlyphExtents: []funit.Rect16{
 			{LLx: 0, LLy: 0, URx: 100, URy: 100},
 			{LLx: 10, LLy: 0, URx: 100, URy: 100},
@@ -202,7 +220,7 @@ func FuzzAngle(f *testing.F) {
 
 func FuzzHmtx(f *testing.F) {
 	i1 := &Info{
-		Widths: []funit.Int16{100, 200, 300, 300},
+		Widths: []funit.Uint16{100, 200, 300, 300},
 		GlyphExtents: []funit.Rect16{
 			{LLx: 10, LLy: 0, URx: 90, URy: 100},
 			{LLx: 20, LLy: 0, URx: 200, URy: 100},
