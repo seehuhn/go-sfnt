@@ -63,6 +63,48 @@ func TestFormat12(t *testing.T) {
 	}
 }
 
+// TestFormat12GlyphRange checks that segments whose glyph IDs do not fit in
+// the uint16 glyph.ID range are rejected rather than silently wrapped around.
+func TestFormat12GlyphRange(t *testing.T) {
+	subtable := func(startGlyphID, endCharCode uint32) []byte {
+		data := make([]byte, 28)
+		data[1] = 12                     // format
+		data[7] = 28                     // length
+		data[15] = 1                     // numGroups
+		put := func(off int, v uint32) { // big-endian uint32
+			data[off] = byte(v >> 24)
+			data[off+1] = byte(v >> 16)
+			data[off+2] = byte(v >> 8)
+			data[off+3] = byte(v)
+		}
+		put(16, 0)           // startCharCode
+		put(20, endCharCode) // endCharCode
+		put(24, startGlyphID)
+		return data
+	}
+
+	cases := []struct {
+		desc       string
+		startGID   uint32
+		endChar    uint32
+		wantReject bool
+	}{
+		{"max valid glyph", 0xFFFF, 0, false},
+		{"range up to max glyph", 0, 0xFFFF, false},
+		{"start glyph overflows uint16", 0x1_0000, 0, true},
+		{"range overflows uint16", 1, 0xFFFF, true},
+	}
+	for _, c := range cases {
+		_, err := decodeFormat12(subtable(c.startGID, c.endChar), nil)
+		if c.wantReject && err == nil {
+			t.Errorf("%s: accepted, want rejected", c.desc)
+		}
+		if !c.wantReject && err != nil {
+			t.Errorf("%s: rejected (%v), want accepted", c.desc, err)
+		}
+	}
+}
+
 func FuzzFormat12(f *testing.F) {
 	f.Add(Format12{}.Encode(0))
 	f.Add(Format12{

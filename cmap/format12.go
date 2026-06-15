@@ -58,8 +58,8 @@ func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 		if (i > 0 && startCharCode <= prevEnd) ||
 			endCharCode < startCharCode ||
 			endCharCode == 0xFFFF_FFFF || // avoid integer overflow in the loop below
-			startGlyphID > 0x10_FFFF ||
-			startGlyphID+(endCharCode-startCharCode) > 0x10_FFFF {
+			startGlyphID > 0xFFFF || // glyph.ID is a uint16
+			startGlyphID+(endCharCode-startCharCode) > 0xFFFF {
 			return nil, errMalformedSubtable
 		}
 		prevEnd = endCharCode
