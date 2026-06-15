@@ -168,14 +168,14 @@ func FuzzGtab(f *testing.F) {
 	f.Add(info.Encode())
 
 	f.Fuzz(func(t *testing.T, data1 []byte) {
-		info1, err := readGtab(bytes.NewReader(data1), 0, readDummySubtable)
+		info1, err := readGtab(bytes.NewReader(data1), parser.NewBudget(int64(len(data1))), 0, readDummySubtable)
 		if err != nil {
 			return
 		}
 
 		data2 := info1.Encode()
 
-		info2, err := readGtab(bytes.NewReader(data2), 0, readDummySubtable)
+		info2, err := readGtab(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))), 0, readDummySubtable)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -192,7 +192,7 @@ func doFuzz(t *testing.T, lookupType, lookupFormat uint16,
 
 	// t.Helper()
 
-	p := parser.New(bytes.NewReader(data1))
+	p := parser.New(bytes.NewReader(data1), parser.NewBudget(int64(len(data1))))
 	format, err := p.ReadUint16()
 	if err != nil || format != lookupFormat {
 		return
@@ -208,7 +208,7 @@ func doFuzz(t *testing.T, lookupType, lookupFormat uint16,
 		t.Errorf("encodeLen mismatch: %d != %d", len(data2), l1.encodeLen())
 	}
 
-	p = parser.New(bytes.NewReader(data2))
+	p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 	// The re-encoded form may be slightly smaller than data1, which would give
 	// it a smaller input-proportional budget; since it decodes to the same
 	// structure that already fit in data1's budget, reuse that allowance so a

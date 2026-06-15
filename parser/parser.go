@@ -29,9 +29,9 @@ type Parser struct {
 	r ReadSeekSizer
 
 	// Budget bounds the total memory a single table parse may
-	// allocate.  [New] initialises Budget to [NewBudget](r.Size());
-	// callers may replace it to impose a tighter cap.  Downstream
-	// readers route slice and map allocations through it.
+	// allocate.  [New] sets it from its budget argument.  Downstream
+	// readers route slice and map allocations through it.  Sharing one
+	// budget across several parsers imposes a cumulative cap.
 	//
 	// Budget must not be nil; any nil-budget operation panics.
 	Budget *membudget.Budget
@@ -49,12 +49,13 @@ type ReadSeekSizer interface {
 	Size() int64
 }
 
-// New allocates a new Parser.  The returned parser carries a default
-// [Budget] sized for r; callers may replace it to impose a tighter cap.
-func New(r ReadSeekSizer) *Parser {
+// New allocates a new Parser that charges all allocations against budget.
+// Use [NewBudget] to size a budget proportional to the input.
+// budget must not be nil.
+func New(r ReadSeekSizer, budget *membudget.Budget) *Parser {
 	p := &Parser{
 		r:      r,
-		Budget: NewBudget(r.Size()),
+		Budget: budget,
 	}
 	err := p.SeekPos(0)
 	if err != nil {

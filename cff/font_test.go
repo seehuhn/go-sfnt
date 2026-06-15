@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 func TestGlyphBBoxPDF(t *testing.T) {
@@ -81,7 +82,7 @@ func TestReadBoundedPrivateDICTAllocation(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 
-	_, err := Read(bytes.NewReader(blob))
+	_, err := Read(bytes.NewReader(blob), parser.NewBudget(int64(len(blob))))
 	if err == nil {
 		t.Fatal("expected error for malicious CFF blob")
 	}
@@ -98,7 +99,7 @@ func TestReadBoundedPrivateDICTAllocation(t *testing.T) {
 
 func FuzzFont(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		cff1, err := Read(bytes.NewReader(data))
+		cff1, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 		if err != nil {
 			return
 		}
@@ -110,7 +111,7 @@ func FuzzFont(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		cff2, err := Read(bytes.NewReader(buf.Bytes()))
+		cff2, err := Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
 		if err != nil {
 			return
 		}

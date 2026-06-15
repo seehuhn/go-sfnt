@@ -75,7 +75,7 @@ func TestCharStringBudget(t *testing.T) {
 // the bomb would execute 47^9 ~= 10^15 calls.
 func TestReadSubrBombBudgeted(t *testing.T) {
 	blob := buildSubrBombCFF()
-	_, err := Read(bytes.NewReader(blob))
+	_, err := Read(bytes.NewReader(blob), parser.NewBudget(int64(len(blob))))
 	if !errors.Is(err, membudget.ErrExceeded) {
 		t.Fatalf("err = %v, want ErrExceeded", err)
 	}

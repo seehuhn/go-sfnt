@@ -29,6 +29,7 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // TestFDSelect tests that the FDSelect function in subsetted fonts is correct.
@@ -179,7 +180,8 @@ func TestCIDPerFDMatrixRoundTrip(t *testing.T) {
 	}
 
 	// round-trip
-	dst, err := Read(bytes.NewReader(buf.Bytes()))
+	dstData := buf.Bytes()
+	dst, err := Read(bytes.NewReader(dstData), parser.NewBudget(int64(len(dstData))))
 	if err != nil {
 		t.Fatal(err)
 	}

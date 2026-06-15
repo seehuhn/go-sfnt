@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
@@ -28,13 +29,13 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// Read reads a CFF font from r.
-func Read(r parser.ReadSeekSizer) (*Font, error) {
+// Read reads a CFF font from r.  Allocations are charged against budget.
+func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Font, error) {
 	cff := &Font{
 		Outlines: &Outlines{},
 	}
 
-	p := parser.New(r)
+	p := parser.New(r, budget)
 
 	// section 0: header
 	x, err := p.ReadUint32()

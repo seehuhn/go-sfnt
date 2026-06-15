@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 func FuzzKern(f *testing.F) {
@@ -35,13 +36,13 @@ func FuzzKern(f *testing.F) {
 	f.Add(kern.Encode())
 
 	f.Fuzz(func(t *testing.T, data1 []byte) {
-		info1, err := Read(bytes.NewReader(data1))
+		info1, err := Read(bytes.NewReader(data1), parser.NewBudget(int64(len(data1))))
 		if err != nil {
 			return
 		}
 
 		data2 := info1.Encode()
-		info2, err := Read(bytes.NewReader(data2))
+		info2, err := Read(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 		if err != nil {
 			t.Fatal(err)
 		}

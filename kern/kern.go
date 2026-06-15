@@ -24,6 +24,7 @@ import (
 	"math/bits"
 	"sort"
 
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -36,9 +37,9 @@ import (
 // https://docs.microsoft.com/en-us/typography/opentype/spec/kern
 type Info map[glyph.Pair]funit.Int16
 
-// Read reads the "kern" table.
-func Read(r parser.ReadSeekSizer) (Info, error) {
-	p := parser.New(r)
+// Read reads the "kern" table.  Allocations are charged against budget.
+func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (Info, error) {
+	p := parser.New(r, budget)
 
 	version, err := p.ReadUint16()
 	if err != nil {

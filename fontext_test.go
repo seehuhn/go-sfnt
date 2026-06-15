@@ -33,6 +33,7 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/internal/debug"
 	"seehuhn.de/go/sfnt/os2"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 func TestGetFontInfo(t *testing.T) {
@@ -53,7 +54,7 @@ func TestGetFontInfo(t *testing.T) {
 	}
 	cffData := buf.Bytes()
 
-	cffFont2, err := cff.Read(bytes.NewReader(cffData))
+	cffFont2, err := cff.Read(bytes.NewReader(cffData), parser.NewBudget(int64(len(cffData))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func FuzzFont(f *testing.F) {
 	f.Add(buf.Bytes())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		font1, err := sfnt.Read(bytes.NewReader(data))
+		font1, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 		if err != nil {
 			return
 		}
@@ -132,7 +133,8 @@ func FuzzFont(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		font2, err := sfnt.Read(bytes.NewReader(buf.Bytes()))
+		font2Data := buf.Bytes()
+		font2, err := sfnt.Read(bytes.NewReader(font2Data), parser.NewBudget(int64(len(font2Data))))
 		if err != nil {
 			t.Fatal(err)
 		}

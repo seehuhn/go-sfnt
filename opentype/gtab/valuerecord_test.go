@@ -84,7 +84,7 @@ func TestValueRecordRoundTripAllBits(t *testing.T) {
 		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), l1.encodeLen())
 	}
 
-	p := parser.New(bytes.NewReader(data))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err := p.Discard(2); err != nil {
 		t.Fatal(err)
 	}

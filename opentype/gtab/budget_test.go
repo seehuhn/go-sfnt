@@ -89,8 +89,7 @@ func makeAliasedSeqContext2(N, M uint16) []byte {
 // the same size — the same envelope the production gtab.Read uses.
 func budgetedReadSeqContext2(t *testing.T, sub []byte) (Subtable, error) {
 	t.Helper()
-	p := parser.New(bytes.NewReader(sub))
-	p.Budget = parser.NewBudget(int64(len(sub)))
+	p := parser.New(bytes.NewReader(sub), parser.NewBudget(int64(len(sub))))
 	format, err := p.ReadUint16()
 	if err != nil {
 		t.Fatalf("read format: %v", err)
@@ -152,8 +151,7 @@ func makeAliasedGsub4_1(N, M uint16) []byte {
 
 func TestGsub4_1BombBudgeted(t *testing.T) {
 	sub := makeAliasedGsub4_1(1024, 1024)
-	p := parser.New(bytes.NewReader(sub))
-	p.Budget = parser.NewBudget(int64(len(sub)))
+	p := parser.New(bytes.NewReader(sub), parser.NewBudget(int64(len(sub))))
 	format, err := p.ReadUint16()
 	if err != nil || format != 1 {
 		t.Fatalf("format: %d, err: %v", format, err)
@@ -176,10 +174,9 @@ func TestCoverageFormat2BombBudgeted(t *testing.T) {
 	writeU16(cov, 0)     // startCoverageIndex
 
 	data := cov.Bytes()
-	p := parser.New(bytes.NewReader(data))
 	// Budget sized for a small input table.  65535*24 ~= 1.5MiB charge,
 	// which exceeds the 1MiB base + small input-proportional add.
-	p.Budget = parser.NewBudget(int64(len(data)))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	_, err := coverage.Read(p, 0)
 	if !errors.Is(err, membudget.ErrExceeded) {
 		t.Fatalf("err = %v, want ErrExceeded", err)
@@ -197,8 +194,7 @@ func TestClassdefFormat2BombBudgeted(t *testing.T) {
 	writeU16(buf, 1)     // classValue (non-zero)
 
 	data := buf.Bytes()
-	p := parser.New(bytes.NewReader(data))
-	p.Budget = parser.NewBudget(int64(len(data)))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	_, err := classdef.Read(p, 0)
 	if !errors.Is(err, membudget.ErrExceeded) {
 		t.Fatalf("err = %v, want ErrExceeded", err)

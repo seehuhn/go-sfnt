@@ -34,13 +34,14 @@ import (
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/os2"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // MakeSimpleFont creates a simple font for use in unit tests.
 //
 // TODO(voss): remove
 func MakeSimpleFont() *sfnt.Font {
-	info, err := sfnt.Read(bytes.NewReader(goregular.TTF))
+	info, err := sfnt.Read(bytes.NewReader(goregular.TTF), parser.NewBudget(int64(len(goregular.TTF))))
 	if err != nil {
 		panic(err)
 	}

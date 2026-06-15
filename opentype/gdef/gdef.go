@@ -46,9 +46,9 @@ func (table *Table) IsMark(gid glyph.ID) bool {
 	return table.GlyphClass[gid] == GlyphClassMark
 }
 
-// Read reads the GDEF table.
-func Read(r parser.ReadSeekSizer) (*Table, error) {
-	p := parser.New(r)
+// Read reads the GDEF table from r.  Allocations are charged against budget.
+func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
+	p := parser.New(r, budget)
 	buf, err := p.ReadBytes(12)
 	if err != nil {
 		return nil, err

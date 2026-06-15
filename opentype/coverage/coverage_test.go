@@ -32,14 +32,18 @@ func FuzzCoverageTable(f *testing.F) {
 	f.Add([]byte{0, 2, 0, 1, 1, 0, 1, 2, 0, 0})
 	f.Add([]byte{0, 2, 0, 2, 1, 0, 1, 2, 0, 0, 2, 0, 2, 5, 0, 3})
 	f.Fuzz(func(t *testing.T, data1 []byte) {
-		c1, err := Read(parser.New(bytes.NewReader(data1)), 0)
+		c1, err := Read(parser.New(bytes.NewReader(data1), parser.NewBudget(int64(len(data1)))), 0)
 		if err != nil {
 			return
 		}
 
 		data2 := c1.Encode()
 
-		c2, err := Read(parser.New(bytes.NewReader(data2)), 0)
+		// The compact re-encoding may be smaller than data1, giving it a
+		// smaller input-proportional budget; reuse data1's allowance so a
+		// wide coverage range that fit the first read does not trip the budget.
+		p := parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data1))))
+		c2, err := Read(p, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

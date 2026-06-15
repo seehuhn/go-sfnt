@@ -37,7 +37,7 @@ func (r memReader) Size() int64 {
 
 func newParser(t *testing.T, data []byte) *parser.Parser {
 	t.Helper()
-	return parser.New(memReader{bytes.NewReader(data)})
+	return parser.New(memReader{bytes.NewReader(data)}, parser.NewBudget(int64(len(data))))
 }
 
 func TestRoundTrip(t *testing.T) {

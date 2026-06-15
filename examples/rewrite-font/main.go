@@ -28,23 +28,15 @@ import (
 
 func main() {
 	for i, fname := range os.Args[1:] {
-		fd, err := os.Open(fname)
+		info, err := sfnt.ReadFile(fname)
 		if err != nil {
 			log.Fatal(err)
-		}
-		info, err := sfnt.Read(fd)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = fd.Close()
-		if err != nil {
-			log.Println(err)
 		}
 
 		ext := filepath.Ext(fname)
 		outName := fmt.Sprintf("out%05d%s", i, ext)
 
-		fd, err = os.Create(outName)
+		fd, err := os.Create(outName)
 		if err != nil {
 			log.Fatal(err)
 		}

@@ -84,7 +84,7 @@ func TestGpos2_2(t *testing.T) {
 		},
 	}
 	data := l1.encode()
-	p := parser.New(bytes.NewReader(data))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	err := p.Discard(2)
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestGpos4_1(t *testing.T) {
 		},
 	}
 	data := l1.encode()
-	p := parser.New(bytes.NewReader(data))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	err := p.Discard(2)
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +162,7 @@ func TestGpos4_1MarkClassOutOfRange(t *testing.T) {
 		0x00, 0x04, // baseAnchorOffset = 4
 		0x00, 0x01, 0x00, 0x03, 0x00, 0x04, // base anchor (format=1, X=3, Y=4)
 	}
-	p := parser.New(bytes.NewReader(data))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err := p.Discard(2); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestGpos5_1(t *testing.T) {
 	if len(data) != l1.encodeLen() {
 		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), l1.encodeLen())
 	}
-	p := parser.New(bytes.NewReader(data))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err := p.Discard(2); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestGpos6_1MarkClassOutOfRange(t *testing.T) {
 		0x00, 0x04, // mark2AnchorOffset = 4
 		0x00, 0x01, 0x00, 0x03, 0x00, 0x04,
 	}
-	p := parser.New(bytes.NewReader(data))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err := p.Discard(2); err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +627,7 @@ func TestDevicePoolDeduplicates(t *testing.T) {
 
 	// Re-read and confirm every record still points at a content-
 	// equivalent VariationIndex.
-	p := parser.New(bytes.NewReader(encoded))
+	p := parser.New(bytes.NewReader(encoded), parser.NewBudget(int64(len(encoded))))
 	if err := p.Discard(2); err != nil {
 		t.Fatal(err)
 	}

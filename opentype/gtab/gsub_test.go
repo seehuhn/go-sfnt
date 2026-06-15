@@ -189,7 +189,7 @@ func TestDropEmptyEntries(t *testing.T) {
 // 2-byte format/version prefix at the start.
 func readSubtable(t *testing.T, read func(*parser.Parser, int64) (Subtable, error), data []byte) Subtable {
 	t.Helper()
-	p := parser.New(bytes.NewReader(data))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err := p.Discard(2); err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestGsub4_1ZeroComponentCount(t *testing.T) {
 		// coverage at offset 16 (format-1, count=1, gid=1)
 		0x00, 0x01, 0x00, 0x01, 0x00, 0x01,
 	}
-	p := parser.New(bytes.NewReader(data))
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err := p.Discard(2); err != nil {
 		t.Fatal(err)
 	}

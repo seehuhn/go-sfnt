@@ -22,8 +22,9 @@ import (
 )
 
 func TestPos(t *testing.T) {
-	buf := bytes.NewReader([]byte{'0', '1', '2', '3', '4', '5', '6', '7'})
-	p := New(buf)
+	data := []byte{'0', '1', '2', '3', '4', '5', '6', '7'}
+	buf := bytes.NewReader(data)
+	p := New(buf, NewBudget(int64(len(data))))
 
 	pos := p.Pos()
 	if pos != 0 {

@@ -103,7 +103,7 @@ func TestRoundTrip(t *testing.T) {
 
 	// ----------------------------------------------------------------------
 
-	out, err := Read(bytes.NewReader(buf.Bytes()))
+	out, err := Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestFindEdges(t *testing.T) {
 
 	// ----------------------------------------------------------------------
 
-	out, err := Read(bytes.NewReader(buf.Bytes()))
+	out, err := Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
 	if err != nil {
 		t.Fatal(err)
 	}

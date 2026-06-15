@@ -30,6 +30,7 @@ import (
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/opentype/markarray"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // subsetRoundTripCase describes one round-trip scenario.  The same table
@@ -98,7 +99,7 @@ func encodeAndReadGtabLookups(t *testing.T, info *gtab.Info, tp gtab.Type) gtab.
 		LookupList: info.LookupList,
 	}
 	data := wrapped.Encode()
-	got, err := gtab.Read(bytes.NewReader(data), tp)
+	got, err := gtab.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))), tp)
 	if err != nil {
 		t.Fatalf("re-read failed: %v", err)
 	}

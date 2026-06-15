@@ -23,6 +23,7 @@ import (
 
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 func FuzzGdef(f *testing.F) {
@@ -48,14 +49,18 @@ func FuzzGdef(f *testing.F) {
 	f.Add(table.Encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		table1, err := Read(bytes.NewReader(data))
+		table1, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 		if err != nil {
 			return
 		}
 
 		data2 := table1.Encode()
 
-		table2, err := Read(bytes.NewReader(data2))
+		// The compact re-encoding may be smaller than data, giving it a
+		// smaller input-proportional budget; reuse data's allowance so a
+		// wide ClassDef/Coverage range that fit the first read does not trip
+		// the budget on the second.
+		table2, err := Read(bytes.NewReader(data2), parser.NewBudget(int64(len(data))))
 		if err != nil {
 			t.Fatal(err)
 		}

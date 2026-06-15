@@ -23,6 +23,7 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 
 	"seehuhn.de/go/sfnt/glyf"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // TestWriteTrueTypePDFPreservesNames checks that WriteTrueTypePDF retains
@@ -31,7 +32,7 @@ import (
 // these names to recover text from symbolic TrueType embeds without a
 // /ToUnicode CMap.
 func TestWriteTrueTypePDFPreservesNames(t *testing.T) {
-	src, err := Read(bytes.NewReader(goregular.TTF))
+	src, err := Read(bytes.NewReader(goregular.TTF), parser.NewBudget(int64(len(goregular.TTF))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,8 @@ func TestWriteTrueTypePDFPreservesNames(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dst, err := Read(bytes.NewReader(buf.Bytes()))
+	dstData := buf.Bytes()
+	dst, err := Read(bytes.NewReader(dstData), parser.NewBudget(int64(len(dstData))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +68,7 @@ func TestWriteTrueTypePDFPreservesNames(t *testing.T) {
 // whose glyph name slice does not match the glyph count returns an error
 // rather than emitting a malformed "post" table.
 func TestWriteTrueTypePDFRejectsNameCountMismatch(t *testing.T) {
-	src, err := Read(bytes.NewReader(goregular.TTF))
+	src, err := Read(bytes.NewReader(goregular.TTF), parser.NewBudget(int64(len(goregular.TTF))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +85,7 @@ func TestWriteTrueTypePDFRejectsNameCountMismatch(t *testing.T) {
 // written when the source font has no glyph names — the original
 // minimisation behaviour.
 func TestWriteTrueTypePDFOmitsNamelessPost(t *testing.T) {
-	src, err := Read(bytes.NewReader(goregular.TTF))
+	src, err := Read(bytes.NewReader(goregular.TTF), parser.NewBudget(int64(len(goregular.TTF))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,8 @@ func TestWriteTrueTypePDFOmitsNamelessPost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dst, err := Read(bytes.NewReader(buf.Bytes()))
+	dstData := buf.Bytes()
+	dst, err := Read(bytes.NewReader(dstData), parser.NewBudget(int64(len(dstData))))
 	if err != nil {
 		t.Fatal(err)
 	}

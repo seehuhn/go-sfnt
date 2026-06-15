@@ -40,12 +40,12 @@ type Info struct {
 	Names []string // can be nil
 }
 
-// Read reads the "post" table from r.
+// Read reads the "post" table from r.  Allocations are charged against budget.
 // The slice in the .Names field in the returned structure, if non-nil,
 // may point to shared internal storage and must not be shared.
 // The function may read r beyond the end of the table.
-func Read(r parser.ReadSeekSizer) (*Info, error) {
-	p := parser.New(r)
+func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Info, error) {
+	p := parser.New(r, budget)
 
 	post := &postEnc{}
 	if err := binary.Read(p, binary.BigEndian, post); err != nil {

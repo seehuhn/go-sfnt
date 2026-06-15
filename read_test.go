@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/image/font/gofont/goregular"
 	"seehuhn.de/go/sfnt/header"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // TestEmptyGDEF tests that we can read a font with an empty GDEF table.
@@ -49,8 +50,9 @@ func TestEmptyGDEF(t *testing.T) {
 	}
 
 	// read the font again
-	r = bytes.NewReader(w.Bytes())
-	_, err = Read(r)
+	data := w.Bytes()
+	r = bytes.NewReader(data)
+	_, err = Read(r, parser.NewBudget(int64(len(data))))
 	if err != nil {
 		t.Fatal(err)
 	}

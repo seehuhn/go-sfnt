@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"seehuhn.de/go/sfnt/parser"
 )
 
 func FuzzPost(f *testing.F) {
@@ -37,14 +39,14 @@ func FuzzPost(f *testing.F) {
 	}).Encode())
 
 	f.Fuzz(func(t *testing.T, in []byte) {
-		i1, err := Read(bytes.NewReader(in))
+		i1, err := Read(bytes.NewReader(in), parser.NewBudget(int64(len(in))))
 		if err != nil {
 			return
 		}
 
 		buf := i1.Encode()
 
-		i2, err := Read(bytes.NewReader(buf))
+		i2, err := Read(bytes.NewReader(buf), parser.NewBudget(int64(len(buf))))
 		if err != nil {
 			t.Fatal(err)
 		}

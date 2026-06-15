@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/text/language"
 
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
@@ -48,19 +49,28 @@ import (
 )
 
 // ReadFile reads a TrueType or OpenType font from a file.
+// The memory used while parsing is bounded in proportion to the file size.
 func ReadFile(fname string) (*Font, error) {
 	fd, err := os.Open(fname)
 	if err != nil {
 		return nil, err
 	}
 	defer fd.Close()
-	return Read(fd)
+	fi, err := fd.Stat()
+	if err != nil {
+		return nil, err
+	}
+	return Read(fd, parser.NewBudget(fi.Size()))
 }
 
 // Read reads a TrueType or OpenType font from an io.Reader.
 // If r does not implement the io.ReaderAt interface, the whole
 // font file will be read into memory.
-func Read(r io.Reader) (*Font, error) {
+//
+// All memory allocated while parsing is charged against budget, which
+// bounds the total a single call may use.  Use [parser.NewBudget] to size
+// a budget in proportion to the input.
+func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 	rr, ok := r.(io.ReaderAt)
 	if !ok {
 		data, err := io.ReadAll(r)
@@ -182,7 +192,7 @@ func Read(r io.Reader) (*Font, error) {
 		return nil, err
 	}
 	if postFd != nil {
-		postInfo, err = post.Read(postFd)
+		postInfo, err = post.Read(postFd, budget)
 		if err != nil {
 			return nil, fmt.Errorf("post table: %w", err)
 		}
@@ -213,7 +223,7 @@ func Read(r io.Reader) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		cffInfo, err = cff.Read(cffFd)
+		cffInfo, err = cff.Read(cffFd, budget)
 		if err != nil {
 			return nil, fmt.Errorf("CFF table: %w", err)
 		}
@@ -465,7 +475,7 @@ func Read(r io.Reader) (*Font, error) {
 	if dir.Has("GDEF") {
 		gdefFd, err := dir.TableReader(rr, "GDEF")
 		if err == nil {
-			info.Gdef, err = gdef.Read(gdefFd)
+			info.Gdef, err = gdef.Read(gdefFd, budget)
 			if err != nil {
 				// skip malformed GDEF table
 				info.Gdef = nil
@@ -478,7 +488,7 @@ func Read(r io.Reader) (*Font, error) {
 	if dir.Has("GSUB") {
 		gsubFd, err := dir.TableReader(rr, "GSUB")
 		if err == nil {
-			info.Gsub, err = gtab.Read(gsubFd, gtab.TypeGsub)
+			info.Gsub, err = gtab.Read(gsubFd, budget, gtab.TypeGsub)
 			if err != nil {
 				// skip malformed GSUB table
 				info.Gsub = nil
@@ -495,7 +505,7 @@ func Read(r io.Reader) (*Font, error) {
 	if dir.Has("GPOS") {
 		gposFd, err := dir.TableReader(rr, "GPOS")
 		if err == nil {
-			info.Gpos, err = gtab.Read(gposFd, gtab.TypeGpos)
+			info.Gpos, err = gtab.Read(gposFd, budget, gtab.TypeGpos)
 			if err != nil {
 				// skip malformed GPOS table
 				info.Gpos = nil
@@ -505,7 +515,7 @@ func Read(r io.Reader) (*Font, error) {
 	if info.Gpos == nil && dir.Has("kern") {
 		kernFd, err := dir.TableReader(rr, "kern")
 		if err == nil {
-			kern, err := kern.Read(kernFd)
+			kern, err := kern.Read(kernFd, budget)
 			if err == nil {
 				subtable := gtab.Gpos2_1{}
 				for pair, val := range kern {

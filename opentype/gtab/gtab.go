@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -65,11 +66,12 @@ const (
 
 // Read reads and decodes an OpenType "GSUB" or "GPOS" table from r.
 // The tp argument must be one of [TypeGsub] or [TypeGpos].
+// Allocations are charged against budget.
 //
 // The format of the data read is defined here:
 //   - https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#gsub-header
 //   - https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#gpos-header
-func Read(r parser.ReadSeekSizer, tp Type) (*Info, error) {
+func Read(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type) (*Info, error) {
 	var sr subtableReader
 	switch tp {
 	case TypeGsub:
@@ -79,11 +81,11 @@ func Read(r parser.ReadSeekSizer, tp Type) (*Info, error) {
 	default:
 		return nil, fmt.Errorf("unsupported Gtab table type %d", tp)
 	}
-	return readGtab(r, tp, sr)
+	return readGtab(r, budget, tp, sr)
 }
 
-func readGtab(r parser.ReadSeekSizer, tp Type, sr subtableReader) (*Info, error) {
-	p := parser.New(r)
+func readGtab(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type, sr subtableReader) (*Info, error) {
+	p := parser.New(r, budget)
 
 	var header struct {
 		MajorVersion      uint16
