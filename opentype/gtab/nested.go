@@ -416,6 +416,9 @@ func (l *SeqContext2) apply(ctx *Context, a, b int) int {
 		return -1
 	}
 	ruleIdx := l.Input[gid]
+	if int(ruleIdx) >= len(l.Rules) {
+		return -1
+	}
 	rules := l.Rules[ruleIdx]
 
 	matchPos := ctx.scratch

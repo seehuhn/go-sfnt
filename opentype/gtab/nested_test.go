@@ -179,8 +179,7 @@ func BenchmarkSeqContext1(b *testing.B) {
 		seq = append(seq, glyph.Info{GID: gid})
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ctx.Apply(seq)
 	}
 }
@@ -265,6 +264,25 @@ func TestSeqContext2(t *testing.T) {
 	}
 }
 
+// TestSeqContext2ClassOutOfRange checks that a covered glyph whose input class
+// is beyond the rule-set list does not panic.  readSeqContext2 truncates the
+// rule-set list to numClasses but never pads it up, so the ClassDef can return
+// a class >= len(Rules).
+func TestSeqContext2ClassOutOfRange(t *testing.T) {
+	in := []glyph.Info{{GID: 5}}
+	l := &SeqContext2{
+		Cov:   map[glyph.ID]int{5: 0},
+		Input: classdef.Table{5: 2}, // class 2, but only one rule set
+		Rules: [][]*ClassSeqRule{
+			{{Input: []uint16{}}},
+		},
+	}
+	ctx := &Context{seq: in, keep: makeDebugKeepFunc()}
+	if next := l.apply(ctx, 0, len(in)); next != -1 {
+		t.Errorf("apply = %d, want -1", next)
+	}
+}
+
 func BenchmarkSeqContext2(b *testing.B) {
 	l0 := &Gsub1_1{
 		Cov:   coverage.Set{1: true, 2: true},
@@ -313,8 +331,7 @@ func BenchmarkSeqContext2(b *testing.B) {
 		seq = append(seq, glyph.Info{GID: gid})
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ctx.Apply(seq)
 	}
 }
@@ -422,8 +439,7 @@ func BenchmarkSeqContext3(b *testing.B) {
 		seq = append(seq, glyph.Info{GID: gid})
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ctx.Apply(seq)
 	}
 }
@@ -548,8 +564,7 @@ func BenchmarkChainedSeqContext1(b *testing.B) {
 		seq = append(seq, glyph.Info{GID: gid})
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ctx.Apply(seq)
 	}
 }
@@ -660,8 +675,7 @@ func BenchmarkChainedSeqContext2(b *testing.B) {
 		seq = append(seq, glyph.Info{GID: gid})
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ctx.Apply(seq)
 	}
 }
@@ -749,8 +763,7 @@ func BenchmarkChainedSeqContext3(b *testing.B) {
 		seq = append(seq, glyph.Info{GID: gid})
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ctx.Apply(seq)
 	}
 }
