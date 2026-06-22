@@ -240,9 +240,10 @@ func (f *Font) Write(w io.Writer) error {
 
 func (f *Font) selectWidths() (float64, float64) {
 	numGlyphs := int32(len(f.Glyphs))
-	if numGlyphs == 0 {
+	switch numGlyphs {
+	case 0:
 		return 0, 0
-	} else if numGlyphs == 1 {
+	case 1:
 		return f.Glyphs[0].Width, f.Glyphs[0].Width
 	}
 

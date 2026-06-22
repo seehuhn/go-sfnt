@@ -59,7 +59,7 @@ func TestCharsetDecode(t *testing.T) {
 	}
 }
 
-func TestCharsetRoundtrip(t *testing.T) {
+func TestCharsetRoundTrip(t *testing.T) {
 	n1 := make([]int32, 100)
 	for i := range n1 {
 		n1[i] = int32(2 * i)

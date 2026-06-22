@@ -35,7 +35,7 @@ func f2dot14ToFloatTest(i int16) float64 {
 	return float64(i) / f2dot14FactorTest
 }
 
-func TestComponentUnpacked_Roundtrip(t *testing.T) {
+func TestComponentUnpacked_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name     string
 		original ComponentUnpacked
@@ -186,7 +186,7 @@ func TestComponentUnpacked_Roundtrip(t *testing.T) {
 			// The general f2dot14ToFloat(floatToF2dot14(x)) should handle it.
 
 			if diff := cmp.Diff(expected, *unpacked); diff != "" {
-				t.Errorf("Roundtrip failed (-expected +got):\n%s", diff)
+				t.Errorf("round trip failed (-expected +got):\n%s", diff)
 				t.Logf("Original: %+v\n", tt.original)
 				t.Logf("Packed Flags: %s (0x%04X)\nPacked Data: %x\n", packed.Flags.String(), uint16(packed.Flags), packed.Data)
 				t.Logf("Unpacked: %+v\n", *unpacked)

@@ -25,7 +25,7 @@ import (
 	"seehuhn.de/go/postscript/funit"
 )
 
-func TestRoundtrip(t *testing.T) {
+func TestRoundTrip(t *testing.T) {
 	i1 := &Info{
 		Widths: []funit.Uint16{100, 200, 300, 300},
 		GlyphExtents: []funit.Rect16{
