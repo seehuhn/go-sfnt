@@ -41,4 +41,15 @@ type Info struct {
 	YOffset  funit.Int16 // TODO(voss): convert to float64
 	Advance  funit.Int16 // horizontal advance; TODO(voss): convert to float64
 	YAdvance funit.Int16 // vertical advance, used only in vertical layout
+
+	// LigID identifies the ligature a glyph belongs to.  It is zero for glyphs
+	// that are not part of a ligature, and a non-zero value shared by a
+	// ligature glyph and the marks attached to its components.  The value is
+	// assigned during ligature substitution and is used to attach marks to the
+	// correct ligature component.
+	LigID uint16
+
+	// LigComp is the index of the ligature component a mark attaches to,
+	// meaningful only when LigID is non-zero.
+	LigComp uint16
 }

@@ -18,6 +18,7 @@ package name
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -31,4 +32,24 @@ func TestTable(t *testing.T) {
 			t.Errorf("table[%d]: %q != %q", i, val, val2)
 		}
 	}
+}
+
+func TestTableString(t *testing.T) {
+	// A field is printed under its own guard: present iff non-empty, with its
+	// own label and value.  Designer and Description are independent.
+	t.Run("designer-without-description", func(t *testing.T) {
+		got := (&Table{Designer: "Jane"}).String()
+		if !strings.Contains(got, `Designer: "Jane"`) {
+			t.Errorf("Designer dropped from output:\n%s", got)
+		}
+	})
+	t.Run("description-without-designer", func(t *testing.T) {
+		got := (&Table{Description: "a font"}).String()
+		if strings.Contains(got, "Designer:") {
+			t.Errorf("spurious Designer line for empty Designer:\n%s", got)
+		}
+		if !strings.Contains(got, `Description: "a font"`) {
+			t.Errorf("Description missing from output:\n%s", got)
+		}
+	})
 }

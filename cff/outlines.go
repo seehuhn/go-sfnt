@@ -111,14 +111,17 @@ func (o *Outlines) Path(gid glyph.ID) path.Path {
 	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
 		return func(yield func(path.Command, []vec.Vec2) bool) {}
 	}
+	return o.Glyphs[gid].Path()
+}
 
-	cffGlyph := o.Glyphs[gid]
-
+// Path returns the glyph outline as a path.Path iterator, converting the CFF
+// glyph commands (including Bézier control points) to path commands.
+func (g *Glyph) Path() path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		var buf [3]vec.Vec2
 		hasSubpath := false // track whether we have an open subpath
 
-		for _, cmd := range cffGlyph.Cmds {
+		for _, cmd := range g.Cmds {
 			switch cmd.Op {
 			case OpMoveTo:
 				if len(cmd.Args) >= 2 {

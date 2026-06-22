@@ -20,10 +20,13 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gdef"
+	"seehuhn.de/go/sfnt/opentype/markarray"
 )
 
 // TestLigature tests the simple case where a type 4 GSUB lookup is used
@@ -61,6 +64,93 @@ func TestLigature(t *testing.T) {
 
 	if d := cmp.Diff(expected, out); d != "" {
 		t.Errorf("unexpected result (-want +got):\n%s", d)
+	}
+}
+
+// TestGsub4_1LigatureComponentTagging checks that forming a ligature tags the
+// ligature glyph and each interleaved (skipped) mark with a shared LigID, and
+// records on each mark the component it followed.  This is the information
+// mark-to-ligature positioning (Gpos5_1) consumes.
+func TestGsub4_1LigatureComponentTagging(t *testing.T) {
+	const (
+		b1  glyph.ID = 1
+		m   glyph.ID = 2
+		b2  glyph.ID = 3
+		lig glyph.ID = 4
+	)
+	subst := &Gsub4_1{
+		Cov:  coverage.Table{b1: 0},
+		Repl: [][]Ligature{{{In: []glyph.ID{b2}, Out: lig}}}, // b1 b2 -> lig
+	}
+	lookupList := []*LookupTable{
+		{Meta: &LookupMetaInfo{LookupType: 4, LookupFlags: IgnoreMarks}, Subtables: []Subtable{subst}},
+	}
+	gdefTable := &gdef.Table{GlyphClass: classdef.Table{m: gdef.GlyphClassMark}}
+
+	// b1 m b2: the mark sits between the two ligature components, so it is
+	// skipped during matching and ends up after the ligature glyph.
+	in := []glyph.Info{{GID: b1}, {GID: m}, {GID: b2}}
+	out := NewContext(lookupList, gdefTable, []LookupIndex{0}).Apply(in)
+
+	if len(out) != 2 || out[0].GID != lig || out[1].GID != m {
+		t.Fatalf("expected [lig, mark], got %v", out)
+	}
+	if out[0].LigID == 0 {
+		t.Error("ligature glyph was not assigned a LigID")
+	}
+	if out[1].LigID != out[0].LigID {
+		t.Errorf("mark LigID = %d, want %d (the ligature's id)", out[1].LigID, out[0].LigID)
+	}
+	if out[1].LigComp != 0 {
+		t.Errorf("mark LigComp = %d, want 0 (it followed the first component)", out[1].LigComp)
+	}
+}
+
+// TestLigatureMarkToLigature is an end-to-end check that the component
+// information assigned during GSUB ligature substitution flows into GPOS
+// mark-to-ligature positioning: the interleaved mark must attach to the first
+// component's anchor, not the last-component fallback.
+func TestLigatureMarkToLigature(t *testing.T) {
+	const (
+		b1  glyph.ID = 1
+		m   glyph.ID = 2
+		b2  glyph.ID = 3
+		lig glyph.ID = 4
+	)
+	gsub := &Gsub4_1{
+		Cov:  coverage.Table{b1: 0},
+		Repl: [][]Ligature{{{In: []glyph.ID{b2}, Out: lig}}},
+	}
+	gpos := &Gpos5_1{
+		MarkCov: coverage.Table{m: 0},
+		LigCov:  coverage.Table{lig: 0},
+		MarkArray: []markarray.Record{
+			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
+		},
+		LigArray: [][][]anchor.Table{
+			{
+				{{X: 200, Y: 300}}, // component 0 (the one the mark follows)
+				{{X: 400, Y: 500}}, // component 1 (the fallback)
+			},
+		},
+	}
+	lookupList := []*LookupTable{
+		{Meta: &LookupMetaInfo{LookupType: 4, LookupFlags: IgnoreMarks}, Subtables: []Subtable{gsub}},
+		{Meta: &LookupMetaInfo{LookupType: 5}, Subtables: []Subtable{gpos}},
+	}
+	gdefTable := &gdef.Table{GlyphClass: classdef.Table{m: gdef.GlyphClassMark}}
+
+	in := []glyph.Info{{GID: b1}, {GID: m}, {GID: b2}}
+	out := NewContext(lookupList, gdefTable, []LookupIndex{0, 1}).Apply(in)
+
+	if len(out) != 2 || out[0].GID != lig || out[1].GID != m {
+		t.Fatalf("expected [lig, mark], got %v", out)
+	}
+	// component 0 anchor (200,300) minus the mark anchor (5,5); the ligature's
+	// advance is zero here, so there is nothing to subtract.
+	if out[1].XOffset != 200-5 || out[1].YOffset != 300-5 {
+		t.Errorf("mark offset = (%d, %d), want (%d, %d) — should use component 0, not the fallback",
+			out[1].XOffset, out[1].YOffset, 200-5, 300-5)
 	}
 }
 
@@ -111,7 +201,10 @@ func TestGsub4_1LigLoopAliasing(t *testing.T) {
 	in := []glyph.Info{{GID: A}, {GID: M}, {GID: M}, {GID: A}}
 	got := NewContext(lookupList, gdefTable, []LookupIndex{0}).Apply(in)
 	want := []glyph.Info{{GID: Y}, {GID: M}, {GID: M}}
-	if d := cmp.Diff(want, got); d != "" {
+	// ligature tagging (LigID/LigComp) is exercised separately; this test is
+	// about the matchPos/skipPos aliasing bug.
+	ignoreLig := cmpopts.IgnoreFields(glyph.Info{}, "LigID", "LigComp")
+	if d := cmp.Diff(want, got, ignoreLig); d != "" {
 		t.Errorf("unexpected result (-want +got):\n%s", d)
 	}
 }

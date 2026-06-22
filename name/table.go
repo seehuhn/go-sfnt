@@ -98,7 +98,7 @@ func (t *Table) String() string {
 	if t.Manufacturer != "" {
 		fmt.Fprintf(b, "Manufacturer: %q\n", t.Manufacturer)
 	}
-	if t.Description != "" {
+	if t.Designer != "" {
 		fmt.Fprintf(b, "Designer: %q\n", t.Designer)
 	}
 	if t.Description != "" {

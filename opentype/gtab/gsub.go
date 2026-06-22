@@ -625,6 +625,7 @@ func (l *Gsub4_1) apply(ctx *Context, a, b int) int {
 
 	var matchPos []int
 	var skipPos []int
+	var skipComp []uint16 // ligature component each skipped glyph follows
 	var text []rune
 ligLoop:
 	for j := range ligSet {
@@ -632,14 +633,16 @@ ligLoop:
 
 		matchPos = matchPos[:0]
 		skipPos = skipPos[:0]
+		skipComp = skipComp[:0]
 		text = text[:0]
 
 		matchPos = append(matchPos, a)
 		text = append(text, seq[a].Text...)
 		p := a + 1
-		for _, ligGid := range lig.In {
+		for c, ligGid := range lig.In {
 			for p < b && !keep.Keep(seq[p].GID) {
 				skipPos = append(skipPos, p)
+				skipComp = append(skipComp, uint16(c))
 				p++
 			}
 
@@ -652,12 +655,25 @@ ligLoop:
 			p++
 		}
 
-		// Insert the ligature glyph.
-		seq[a] = glyph.Info{GID: lig.Out, Text: text}
+		// Insert the ligature glyph.  When marks were skipped between
+		// components, tag the ligature and those marks with a shared
+		// ligature id (and the component each mark follows) so that
+		// mark-to-ligature positioning can attach each mark to the right
+		// component.
+		ligInfo := glyph.Info{GID: lig.Out, Text: text}
+		var ligID uint16
+		if len(skipPos) > 0 {
+			ligID = ctx.newLigID()
+			ligInfo.LigID = ligID
+		}
+		seq[a] = ligInfo
 
 		// Move all the skipped glyphs after position a.
 		for i, skip := range skipPos {
-			seq[a+i+1] = seq[skip]
+			m := seq[skip]
+			m.LigID = ligID
+			m.LigComp = skipComp[i]
+			seq[a+i+1] = m
 		}
 
 		// Move the tail to the correct position.

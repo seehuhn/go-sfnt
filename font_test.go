@@ -17,10 +17,22 @@
 package sfnt
 
 import (
+	"strings"
 	"testing"
 
 	"seehuhn.de/go/sfnt/os2"
 )
+
+// legalPostScriptChar reports whether r may appear in a PostScript name.
+// This is an independent statement of the rule (printable ASCII excluding
+// the ten delimiters and whitespace), so the test verifies the spec rather
+// than echoing the implementation's own character class.
+func legalPostScriptChar(r rune) bool {
+	if r < '!' || r > '~' { // whitespace, control codes, non-ASCII
+		return false
+	}
+	return !strings.ContainsRune("()<>[]{}/%", r) // PostScript delimiters
+}
 
 func TestPostScriptName(t *testing.T) {
 	info := &Font{
@@ -33,13 +45,30 @@ func TestPostScriptName(t *testing.T) {
 		t.Errorf("wrong postscript name: %q", psName)
 	}
 
+	// Drive every byte value through the name and check the contract: the
+	// result must contain only legal characters, and it must keep exactly
+	// the legal characters of "family-subfamily" (illegal ones removed, the
+	// rest preserved in order).
 	var rr []rune
 	for i := range 255 {
 		rr = append(rr, rune(i))
 	}
 	info.FamilyName = string(rr)
 	psName = info.PostScriptName()
-	if len(psName) != 127-33-10+len("-BoldItalic") {
-		t.Errorf("wrong postscript name: %q", psName)
+
+	for _, r := range psName {
+		if !legalPostScriptChar(r) {
+			t.Errorf("PostScript name contains illegal character %q: %q", r, psName)
+		}
+	}
+
+	var want strings.Builder
+	for _, r := range info.FamilyName + "-BoldItalic" {
+		if legalPostScriptChar(r) {
+			want.WriteRune(r)
+		}
+	}
+	if psName != want.String() {
+		t.Errorf("PostScript name = %q, want %q", psName, want.String())
 	}
 }

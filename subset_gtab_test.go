@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
@@ -474,12 +475,16 @@ func TestSubsetGsub8_1ContextFiltered(t *testing.T) {
 			},
 		},
 	}
-	_ = s.SubsetGsub(old)
-	if _, ok := s.newGid[T]; ok {
-		t.Errorf("Gsub8_1 cannot fire (backtrack X dropped); target T should not be in subset")
-	}
-	if _, ok := s.newGid[U]; ok {
-		t.Errorf("downstream U was pulled into subset via a rule that cannot fire")
+	got := s.SubsetGsub(old)
+	// The Gsub8_1 rule cannot fire (backtrack X dropped), so it pulls
+	// nothing in: its own subtable is dropped (empty backtrack coverage)
+	// and the downstream T→U lookup loses its only coverage entry (T was
+	// never added).  With neither T nor U in the subset, no lookup
+	// survives.  A propagation bug that wrongly pulled T in would leave
+	// the T→U lookup alive, so this count distinguishes the two.
+	if len(got.LookupList) != 0 {
+		t.Errorf("dead Gsub8_1 rule should pull nothing in; got %d surviving lookups",
+			len(got.LookupList))
 	}
 }
 
@@ -529,16 +534,28 @@ func TestSubsetGsub8_1ContextLiveTransitive(t *testing.T) {
 	}
 	s := newSubsetter(0, A, X1)
 	got := s.SubsetGsub(old)
-	if _, ok := s.newGid[T]; !ok {
-		t.Errorf("T should have been added to subset (Gsub8_1 can fire via X1)")
-	}
-	if _, ok := s.newGid[U]; !ok {
-		t.Errorf("U should have been added transitively (T → U)")
-	}
-	// the T → U lookup must survive — its coverage references T,
-	// which is in the subset.
+
+	// Both lookups survive: the A→T Gsub8_1 (it can fire via X1) and the
+	// downstream T→U substitution that T transitively pulls in.
 	if len(got.LookupList) != 2 {
 		t.Fatalf("expected 2 surviving lookups, got %d", len(got.LookupList))
+	}
+	subTU := got.LookupList[0].Subtables[0].(*gtab.Gsub1_2) // T → U
+	subAT := got.LookupList[1].Subtables[0].(*gtab.Gsub8_1) // A → T
+
+	// the Gsub8_1 substitutes a single glyph (the subset's new id for T);
+	// that same glyph must be covered by the surviving T→U lookup, i.e.
+	// the A→T→U chain is preserved through the subset.
+	if len(subAT.SubstituteGlyphIDs) != 1 {
+		t.Fatalf("A→T: expected 1 substitute, got %d", len(subAT.SubstituteGlyphIDs))
+	}
+	newT := subAT.SubstituteGlyphIDs[0]
+	if _, ok := subTU.Cov[newT]; !ok {
+		t.Error("T→U lookup does not cover the glyph produced by A→T; transitive chain broken")
+	}
+	// U survives as the T→U target — proof it was pulled into the subset.
+	if len(subTU.SubstituteGlyphIDs) != 1 {
+		t.Errorf("T→U: expected 1 substitute (U), got %d", len(subTU.SubstituteGlyphIDs))
 	}
 }
 
@@ -670,22 +687,54 @@ func TestSubsetSeqContext2DeadClassPrune(t *testing.T) {
 	}
 	sub := got.LookupList[0].Subtables[0].(*gtab.SeqContext2)
 
-	// After dead-class pruning, input class def has classes {0, 1, 2}
-	// only (class 3 was dropped), so NumClasses == 3 and Rules is
-	// trimmed to length 3 — class 3's nil entry is gone.
-	if len(sub.Rules) != 3 {
-		t.Fatalf("expected Rules len 3 (trimmed to NumClasses), got %d", len(sub.Rules))
+	// Which rules survive is the observable result of pruning: firstClass 0
+	// (dead, every surviving glyph is classed) keeps nothing; firstClass 1
+	// keeps only its alive-class rule (input class 2), dropping the one that
+	// references dead class 3; firstClass 2 keeps its rule; firstClass 3 is
+	// gone entirely.
+	if r := rulesForClass(sub.Rules, 0); len(r) != 0 {
+		t.Errorf("firstClass 0 dead but kept %d rules", len(r))
 	}
-	if sub.Rules[0] != nil {
-		t.Errorf("firstClass 0 dead but kept %d rules", len(sub.Rules[0]))
+	if r := rulesForClass(sub.Rules, 1); len(r) != 1 {
+		t.Fatalf("firstClass 1: expected 1 surviving rule, got %d", len(r))
+	} else if r[0].Input[0] != 2 {
+		t.Errorf("wrong rule survived in firstClass 1: %+v", r[0])
 	}
-	if len(sub.Rules[1]) != 1 {
-		t.Errorf("firstClass 1: expected 1 surviving rule, got %d", len(sub.Rules[1]))
-	} else if sub.Rules[1][0].Input[0] != 2 {
-		t.Errorf("wrong rule survived in firstClass 1: %+v", sub.Rules[1][0])
+	if r := rulesForClass(sub.Rules, 2); len(r) != 1 {
+		t.Errorf("firstClass 2: expected 1 surviving rule, got %d", len(r))
 	}
-	if len(sub.Rules[2]) != 1 {
-		t.Errorf("firstClass 2: expected 1 surviving rule, got %d", len(sub.Rules[2]))
+
+	// The pruned subtable must round-trip.  This is the caller-facing reason
+	// a dead trailing class must be removed: encode → read truncates Rules to
+	// the input classdef's NumClasses, so a stray trailing class would be
+	// silently lost and the cycle would not be bijective.
+	assertLookupsRoundTrip(t, got, gtab.TypeGsub)
+}
+
+// rulesForClass returns the rules attached to first-glyph class c, or nil if
+// the table has no slot for that class.  It lets a test assert per-class
+// survival without depending on the exact length of the Rules slice.
+func rulesForClass[T any](rules [][]T, c int) []T {
+	if c < 0 || c >= len(rules) {
+		return nil
+	}
+	return rules[c]
+}
+
+// assertLookupsRoundTrip encodes info, reads it back, and checks that the
+// decoded subtables match — the caller-facing encode → read contract.
+func assertLookupsRoundTrip(t *testing.T, info *gtab.Info, tp gtab.Type) {
+	t.Helper()
+	roundTrip := encodeAndReadGtabLookups(t, info, tp)
+	if len(roundTrip) != len(info.LookupList) {
+		t.Fatalf("lookup count mismatch: subset=%d roundtrip=%d",
+			len(info.LookupList), len(roundTrip))
+	}
+	opts := cmp.Options{cmpopts.EquateEmpty()}
+	for i := range info.LookupList {
+		if diff := cmp.Diff(info.LookupList[i].Subtables, roundTrip[i].Subtables, opts); diff != "" {
+			t.Errorf("lookup %d round trip failed (-want +got):\n%s", i, diff)
+		}
 	}
 }
 
@@ -746,15 +795,22 @@ func TestSubsetChainedSeqContext2DeadClassPrune(t *testing.T) {
 	got := s.SubsetGsub(old)
 	sub := got.LookupList[0].Subtables[0].(*gtab.ChainedSeqContext2)
 
-	// After dead-class pruning, Input class def has classes {0, 1}
-	// only (class 2 was dropped), so NumClasses == 2 and Rules is
-	// trimmed to length 2 — class 2's nil entry is gone.
-	if len(sub.Rules) != 2 {
-		t.Fatalf("expected Rules len 2 (trimmed to NumClasses), got %d", len(sub.Rules))
+	// firstClass 0 and firstClass 2 are dead and keep nothing; firstClass 1
+	// keeps only the rule that is alive in all three classdefs (Backtrack,
+	// Input, Lookahead), dropping the three that reference a dead class 2.
+	if r := rulesForClass(sub.Rules, 0); len(r) != 0 {
+		t.Errorf("firstClass 0 dead but kept %d rules", len(r))
 	}
-	if len(sub.Rules[1]) != 1 {
-		t.Errorf("expected 1 surviving rule in firstClass 1, got %d", len(sub.Rules[1]))
+	if r := rulesForClass(sub.Rules, 1); len(r) != 1 {
+		t.Errorf("firstClass 1: expected 1 surviving rule, got %d", len(r))
 	}
+	if r := rulesForClass(sub.Rules, 2); len(r) != 0 {
+		t.Errorf("firstClass 2 dead but kept %d rules", len(r))
+	}
+
+	// The pruned subtable must round-trip: a stray trailing class would be
+	// lost when encode → read truncates Rules to the input NumClasses.
+	assertLookupsRoundTrip(t, got, gtab.TypeGsub)
 }
 
 // TestSubsetSeqContext2AllRulesDropped: if pruning leaves no rules, the

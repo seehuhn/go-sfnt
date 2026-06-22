@@ -217,6 +217,63 @@ func TestGpos5_1(t *testing.T) {
 	}
 }
 
+// TestGpos5_1Apply checks that mark-to-ligature positioning attaches a mark to
+// the ligature component recorded on it (via LigID/LigComp), falling back to
+// the last component for marks not tagged for this ligature.  The anchor offset
+// is reduced by the advances of the glyphs between the ligature and the mark.
+func TestGpos5_1Apply(t *testing.T) {
+	const (
+		ligGID  glyph.ID    = 100
+		markGID glyph.ID    = 10
+		ligID   uint16      = 7
+		ligAdv  funit.Int16 = 1000
+	)
+	// one mark class; the ligature has two components with distinct anchors
+	l := &Gpos5_1{
+		MarkCov: coverage.Table{markGID: 0},
+		LigCov:  coverage.Table{ligGID: 0},
+		MarkArray: []markarray.Record{
+			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
+		},
+		LigArray: [][][]anchor.Table{
+			{
+				{{X: 200, Y: 300}}, // component 0, class 0
+				{{X: 400, Y: 500}}, // component 1, class 0
+			},
+		},
+	}
+	lookupList := []*LookupTable{
+		{Meta: &LookupMetaInfo{LookupType: 5}, Subtables: []Subtable{l}},
+	}
+
+	cases := []struct {
+		name         string
+		markLigID    uint16
+		markLigComp  uint16
+		wantX, wantY funit.Int16
+	}{
+		// component 0 anchor (200,300): X = 200 - 5 - ligAdv, Y = 300 - 5
+		{"component 0", ligID, 0, 200 - 5 - ligAdv, 300 - 5},
+		// component 1 anchor (400,500)
+		{"component 1", ligID, 1, 400 - 5 - ligAdv, 500 - 5},
+		// untagged mark (LigID 0) falls back to the last component
+		{"untagged falls back to last", 0, 0, 400 - 5 - ligAdv, 500 - 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seq := []glyph.Info{
+				{GID: ligGID, Advance: ligAdv, LigID: ligID},
+				{GID: markGID, LigID: tc.markLigID, LigComp: tc.markLigComp},
+			}
+			out := NewContext(lookupList, nil, []LookupIndex{0}).Apply(seq)
+			if out[1].XOffset != tc.wantX || out[1].YOffset != tc.wantY {
+				t.Errorf("mark offset = (%d, %d), want (%d, %d)",
+					out[1].XOffset, out[1].YOffset, tc.wantX, tc.wantY)
+			}
+		})
+	}
+}
+
 // TestGpos6_1MarkClassOutOfRange — analogous check for Gpos6_1.
 func TestGpos6_1MarkClassOutOfRange(t *testing.T) {
 	// Gpos6_1 has the same on-disk layout as Gpos4_1 (mark1 plays the role
@@ -245,6 +302,76 @@ func TestGpos6_1MarkClassOutOfRange(t *testing.T) {
 	if _, err := readGpos6_1(p, 0); err == nil {
 		t.Errorf("expected error for out-of-range mark class")
 	}
+}
+
+// TestGpos6_1Apply checks mark-to-mark positioning: the attaching mark (in
+// Mark1Cov) is placed so its anchor meets the anchor of the preceding base
+// mark (in Mark2Cov), reduced by the advances of the glyphs in between.  A NULL
+// (empty) anchor or a missing base mark leaves the mark unmoved.
+func TestGpos6_1Apply(t *testing.T) {
+	const (
+		baseMark glyph.ID    = 50 // the mark being attached to (Mark2Cov)
+		attMark  glyph.ID    = 10 // the attaching mark (Mark1Cov)
+		baseAdv  funit.Int16 = 1000
+	)
+	mk := func(mark2Anchor anchor.Table) *Gpos6_1 {
+		return &Gpos6_1{
+			Mark1Cov: coverage.Table{attMark: 0},
+			Mark2Cov: coverage.Table{baseMark: 0},
+			Mark1Array: []markarray.Record{
+				{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
+			},
+			Mark2Array: [][]anchor.Table{
+				{mark2Anchor}, // mark2 index 0, class 0
+			},
+		}
+	}
+
+	t.Run("attaches to preceding mark", func(t *testing.T) {
+		l := mk(anchor.Table{X: 200, Y: 300})
+		seq := []glyph.Info{
+			{GID: baseMark, Advance: baseAdv},
+			{GID: attMark},
+		}
+		out := apply6(l, seq)
+		// the attaching mark's anchor (5,5) meets the base mark's anchor
+		// (200,300), less the base mark's advance
+		if wantX, wantY := funit.Int16(200-5-baseAdv), funit.Int16(300-5); out[1].XOffset != wantX || out[1].YOffset != wantY {
+			t.Errorf("mark offset = (%d, %d), want (%d, %d)", out[1].XOffset, out[1].YOffset, wantX, wantY)
+		}
+	})
+
+	t.Run("null anchor leaves the mark unmoved", func(t *testing.T) {
+		l := mk(anchor.Table{}) // IsEmpty
+		seq := []glyph.Info{
+			{GID: baseMark, Advance: baseAdv},
+			{GID: attMark},
+		}
+		out := apply6(l, seq)
+		if out[1].XOffset != 0 || out[1].YOffset != 0 {
+			t.Errorf("mark offset = (%d, %d), want (0, 0)", out[1].XOffset, out[1].YOffset)
+		}
+	})
+
+	t.Run("no preceding mark leaves the mark unmoved", func(t *testing.T) {
+		l := mk(anchor.Table{X: 200, Y: 300})
+		seq := []glyph.Info{
+			{GID: 999}, // not in Mark2Cov
+			{GID: attMark},
+		}
+		out := apply6(l, seq)
+		if out[1].XOffset != 0 || out[1].YOffset != 0 {
+			t.Errorf("mark offset = (%d, %d), want (0, 0)", out[1].XOffset, out[1].YOffset)
+		}
+	})
+}
+
+// apply6 runs a single Gpos6_1 lookup over seq through the public Apply path.
+func apply6(l *Gpos6_1, seq []glyph.Info) []glyph.Info {
+	lookupList := []*LookupTable{
+		{Meta: &LookupMetaInfo{LookupType: 6}, Subtables: []Subtable{l}},
+	}
+	return NewContext(lookupList, nil, []LookupIndex{0}).Apply(seq)
 }
 
 func FuzzGpos1_1(f *testing.F) {

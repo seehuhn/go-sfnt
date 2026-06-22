@@ -169,8 +169,55 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 
 // apply implements the [Subtable] interface.
 func (l *Gpos5_1) apply(ctx *Context, a, b int) int {
-	// TODO(voss): implement this
-	return -1
+	seq := ctx.seq
+	markIdx, ok := l.MarkCov[seq[a].GID]
+	if !ok {
+		return -1
+	}
+	markRecord := l.MarkArray[markIdx]
+
+	if a == 0 {
+		return -1
+	}
+	p := a - 1
+	var ligIdx int
+	for p >= 0 {
+		ligIdx, ok = l.LigCov[seq[p].GID]
+		if ok {
+			break
+		}
+		p--
+	}
+	if p < 0 {
+		return -1
+	}
+
+	components := l.LigArray[ligIdx]
+	if len(components) == 0 {
+		return -1
+	}
+	// Attach to the component recorded on the mark during ligature
+	// substitution; a mark not tagged for this ligature defaults to the last
+	// component.
+	// TODO(voss): nested ligatures and multiple substitution do not yet
+	// propagate component information.
+	comp := len(components) - 1
+	if seq[a].LigID != 0 && seq[a].LigID == seq[p].LigID && int(seq[a].LigComp) < len(components) {
+		comp = int(seq[a].LigComp)
+	}
+	ligRecord := components[comp][markRecord.Class]
+	if ligRecord.IsEmpty() {
+		return -1
+	}
+
+	dx := ligRecord.X - markRecord.X
+	dy := ligRecord.Y - markRecord.Y
+	for i := p; i < a; i++ {
+		dx -= seq[i].Advance
+	}
+	seq[a].XOffset = dx
+	seq[a].YOffset = dy
+	return a + 1
 }
 
 // countMarkClasses returns the markClassCount for this subtable.  It also

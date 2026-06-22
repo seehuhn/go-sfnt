@@ -40,11 +40,27 @@ type Context struct {
 
 	scratch []int
 
+	// nextLigID counts the ligatures formed so far, used to allocate a unique
+	// non-zero id for each one (see newLigID).
+	nextLigID uint16
+
 	// maxLen caps the length of seq during substitution.  GSUB multiple
 	// substitution and contextual lookups can grow the sequence, and a
 	// malformed or malicious font can make it grow without bound; applying
 	// lookups stops once seq reaches this limit.
 	maxLen int
+}
+
+// newLigID returns a fresh, non-zero ligature id.  The id ties a ligature
+// glyph to the marks attached to its components, so that mark-to-ligature
+// positioning can resolve the correct component.  The counter wraps around
+// without returning zero (zero means "not part of a ligature").
+func (ctx *Context) newLigID() uint16 {
+	ctx.nextLigID++
+	if ctx.nextLigID == 0 {
+		ctx.nextLigID++
+	}
+	return ctx.nextLigID
 }
 
 const (

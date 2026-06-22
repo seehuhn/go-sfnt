@@ -77,42 +77,16 @@ func (g *Glyph) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
 	})
 }
 
-// Extent computes the Glyph extent in font design units
+// Extent computes the Glyph extent in font design units, as the bounding box
+// of the outline.  Bézier control points are included, so the box always
+// contains the glyph.
 func (g *Glyph) Extent() funit.Rect16 {
-	var left, right, top, bottom float64
-	first := true
-cmdLoop:
-	for _, cmd := range g.Cmds {
-		var x, y float64
-		switch cmd.Op {
-		case OpMoveTo, OpLineTo:
-			x = cmd.Args[0]
-			y = cmd.Args[1]
-		case OpCurveTo:
-			x = cmd.Args[4]
-			y = cmd.Args[5]
-		default:
-			continue cmdLoop
-		}
-		if first || x < left {
-			left = x
-		}
-		if first || x > right {
-			right = x
-		}
-		if first || y < bottom {
-			bottom = y
-		}
-		if first || y > top {
-			top = y
-		}
-		first = false
-	}
+	bbox := g.Path().BBox()
 	return funit.Rect16{
-		LLx: funit.Int16(math.Floor(left)),
-		LLy: funit.Int16(math.Floor(bottom)),
-		URx: funit.Int16(math.Ceil(right)),
-		URy: funit.Int16(math.Ceil(top)),
+		LLx: funit.Int16(math.Floor(bbox.LLx)),
+		LLy: funit.Int16(math.Floor(bbox.LLy)),
+		URx: funit.Int16(math.Ceil(bbox.URx)),
+		URy: funit.Int16(math.Ceil(bbox.URy)),
 	}
 }
 
