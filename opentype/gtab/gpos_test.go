@@ -171,6 +171,59 @@ func TestGpos4_1MarkClassOutOfRange(t *testing.T) {
 	}
 }
 
+// TestGpos4_1Apply checks mark-to-base positioning: the mark's anchor is
+// aligned with the preceding base's anchor, reduced by the advances of the
+// glyphs in between.  The placement is absolute — it replaces any offset the
+// mark already carries rather than accumulating onto it.
+func TestGpos4_1Apply(t *testing.T) {
+	const (
+		baseGID glyph.ID    = 50
+		markGID glyph.ID    = 10
+		baseAdv funit.Int16 = 1000
+	)
+	l := &Gpos4_1{
+		MarkCov: coverage.Table{markGID: 0},
+		BaseCov: coverage.Table{baseGID: 0},
+		MarkArray: []markarray.Record{
+			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
+		},
+		BaseArray: [][]anchor.Table{
+			{{X: 200, Y: 300}}, // base index 0, class 0
+		},
+	}
+	lookupList := []*LookupTable{
+		{Meta: &LookupMetaInfo{LookupType: 4}, Subtables: []Subtable{l}},
+	}
+	// the mark's anchor (5,5) meets the base's anchor (200,300), less the
+	// base's advance
+	wantX, wantY := funit.Int16(200-5-baseAdv), funit.Int16(300-5)
+
+	t.Run("attaches to preceding base", func(t *testing.T) {
+		seq := []glyph.Info{
+			{GID: baseGID, Advance: baseAdv},
+			{GID: markGID},
+		}
+		out := NewContext(lookupList, nil, []LookupIndex{0}).Apply(seq)
+		if out[1].XOffset != wantX || out[1].YOffset != wantY {
+			t.Errorf("mark offset = (%d, %d), want (%d, %d)", out[1].XOffset, out[1].YOffset, wantX, wantY)
+		}
+	})
+
+	t.Run("absolute placement replaces a prior mark offset", func(t *testing.T) {
+		// a preceding lookup may already have shifted the mark; mark-to-base
+		// placement is absolute and must overwrite that, not add to it
+		seq := []glyph.Info{
+			{GID: baseGID, Advance: baseAdv},
+			{GID: markGID, XOffset: 999, YOffset: -999},
+		}
+		out := NewContext(lookupList, nil, []LookupIndex{0}).Apply(seq)
+		if out[1].XOffset != wantX || out[1].YOffset != wantY {
+			t.Errorf("mark offset = (%d, %d), want (%d, %d); prior offset should be replaced",
+				out[1].XOffset, out[1].YOffset, wantX, wantY)
+		}
+	})
+}
+
 func TestGpos5_1(t *testing.T) {
 	l1 := &Gpos5_1{
 		MarkCov: coverage.Table{10: 0, 11: 1},

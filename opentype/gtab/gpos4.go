@@ -174,8 +174,8 @@ func (l *Gpos4_1) apply(ctx *Context, a, b int) int {
 	for i := p; i < a; i++ {
 		dx -= seq[i].Advance
 	}
-	seq[a].XOffset += dx
-	seq[a].YOffset += dy
+	seq[a].XOffset = dx
+	seq[a].YOffset = dy
 	return a + 1
 }
 
