@@ -22,13 +22,28 @@ import (
 
 	"seehuhn.de/go/postscript/funit"
 
+	"seehuhn.de/go/sfnt/opentype/device"
 	"seehuhn.de/go/sfnt/parser"
 )
 
 // Table is an OpenType "Anchor Table".
+//
+// The encoded format is chosen from the optional fields: a non-nil XDev or
+// YDev selects format 3, otherwise a non-nil ContourPoint selects format 2,
+// otherwise format 1 is used.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#anchor-tables
 type Table struct {
 	X, Y funit.Int16
+
+	// ContourPoint, if non-nil, is the index of a glyph contour point that
+	// coincides with the anchor (format 2).
+	ContourPoint *uint16
+
+	// XDev and YDev, if non-nil, hold Device or VariationIndex tables that
+	// adjust the anchor coordinates for the current size or instance
+	// (format 3).
+	XDev, YDev *device.Table
 }
 
 // Read reads an anchor table from the given parser.
@@ -44,30 +59,109 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 	}
 
 	format := uint16(buf[0])<<8 | uint16(buf[1])
-	x := funit.Int16(buf[2])<<8 | funit.Int16(buf[3])
-	y := funit.Int16(buf[4])<<8 | funit.Int16(buf[5])
+	res := Table{
+		X: funit.Int16(buf[2])<<8 | funit.Int16(buf[3]),
+		Y: funit.Int16(buf[4])<<8 | funit.Int16(buf[5]),
+	}
 
-	if format == 0 || format > 3 {
+	switch format {
+	case 1:
+		// coordinates only
+	case 2:
+		cp, err := p.ReadUint16()
+		if err != nil {
+			return Table{}, err
+		}
+		res.ContourPoint = &cp
+	case 3:
+		buf, err := p.ReadBytes(4)
+		if err != nil {
+			return Table{}, err
+		}
+		xDevOffset := uint16(buf[0])<<8 | uint16(buf[1])
+		yDevOffset := uint16(buf[2])<<8 | uint16(buf[3])
+		if xDevOffset != 0 {
+			res.XDev, err = device.Read(p, pos+int64(xDevOffset))
+			if err != nil {
+				return Table{}, err
+			}
+		}
+		if yDevOffset != 0 {
+			res.YDev, err = device.Read(p, pos+int64(yDevOffset))
+			if err != nil {
+				return Table{}, err
+			}
+		}
+	default:
 		return Table{}, &parser.InvalidFontError{
 			SubSystem: "sfnt/opentype/anchor",
 			Reason:    fmt.Sprintf("invalid anchor table format %d", format),
 		}
 	}
 
-	// We ignore the hinting information in formats 2 and 3
-	return Table{X: x, Y: y}, nil
+	return res, nil
 }
 
-// IsEmpty returns true if the Anchor Table has not been initialised.
-func (rec Table) IsEmpty() bool {
-	return rec.X == 0 && rec.Y == 0
+// EncodeLen returns the number of bytes in the binary representation of the
+// anchor table.
+func (rec Table) EncodeLen() int {
+	switch {
+	case rec.XDev != nil || rec.YDev != nil:
+		total := 10
+		if rec.XDev != nil {
+			total += rec.XDev.EncodeLen()
+		}
+		if rec.YDev != nil {
+			total += rec.YDev.EncodeLen()
+		}
+		return total
+	case rec.ContourPoint != nil:
+		return 8
+	default:
+		return 6
+	}
 }
 
 // Append appends the binary representation of the Anchor Table to buf.
 func (rec Table) Append(buf []byte) []byte {
-	return append(buf,
-		0, 1, // anchorFormat
-		byte(rec.X>>8), byte(rec.X),
-		byte(rec.Y>>8), byte(rec.Y),
-	)
+	switch {
+	case rec.XDev != nil || rec.YDev != nil:
+		// format 3: device offsets are relative to the anchor table start
+		var xDevOffset, yDevOffset int
+		next := 10
+		if rec.XDev != nil {
+			xDevOffset = next
+			next += rec.XDev.EncodeLen()
+		}
+		if rec.YDev != nil {
+			yDevOffset = next
+		}
+		buf = append(buf,
+			0, 3, // anchorFormat
+			byte(rec.X>>8), byte(rec.X),
+			byte(rec.Y>>8), byte(rec.Y),
+			byte(xDevOffset>>8), byte(xDevOffset),
+			byte(yDevOffset>>8), byte(yDevOffset),
+		)
+		if rec.XDev != nil {
+			buf = append(buf, rec.XDev.Encode()...)
+		}
+		if rec.YDev != nil {
+			buf = append(buf, rec.YDev.Encode()...)
+		}
+		return buf
+	case rec.ContourPoint != nil:
+		return append(buf,
+			0, 2, // anchorFormat
+			byte(rec.X>>8), byte(rec.X),
+			byte(rec.Y>>8), byte(rec.Y),
+			byte(*rec.ContourPoint>>8), byte(*rec.ContourPoint),
+		)
+	default:
+		return append(buf,
+			0, 1, // anchorFormat
+			byte(rec.X>>8), byte(rec.X),
+			byte(rec.Y>>8), byte(rec.Y),
+		)
+	}
 }

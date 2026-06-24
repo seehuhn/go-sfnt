@@ -624,11 +624,11 @@ func (p *parser) readGpos3() *gtab.LookupTable {
 			p.required(itemComma, ",")
 			y2 := p.readInt16()
 			data[gid] = gtab.EntryExitRecord{
-				Entry: anchor.Table{
+				Entry: &anchor.Table{
 					X: x1,
 					Y: y1,
 				},
-				Exit: anchor.Table{
+				Exit: &anchor.Table{
 					X: x2,
 					Y: y2,
 				},
@@ -712,7 +712,7 @@ func (p *parser) readGpos4() *gtab.LookupTable {
 		}
 
 		var baseGlyphs []glyph.ID
-		var baseArray [][]anchor.Table
+		var baseArray [][]*anchor.Table
 		for {
 			if !p.optionalIdentifier("base") {
 				break
@@ -724,7 +724,7 @@ func (p *parser) readGpos4() *gtab.LookupTable {
 			baseGlyphs = append(baseGlyphs, gid)
 			p.optional(itemColon)
 
-			anchors := make([]anchor.Table, numClasses)
+			anchors := make([]*anchor.Table, numClasses)
 			for i := range numClasses {
 				if i > 0 {
 					p.optional(itemComma)
@@ -733,7 +733,7 @@ func (p *parser) readGpos4() *gtab.LookupTable {
 				x := p.readInt16()
 				p.required(itemComma, ",")
 				y := p.readInt16()
-				anchors[i] = anchor.Table{
+				anchors[i] = &anchor.Table{
 					X: x,
 					Y: y,
 				}

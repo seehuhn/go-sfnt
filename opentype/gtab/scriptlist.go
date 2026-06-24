@@ -117,7 +117,7 @@ func (info ScriptListInfo) readScriptTable(script otfScript, p *parser.Parser, p
 			Reason:    "invalid defaultLangSysOffset",
 		}
 	}
-	if 8+int64(langSysCount)*12 > p.Size() {
+	if 4+int64(langSysCount)*6 > p.Size() {
 		return &parser.InvalidFontError{
 			SubSystem: "sfnt/gtab",
 			Reason:    "invalid langSysCount",
@@ -193,14 +193,19 @@ func readLangSysTable(p *parser.Parser, pos int64) (*Features, error) {
 	if err != nil {
 		return nil, err
 	}
+	featureIndices = featureIndices[:0]
 	for i := 0; i < int(featureIndexCount); i++ {
 		idx, err := p.ReadUint16()
 		if err != nil {
 			return nil, err
-		} else if idx == 0xFFFF {
+		}
+		// 0xFFFF is the "no feature" sentinel for requiredFeatureIndex; it
+		// is not valid inside featureIndices, so drop it rather than turn it
+		// into a reference to feature 0
+		if idx == 0xFFFF {
 			continue
 		}
-		featureIndices[i] = FeatureIndex(idx)
+		featureIndices = append(featureIndices, FeatureIndex(idx))
 	}
 
 	return &Features{

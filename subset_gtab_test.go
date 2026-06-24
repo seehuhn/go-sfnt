@@ -181,9 +181,9 @@ func TestSubsetGpos3_1(t *testing.T) {
 	old := wrapLookup(3, &gtab.Gpos3_1{
 		Cov: coverage.Table{5: 0, 6: 1, 7: 2},
 		Records: []gtab.EntryExitRecord{
-			{Entry: anchor.Table{X: 1, Y: 2}},
-			{Entry: anchor.Table{X: 3, Y: 4}},
-			{Entry: anchor.Table{X: 5, Y: 6}},
+			{Entry: &anchor.Table{X: 1, Y: 2}},
+			{Entry: &anchor.Table{X: 3, Y: 4}},
+			{Entry: &anchor.Table{X: 5, Y: 6}},
 		},
 	})
 	got := s.SubsetGpos(old)
@@ -199,7 +199,7 @@ func TestSubsetGpos4_1(t *testing.T) {
 		MarkCov:   coverage.Table{10: 0, 11: 1, 12: 2},
 		BaseCov:   coverage.Table{20: 0, 21: 1},
 		MarkArray: []markarray.Record{{Class: 0}, {Class: 1}, {Class: 0}},
-		BaseArray: [][]anchor.Table{
+		BaseArray: [][]*anchor.Table{
 			{{X: 1, Y: 2}, {X: 3, Y: 4}},
 			{{X: 5, Y: 6}, {X: 7, Y: 8}},
 		},
@@ -225,11 +225,11 @@ func TestSubsetGpos5_1(t *testing.T) {
 			{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
 			{Class: 0, Table: anchor.Table{X: 5, Y: 6}},
 		},
-		LigArray: [][][]anchor.Table{
+		LigArray: [][][]*anchor.Table{
 			// ligature 20: 2 components × 2 mark classes
 			{
 				{{X: 10, Y: 11}, {X: 12, Y: 13}},
-				{{X: 14, Y: 15}, {}},
+				{{X: 14, Y: 15}, nil},
 			},
 			// ligature 21: 1 component × 2 mark classes
 			{
@@ -284,7 +284,7 @@ func TestSubsetGpos5_1AllMarksDropped(t *testing.T) {
 		MarkCov:   coverage.Table{10: 0},
 		LigCov:    coverage.Table{20: 0},
 		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
-		LigArray:  [][][]anchor.Table{{{{X: 3, Y: 4}}}},
+		LigArray:  [][][]*anchor.Table{{{{X: 3, Y: 4}}}},
 	})
 	got := s.SubsetGpos(old)
 	if len(got.LookupList) != 0 {
@@ -298,7 +298,7 @@ func TestSubsetGpos5_1AllLigsDropped(t *testing.T) {
 		MarkCov:   coverage.Table{10: 0},
 		LigCov:    coverage.Table{20: 0},
 		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
-		LigArray:  [][][]anchor.Table{{{{X: 3, Y: 4}}}},
+		LigArray:  [][][]*anchor.Table{{{{X: 3, Y: 4}}}},
 	})
 	got := s.SubsetGpos(old)
 	if len(got.LookupList) != 0 {
@@ -312,7 +312,7 @@ func TestSubsetGpos6_1(t *testing.T) {
 		Mark1Cov:   coverage.Table{10: 0, 11: 1},
 		Mark2Cov:   coverage.Table{20: 0, 21: 1},
 		Mark1Array: []markarray.Record{{Class: 0}, {Class: 1}},
-		Mark2Array: [][]anchor.Table{
+		Mark2Array: [][]*anchor.Table{
 			{{X: 1, Y: 2}, {X: 3, Y: 4}},
 			{{X: 5, Y: 6}, {X: 7, Y: 8}},
 		},

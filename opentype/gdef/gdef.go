@@ -30,12 +30,12 @@ import (
 // Table contains the parsed GDEF table.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/GDEF
 type Table struct {
-	GlyphClass classdef.Table // class definition table for glyph type
-	// TODO(voss): attachment point list table
-	// TODO(voss): ligature caret list table
+	GlyphClass      classdef.Table // class definition table for glyph type
+	AttachList      *AttachList    // attachment point list table, or nil
+	LigCaretList    *LigCaretList  // ligature caret list table, or nil
 	MarkAttachClass classdef.Table // class definition table for mark attachment type
 	MarkGlyphSets   []coverage.Set // table of mark glyph set definitions
-	// TODO(voss): Item Variation Store table
+	// TODO(voss): Item Variation Store table (GDEF 1.3)
 }
 
 // IsMark returns true if it is known that the glyph represents a mark character.
@@ -89,8 +89,18 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 		}
 	}
 
-	_ = attachListOffset   // TODO(voss): implement
-	_ = ligCaretListOffset // TODO(voss): implement
+	if attachListOffset != 0 {
+		table.AttachList, err = readAttachList(p, int64(attachListOffset))
+		if err != nil {
+			return nil, err
+		}
+	}
+	if ligCaretListOffset != 0 {
+		table.LigCaretList, err = readLigCaretList(p, int64(ligCaretListOffset))
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if markAttachClassDefOffset != 0 {
 		table.MarkAttachClass, err = classdef.Read(p, int64(markAttachClassDefOffset))
@@ -140,7 +150,9 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 		}
 	}
 
-	_ = itemVarStoreOffset // TODO(voss): implement
+	// TODO(voss): read the item variation store (version 1.3).  Until then
+	// its data is dropped, so a variable font does not round-trip it.
+	_ = itemVarStoreOffset
 
 	return table, nil
 }
@@ -160,6 +172,16 @@ func (table *Table) Encode() []byte {
 		glyphClassDefOffset = total
 		total += table.GlyphClass.AppendLen()
 	}
+	var attachListOffset int
+	if table.AttachList != nil {
+		attachListOffset = total
+		total += table.AttachList.encodeLen()
+	}
+	var ligCaretListOffset int
+	if table.LigCaretList != nil {
+		ligCaretListOffset = total
+		total += table.LigCaretList.encodeLen()
+	}
 	var markAttachClassDefOffset int
 	if table.MarkAttachClass != nil {
 		markAttachClassDefOffset = total
@@ -176,13 +198,17 @@ func (table *Table) Encode() []byte {
 	}
 
 	buf := make([]byte, 12, total)
-	// We always write table version 1.0:
+	// version was selected above (1.0, or 1.2 when mark glyph sets are present)
 	buf[0] = byte(version >> 24)
 	buf[1] = byte(version >> 16)
 	buf[2] = byte(version >> 8)
 	buf[3] = byte(version)
 	buf[4] = byte(glyphClassDefOffset >> 8)
 	buf[5] = byte(glyphClassDefOffset)
+	buf[6] = byte(attachListOffset >> 8)
+	buf[7] = byte(attachListOffset)
+	buf[8] = byte(ligCaretListOffset >> 8)
+	buf[9] = byte(ligCaretListOffset)
 	buf[10] = byte(markAttachClassDefOffset >> 8)
 	buf[11] = byte(markAttachClassDefOffset)
 	if version >= 0x00010002 {
@@ -190,6 +216,12 @@ func (table *Table) Encode() []byte {
 	}
 	if glyphClassDefOffset > 0 {
 		buf = table.GlyphClass.Append(buf)
+	}
+	if attachListOffset > 0 {
+		buf = table.AttachList.append(buf)
+	}
+	if ligCaretListOffset > 0 {
+		buf = table.LigCaretList.append(buf)
 	}
 	if markAttachClassDefOffset > 0 {
 		buf = table.MarkAttachClass.Append(buf)

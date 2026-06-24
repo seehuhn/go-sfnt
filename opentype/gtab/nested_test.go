@@ -462,6 +462,41 @@ func FuzzSeqContext3(f *testing.F) {
 	})
 }
 
+// TestChainedSeqContext3 checks that apply records the matched input
+// positions, including for input glyphs past the first.  The returned
+// position alone does not exercise this, so the test inspects the InputPos
+// list pushed onto the stack.
+func TestChainedSeqContext3(t *testing.T) {
+	// glyph 99 is a mark, so it is skipped between the input glyphs 3 and 4
+	in := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}, {GID: 99}, {GID: 4}, {GID: 5}}
+	l := &ChainedSeqContext3{
+		Backtrack: []coverage.Set{{1: true}},
+		Input: []coverage.Set{
+			{2: true},
+			{3: true},
+			{4: true},
+		},
+		Lookahead: []coverage.Set{{5: true}},
+		Actions: []SeqLookup{
+			{SequenceIndex: 1, LookupListIndex: 7},
+			{SequenceIndex: 2, LookupListIndex: 8},
+		},
+	}
+	keep := makeDebugKeepFunc()
+	ctx := &Context{seq: in, keep: keep}
+
+	next := l.apply(ctx, 1, len(in))
+	if next != 5 {
+		t.Errorf("apply returned %d, want 5", next)
+	}
+	if len(ctx.stack) != 1 {
+		t.Fatalf("expected one nested entry, got %d", len(ctx.stack))
+	}
+	if diff := cmp.Diff([]int{1, 2, 4}, ctx.stack[0].InputPos); diff != "" {
+		t.Errorf("InputPos mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestChainedSeqContext1(t *testing.T) {
 	in := []glyph.Info{
 		{GID: 1}, {GID: 99}, {GID: 2}, {GID: 99}, {GID: 3}, {GID: 4}, {GID: 99}, {GID: 5},

@@ -230,11 +230,11 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 		info: wrapLookup(3, &gtab.Gpos3_1{
 			Cov: coverage.Table{1: 0, 3: 1, 5: 2, 7: 3, 9: 4},
 			Records: []gtab.EntryExitRecord{
-				{Entry: anchor.Table{X: 1, Y: 2}, Exit: anchor.Table{X: 3, Y: 4}},
-				{Entry: anchor.Table{X: 5, Y: 6}, Exit: anchor.Table{X: 7, Y: 8}},
-				{Entry: anchor.Table{X: 9, Y: 10}},
-				{Exit: anchor.Table{X: 11, Y: 12}},
-				{Entry: anchor.Table{X: 13, Y: 14}, Exit: anchor.Table{X: 15, Y: 16}},
+				{Entry: &anchor.Table{X: 1, Y: 2}, Exit: &anchor.Table{X: 3, Y: 4}},
+				{Entry: &anchor.Table{X: 5, Y: 6}, Exit: &anchor.Table{X: 7, Y: 8}},
+				{Entry: &anchor.Table{X: 9, Y: 10}},
+				{Exit: &anchor.Table{X: 11, Y: 12}},
+				{Entry: &anchor.Table{X: 13, Y: 14}, Exit: &anchor.Table{X: 15, Y: 16}},
 			},
 		}),
 		tp:     gtab.TypeGpos,
@@ -251,7 +251,7 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 				{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
 				{Class: 0, Table: anchor.Table{X: 5, Y: 6}},
 			},
-			BaseArray: [][]anchor.Table{
+			BaseArray: [][]*anchor.Table{
 				{{X: 10, Y: 11}, {X: 12, Y: 13}},
 				{{X: 14, Y: 15}, {X: 16, Y: 17}},
 				{{X: 18, Y: 19}, {X: 20, Y: 21}},
@@ -271,10 +271,10 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 				{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
 				{Class: 0, Table: anchor.Table{X: 5, Y: 6}},
 			},
-			LigArray: [][][]anchor.Table{
+			LigArray: [][][]*anchor.Table{
 				{
 					{{X: 10, Y: 11}, {X: 12, Y: 13}},
-					{{X: 14, Y: 15}, {}},
+					{{X: 14, Y: 15}, nil},
 				},
 				{
 					{{X: 30, Y: 31}, {X: 32, Y: 33}},
@@ -295,7 +295,7 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 				{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
 				{Class: 0, Table: anchor.Table{X: 5, Y: 6}},
 			},
-			Mark2Array: [][]anchor.Table{
+			Mark2Array: [][]*anchor.Table{
 				{{X: 10, Y: 11}, {X: 12, Y: 13}},
 				{{X: 14, Y: 15}, {X: 16, Y: 17}},
 				{{X: 18, Y: 19}, {X: 20, Y: 21}},

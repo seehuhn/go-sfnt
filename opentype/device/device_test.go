@@ -191,6 +191,22 @@ func TestEncodeInvalidDeltaFormatPanics(t *testing.T) {
 	}
 }
 
+func TestEncodeDeltaOutOfRangePanics(t *testing.T) {
+	// deltas outside the signed range of the format's bit width must be
+	// rejected, not silently masked
+	cases := []struct {
+		format uint16
+		delta  int8
+	}{
+		{1, 2}, {1, -3}, // format 1: 2-bit, range -2..1
+		{2, 8}, {2, -9}, // format 2: 4-bit, range -8..7
+	}
+	for _, c := range cases {
+		tab := &Table{StartSize: 1, EndSize: 1, Deltas: []int8{c.delta}, DeltaFormat: c.format}
+		assertPanics(t, func() { _ = tab.Encode() })
+	}
+}
+
 func assertPanics(t *testing.T, fn func()) {
 	t.Helper()
 	defer func() {

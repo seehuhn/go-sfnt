@@ -25,11 +25,84 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
+func TestFeatureParamsRoundTrip(t *testing.T) {
+	info := FeatureListInfo{
+		{Tag: "size", Params: &FeatureParamsSize{
+			DesignSize: 100, SubfamilyID: 1, SubfamilyNameID: 256, RangeStart: 80, RangeEnd: 120}},
+		{Tag: "ss01", Lookups: []LookupIndex{5, 6}, Params: &FeatureParamsStylisticSet{UINameID: 257}},
+		{Tag: "cv01", Params: &FeatureParamsCharacterVariants{
+			FeatUILabelNameID: 258, NumNamedParameters: 1, FirstParamUILabelNameID: 259,
+			Characters: []rune{0x41, 0x42, 0x1F600}}},
+		{Tag: "kern", Lookups: []LookupIndex{0}},
+	}
+	data := info.encode()
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	got, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(info, got) {
+		t.Errorf("round trip mismatch:\n got %+v\nwant %+v", got, info)
+	}
+}
+
+func TestFeatureParamsOutOfRange(t *testing.T) {
+	// a 'size' feature whose featureParamsOffset points past the end of the
+	// table must not fail the whole feature list; the params are dropped
+	data := []byte{
+		0, 1, // featureCount
+		's', 'i', 'z', 'e', 0, 8, // FeatureRecord: tag + featureOffset
+		0xFF, 0xFF, // featureParamsOffset (out of range)
+		0, 0, // lookupIndexCount
+	}
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	got, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Tag != "size" {
+		t.Fatalf("expected a single 'size' feature, got %+v", got)
+	}
+	if got[0].Params != nil {
+		t.Errorf("expected nil params for out-of-range offset, got %+v", got[0].Params)
+	}
+}
+
+func TestFeatureParamsTruncated(t *testing.T) {
+	// a params table whose offset is in range but whose body runs past the
+	// end of the data must drop only the params, not the whole feature list
+	info := FeatureListInfo{
+		{Tag: "size", Params: &FeatureParamsSize{
+			DesignSize: 100, SubfamilyID: 1, SubfamilyNameID: 256, RangeStart: 80, RangeEnd: 120}},
+	}
+	data := info.encode()
+	data = data[:len(data)-1] // truncate the trailing params table by a byte
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	got, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Tag != "size" {
+		t.Fatalf("expected a single 'size' feature, got %+v", got)
+	}
+	if got[0].Params != nil {
+		t.Errorf("expected nil params for truncated table, got %+v", got[0].Params)
+	}
+}
+
 func FuzzFeatureList(f *testing.F) {
 	info := FeatureListInfo{}
 	info = append(info, &Feature{Tag: "test"})
 	f.Add(info.encode())
 	info = append(info, &Feature{Tag: "kern", Lookups: []LookupIndex{0, 1, 2, 3}})
+	f.Add(info.encode())
+	info = append(info,
+		&Feature{Tag: "size", Params: &FeatureParamsSize{DesignSize: 100, RangeStart: 80, RangeEnd: 120}},
+		&Feature{Tag: "ss01", Lookups: []LookupIndex{5}, Params: &FeatureParamsStylisticSet{UINameID: 257}},
+		&Feature{Tag: "cv01", Params: &FeatureParamsCharacterVariants{
+			FeatUILabelNameID: 258, Characters: []rune{0x41, 0x1F600}}},
+	)
 	f.Add(info.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {

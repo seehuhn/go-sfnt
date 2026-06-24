@@ -26,6 +26,21 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
+func TestGsub1_2EncodeOverflow(t *testing.T) {
+	// a subtable whose coverage offset would exceed the uint16 range must
+	// be rejected rather than silently truncated
+	l := &Gsub1_2{
+		Cov:                coverage.Table{},
+		SubstituteGlyphIDs: make([]glyph.ID, 0x8000),
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("expected panic on oversized subtable")
+		}
+	}()
+	l.encode()
+}
+
 func FuzzGsub1_1(f *testing.F) {
 	l := &Gsub1_1{
 		Cov:   map[glyph.ID]bool{3: true},

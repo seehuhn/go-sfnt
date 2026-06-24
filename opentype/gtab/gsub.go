@@ -186,6 +186,7 @@ func (l *Gsub1_2) encodeLen() int {
 
 // encode implements the [Subtable] interface.
 func (l *Gsub1_2) encode() []byte {
+	checkSubtableSize16("Gsub1_2", l.encodeLen())
 	n := len(l.SubstituteGlyphIDs)
 	covOffs := 6 + 2*n
 
@@ -313,6 +314,7 @@ func (l *Gsub2_1) encode() []byte {
 			panic("Gsub2_1: empty replacement sequence")
 		}
 	}
+	checkSubtableSize16("Gsub2_1", l.encodeLen())
 	sequenceCount := len(l.Repl)
 	covOffs := 6 + 2*sequenceCount
 
@@ -453,6 +455,7 @@ func (l *Gsub3_1) encode() []byte {
 			panic("Gsub3_1: empty alternate set")
 		}
 	}
+	checkSubtableSize16("Gsub3_1", l.encodeLen())
 	alternateSetCount := len(l.Alternates)
 	covOffs := 6 + 2*alternateSetCount
 
@@ -901,6 +904,7 @@ func (l *Gsub8_1) encode() []byte {
 		lookaheadCoverageOffsets[i] = uint16(total)
 		total += cov.EncodeLen()
 	}
+	checkSubtableSize16("Gsub8_1", total)
 
 	buf := make([]byte, 0, total)
 	buf = append(buf,

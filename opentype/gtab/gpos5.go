@@ -30,8 +30,8 @@ import (
 type Gpos5_1 struct {
 	MarkCov   coverage.Table
 	LigCov    coverage.Table
-	MarkArray []markarray.Record // indexed by mark coverage index
-	LigArray  [][][]anchor.Table // indexed by (ligature coverage index, ligature component, mark class)
+	MarkArray []markarray.Record  // indexed by mark coverage index
+	LigArray  [][][]*anchor.Table // indexed by (ligature coverage index, ligature component, mark class); nil entries are absent
 }
 
 func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -101,7 +101,7 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	ligArray, err := membudget.AllocSlice[[][]anchor.Table](p.Budget, int(ligCount))
+	ligArray, err := membudget.AllocSlice[[][]*anchor.Table](p.Budget, int(ligCount))
 	if err != nil {
 		return nil, err
 	}
@@ -134,12 +134,12 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			}
 		}
 
-		ligAttach, err := membudget.AllocSlice[[]anchor.Table](p.Budget, int(componentCount))
+		ligAttach, err := membudget.AllocSlice[[]*anchor.Table](p.Budget, int(componentCount))
 		if err != nil {
 			return nil, err
 		}
 		for j := range ligAttach {
-			row, err := membudget.AllocSlice[anchor.Table](p.Budget, int(markClassCount))
+			row, err := membudget.AllocSlice[*anchor.Table](p.Budget, int(markClassCount))
 			if err != nil {
 				return nil, err
 			}
@@ -147,10 +147,11 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 				if anchorOffsets[k] == 0 {
 					continue
 				}
-				row[k], err = anchor.Read(p, ligAttachPos+int64(anchorOffsets[k]))
+				a, err := anchor.Read(p, ligAttachPos+int64(anchorOffsets[k]))
 				if err != nil {
 					return nil, err
 				}
+				row[k] = &a
 			}
 			ligAttach[j] = row
 			anchorOffsets = anchorOffsets[markClassCount:]
@@ -206,7 +207,7 @@ func (l *Gpos5_1) apply(ctx *Context, a, b int) int {
 		comp = int(seq[a].LigComp)
 	}
 	ligRecord := components[comp][markRecord.Class]
-	if ligRecord.IsEmpty() {
+	if ligRecord == nil {
 		return -1
 	}
 
@@ -267,14 +268,17 @@ func (l *Gpos5_1) encodeLen() int {
 	total := 12
 	total += l.MarkCov.EncodeLen()
 	total += l.LigCov.EncodeLen()
-	total += 2 + (4+6)*len(l.MarkArray)
+	total += 2 + 4*len(l.MarkArray)
+	for _, rec := range l.MarkArray {
+		total += rec.Table.EncodeLen()
+	}
 	total += 2 + 2*len(l.LigArray)
 	for _, lig := range l.LigArray {
 		total += 2 + 2*len(lig)*markClassCount
 		for _, row := range lig {
 			for _, rec := range row {
-				if !rec.IsEmpty() {
-					total += 6
+				if rec != nil {
+					total += rec.EncodeLen()
 				}
 			}
 		}
@@ -294,7 +298,10 @@ func (l *Gpos5_1) encode() []byte {
 	ligCoverageOffset := total
 	total += l.LigCov.EncodeLen()
 	markArrayOffset := total
-	total += 2 + (4+6)*markCount
+	total += 2 + 4*markCount
+	for _, rec := range l.MarkArray {
+		total += rec.Table.EncodeLen()
+	}
 	ligArrayOffset := total
 
 	// lig array section: count + per-lig offsets + per-LigatureAttach blocks
@@ -305,8 +312,8 @@ func (l *Gpos5_1) encode() []byte {
 		ligArrayLen += 2 + 2*len(lig)*markClassCount
 		for _, row := range lig {
 			for _, rec := range row {
-				if !rec.IsEmpty() {
-					ligArrayLen += 6
+				if rec != nil {
+					ligArrayLen += rec.EncodeLen()
 				}
 			}
 		}
@@ -337,7 +344,7 @@ func (l *Gpos5_1) encode() []byte {
 			byte(rec.Class>>8), byte(rec.Class),
 			byte(offs>>8), byte(offs),
 		)
-		offs += 6
+		offs += rec.Table.EncodeLen()
 	}
 	for _, rec := range l.MarkArray {
 		res = rec.Append(res)
@@ -356,17 +363,17 @@ func (l *Gpos5_1) encode() []byte {
 		anchorOff := 2 + 2*componentCount*markClassCount
 		for _, row := range lig {
 			for _, rec := range row {
-				if rec.IsEmpty() {
+				if rec == nil {
 					res = append(res, 0, 0)
 					continue
 				}
 				res = append(res, byte(anchorOff>>8), byte(anchorOff))
-				anchorOff += 6
+				anchorOff += rec.EncodeLen()
 			}
 		}
 		for _, row := range lig {
 			for _, rec := range row {
-				if rec.IsEmpty() {
+				if rec == nil {
 					continue
 				}
 				res = rec.Append(res)

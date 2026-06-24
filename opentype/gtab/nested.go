@@ -1495,20 +1495,29 @@ func (l *ChainedSeqContext3) apply(ctx *Context, a, b int) int {
 		}
 	}
 
+	if !l.Input[0][seq[a].GID] {
+		return -1
+	}
+
 	p = a
 	matchPos := append(ctx.scratch[:0], p)
-	glyphsNeeded = len(l.Input)
-	for _, cov := range l.Input {
-		if p+glyphsNeeded-1 >= b || !cov[seq[p].GID] {
-			ctx.scratch = matchPos // return the scratch space
-			return -1
-		}
-		matchPos = append(matchPos, p)
+	glyphsNeeded = len(l.Input) - 1
+	for _, cov := range l.Input[1:] {
 		glyphsNeeded--
 		p++
 		for p+glyphsNeeded < b && !keep.Keep(seq[p].GID) {
 			p++
 		}
+		if p+glyphsNeeded >= b || !cov[seq[p].GID] {
+			ctx.scratch = matchPos // release the scratch space
+			return -1
+		}
+		matchPos = append(matchPos, p)
+	}
+
+	p++
+	for p < b && !keep.Keep(seq[p].GID) {
+		p++
 	}
 	next := p
 

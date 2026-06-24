@@ -161,6 +161,14 @@ func (t *Table) Encode() []byte {
 	count := len(t.Deltas)
 	wordsNeeded := (count + deltasPerWord - 1) / deltasPerWord
 
+	// deltas must fit the signed bit width selected by DeltaFormat
+	lo, hi := -(1 << (bitsPerDelta - 1)), (1<<(bitsPerDelta-1))-1
+	for _, d := range t.Deltas {
+		if int(d) < lo || int(d) > hi {
+			panic("device: delta out of range for DeltaFormat")
+		}
+	}
+
 	res := make([]byte, 0, 6+2*wordsNeeded)
 	res = append(res,
 		byte(t.StartSize>>8), byte(t.StartSize),

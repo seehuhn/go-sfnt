@@ -23,8 +23,39 @@ import (
 
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/device"
 	"seehuhn.de/go/sfnt/parser"
 )
+
+func TestGdefListsRoundTrip(t *testing.T) {
+	cp := uint16(2)
+	table1 := &Table{
+		AttachList: &AttachList{
+			Cov:    coverage.Table{2: 0, 4: 1},
+			Points: [][]uint16{{1, 3}, {5}},
+		},
+		LigCaretList: &LigCaretList{
+			Cov: coverage.Table{10: 0, 11: 1},
+			Carets: [][]CaretValue{
+				{
+					{Coordinate: 100},   // format 1
+					{ContourPoint: &cp}, // format 2
+					{Coordinate: 200, Device: &device.Table{ // format 3
+						StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1}},
+				},
+				nil, // ligature with no carets
+			},
+		},
+	}
+	data := table1.Encode()
+	table2, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(table1, table2) {
+		t.Errorf("round trip mismatch:\n got %+v\nwant %+v", table2, table1)
+	}
+}
 
 func FuzzGdef(f *testing.F) {
 	table := &Table{}
@@ -45,6 +76,22 @@ func FuzzGdef(f *testing.F) {
 	table.MarkGlyphSets = []coverage.Set{
 		{12: true, 13: true, 14: true},
 		{10: true, 15: true, 16: true},
+	}
+	f.Add(table.Encode())
+	cp := uint16(2)
+	table.AttachList = &AttachList{
+		Cov:    coverage.Table{2: 0, 4: 1},
+		Points: [][]uint16{{1, 3}, {5}},
+	}
+	table.LigCaretList = &LigCaretList{
+		Cov: coverage.Table{10: 0},
+		Carets: [][]CaretValue{
+			{
+				{Coordinate: 100},
+				{ContourPoint: &cp},
+				{Coordinate: 200, Device: &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1}},
+			},
+		},
 	}
 	f.Add(table.Encode())
 

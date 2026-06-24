@@ -91,24 +91,25 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 			return nil, err
 		}
 		prev := -1
+		idx := 0
 		for i := 0; i < int(glyphCount); i++ {
 			gid, err := p.ReadUint16()
 			if err != nil {
 				return nil, err
 			}
-			if int(gid) <= prev {
+			if int(gid) < prev {
 				return nil, &parser.InvalidFontError{
 					SubSystem: "sfnt/opentype/coverage",
 					Reason:    "invalid coverage table (format 1)",
 				}
 			}
-			// Some fonts, for example Google's Roboto, list the same
-			// gid twice.  Thus we write "< prev" instead of "<= prev"
-			// in the test above.
-			//
-			// TODO(voss): Here we need to decide which coverage index to use
-			// in these cases.
-			table[glyph.ID(gid)] = i
+			if int(gid) == prev {
+				// some fonts (e.g. Google's Roboto) list the same gid
+				// twice; keep the first coverage index and leave no gap
+				continue
+			}
+			table[glyph.ID(gid)] = idx
+			idx++
 			prev = int(gid)
 		}
 

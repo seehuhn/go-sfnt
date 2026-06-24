@@ -127,7 +127,7 @@ func TestLigatureMarkToLigature(t *testing.T) {
 		MarkArray: []markarray.Record{
 			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
 		},
-		LigArray: [][][]anchor.Table{
+		LigArray: [][][]*anchor.Table{
 			{
 				{{X: 200, Y: 300}}, // component 0 (the one the mark follows)
 				{{X: 400, Y: 500}}, // component 1 (the fallback)

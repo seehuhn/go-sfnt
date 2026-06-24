@@ -1278,6 +1278,21 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 		Out: "ALAXALXLA",
 	},
 
+	// nested actions targeting input positions past the first glyph: the
+	// match covers A B C and the actions rewrite B and C (sequence indices
+	// 1 and 2), which only works if InputPos maps each index to the right
+	// glyph.
+	{ // harfbuzz: AYZ, Mac: AYZ
+		Name: "5_23",
+		Desc: `GSUB6:
+				| [A] [B] [C] | -> 2@1 3@2
+			GSUB1: A -> X
+			GSUB1: B -> Y
+			GSUB1: C -> Z`,
+		In:  "ABC",
+		Out: "AYZ",
+	},
+
 	// ------------------------------------------------------------------
 	// SECTION 6: reverse chaining contextual single substitution (GSUB 8).
 	// These rules must be applied right-to-left across the glyph string.

@@ -31,7 +31,7 @@ type Gpos6_1 struct {
 	Mark1Cov   coverage.Table
 	Mark2Cov   coverage.Table
 	Mark1Array []markarray.Record // indexed by mark1 coverage index
-	Mark2Array [][]anchor.Table   // indexed by mark2 coverage index, then by mark class
+	Mark2Array [][]*anchor.Table  // indexed by mark2 coverage index, then by mark class; nil entries are absent
 }
 
 func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -107,12 +107,12 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	mark2Array, err := membudget.AllocSlice[[]anchor.Table](p.Budget, int(mark2Count))
+	mark2Array, err := membudget.AllocSlice[[]*anchor.Table](p.Budget, int(mark2Count))
 	if err != nil {
 		return nil, err
 	}
 	for i := range mark2Array {
-		row, err := membudget.AllocSlice[anchor.Table](p.Budget, int(markClassCount))
+		row, err := membudget.AllocSlice[*anchor.Table](p.Budget, int(markClassCount))
 		if err != nil {
 			return nil, err
 		}
@@ -120,10 +120,11 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			if offsets[j] == 0 {
 				continue
 			}
-			row[j], err = anchor.Read(p, mark2ArrayPos+int64(offsets[j]))
+			a, err := anchor.Read(p, mark2ArrayPos+int64(offsets[j]))
 			if err != nil {
 				return nil, err
 			}
+			row[j] = &a
 		}
 		mark2Array[i] = row
 		offsets = offsets[markClassCount:]
@@ -162,7 +163,7 @@ func (l *Gpos6_1) apply(ctx *Context, a, b int) int {
 		return -1
 	}
 	mark2Record := l.Mark2Array[mark2Idx][mark1Record.Class]
-	if mark2Record.IsEmpty() {
+	if mark2Record == nil {
 		// TODO(voss): verify that this is what others do, too.
 		return -1
 	}
@@ -216,14 +217,17 @@ func (l *Gpos6_1) encodeLen() int {
 	total := 12
 	total += l.Mark1Cov.EncodeLen()
 	total += l.Mark2Cov.EncodeLen()
-	total += 2 + (4+6)*len(l.Mark1Array)
+	total += 2 + 4*len(l.Mark1Array)
+	for _, rec := range l.Mark1Array {
+		total += rec.Table.EncodeLen()
+	}
 
 	total += 2
 	for _, row := range l.Mark2Array {
 		for _, rec := range row {
 			total += 2
-			if !rec.IsEmpty() {
-				total += 6
+			if rec != nil {
+				total += rec.EncodeLen()
 			}
 		}
 	}
@@ -242,14 +246,17 @@ func (l *Gpos6_1) encode() []byte {
 	mark2CoverageOffset := total
 	total += l.Mark2Cov.EncodeLen()
 	mark1ArrayOffset := total
-	total += 2 + (4+6)*mark1Count
+	total += 2 + 4*mark1Count
+	for _, rec := range l.Mark1Array {
+		total += rec.Table.EncodeLen()
+	}
 	mark2ArrayOffset := total
 	total += 2
 	for _, row := range l.Mark2Array {
 		for _, rec := range row {
 			total += 2
-			if !rec.IsEmpty() {
-				total += 6
+			if rec != nil {
+				total += rec.EncodeLen()
 			}
 		}
 	}
@@ -277,7 +284,7 @@ func (l *Gpos6_1) encode() []byte {
 			byte(rec.Class>>8), byte(rec.Class),
 			byte(offs>>8), byte(offs),
 		)
-		offs += 6
+		offs += rec.Table.EncodeLen()
 	}
 	for _, rec := range l.Mark1Array {
 		res = rec.Append(res)
@@ -289,19 +296,19 @@ func (l *Gpos6_1) encode() []byte {
 	offs = 2 + 2*mark2Count*markClassCount
 	for _, row := range l.Mark2Array {
 		for _, rec := range row {
-			if rec.IsEmpty() {
+			if rec == nil {
 				res = append(res, 0, 0)
 				continue
 			}
 			res = append(res,
 				byte(offs>>8), byte(offs),
 			)
-			offs += 6
+			offs += rec.EncodeLen()
 		}
 	}
 	for _, row := range l.Mark2Array {
 		for _, rec := range row {
-			if rec.IsEmpty() {
+			if rec == nil {
 				continue
 			}
 			res = rec.Append(res)

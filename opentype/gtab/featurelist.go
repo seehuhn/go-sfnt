@@ -40,6 +40,10 @@ type Feature struct {
 
 	// Lookups is a list of lookup indices that implement this feature.
 	Lookups []LookupIndex
+
+	// Params holds feature-specific parameters, or nil if the feature has
+	// none.
+	Params FeatureParams
 }
 
 func (f Feature) String() string {
@@ -85,7 +89,7 @@ func readFeatureList(p *parser.Parser, pos int64) (FeatureListInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		// featureParamsOffset := uint16(buf[0])<<8 | uint16(buf[1])
+		featureParamsOffset := uint16(buf[0])<<8 | uint16(buf[1])
 		featureLookupCount := uint16(buf[2])<<8 | uint16(buf[3])
 
 		if totalSize > 0xFFFF {
@@ -105,10 +109,19 @@ func readFeatureList(p *parser.Parser, pos int64) (FeatureListInfo, error) {
 			}
 			lookupListIndices = append(lookupListIndices, LookupIndex(idx))
 		}
-		info = append(info, &Feature{
+
+		feature := &Feature{
 			Tag:     rec.tag,
 			Lookups: lookupListIndices,
-		})
+		}
+		if featureParamsOffset != 0 {
+			// the offset is measured from the start of the Feature table
+			feature.Params, err = readFeatureParams(p, pos+int64(rec.offs)+int64(featureParamsOffset), rec.tag)
+			if err != nil {
+				return nil, err
+			}
+		}
+		info = append(info, feature)
 	}
 
 	return info, nil
@@ -126,31 +139,36 @@ func (info FeatureListInfo) encode() []byte {
 		largestOffset = totalSize
 		offs[i] = uint16(totalSize)
 		totalSize += 4 + 2*len(f.Lookups)
+		if f.Params != nil {
+			totalSize += f.Params.encodeLen()
+		}
 	}
 	if largestOffset > 0xFFFF {
 		panic("featureListInfo too large")
 	}
 
-	buf := make([]byte, totalSize)
+	buf := make([]byte, 2+6*len(info), totalSize)
 	buf[0] = byte(len(info) >> 8)
 	buf[1] = byte(len(info))
 	for i, f := range info {
-		tag := []byte(f.Tag)
-		buf[2+6*i] = tag[0]
-		buf[3+6*i] = tag[1]
-		buf[4+6*i] = tag[2]
-		buf[5+6*i] = tag[3]
+		copy(buf[2+6*i:6+6*i], f.Tag)
 		buf[6+6*i] = byte(offs[i] >> 8)
 		buf[7+6*i] = byte(offs[i])
 	}
-	for i, f := range info {
-		p := int(offs[i])
-		// featureParamsOffset
-		buf[p+2] = byte(len(f.Lookups) >> 8)
-		buf[p+3] = byte(len(f.Lookups))
-		for i, l := range f.Lookups {
-			buf[p+4+2*i] = byte(l >> 8)
-			buf[p+5+2*i] = byte(l)
+	for _, f := range info {
+		// the feature params table, if any, follows the lookup indices
+		var featureParamsOffset int
+		if f.Params != nil {
+			featureParamsOffset = 4 + 2*len(f.Lookups)
+		}
+		buf = append(buf,
+			byte(featureParamsOffset>>8), byte(featureParamsOffset),
+			byte(len(f.Lookups)>>8), byte(len(f.Lookups)))
+		for _, l := range f.Lookups {
+			buf = append(buf, byte(l>>8), byte(l))
+		}
+		if f.Params != nil {
+			buf = append(buf, f.Params.encode()...)
 		}
 	}
 	return buf

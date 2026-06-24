@@ -111,7 +111,7 @@ func TestGpos4_1(t *testing.T) {
 				},
 			},
 		},
-		BaseArray: [][]anchor.Table{
+		BaseArray: [][]*anchor.Table{
 			{
 				{
 					X: 3,
@@ -132,6 +132,38 @@ func TestGpos4_1(t *testing.T) {
 	}
 	if d := cmp.Diff(l1, l2); d != "" {
 		t.Errorf("mismatch (-want +got):\n%s", d)
+	}
+}
+
+// TestGpos4_1VariableAnchors round-trips a subtable mixing a format-2
+// (contour-point) mark anchor with a format-3 (device) base anchor, exercising
+// the variable-size offset arithmetic in the encoder.
+func TestGpos4_1VariableAnchors(t *testing.T) {
+	cp := uint16(3)
+	l1 := &Gpos4_1{
+		MarkCov: coverage.Table{1: 0},
+		BaseCov: coverage.Table{2: 0},
+		MarkArray: []markarray.Record{
+			{Class: 0, Table: anchor.Table{X: 1, Y: 2, ContourPoint: &cp}},
+		},
+		BaseArray: [][]*anchor.Table{
+			{{X: 3, Y: 4, XDev: &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1}}},
+		},
+	}
+	data := l1.encode()
+	if len(data) != l1.encodeLen() {
+		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), l1.encodeLen())
+	}
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := readGpos4_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(l1, l2); d != "" {
+		t.Errorf("round-trip mismatch (-want +got):\n%s", d)
 	}
 }
 
@@ -187,7 +219,7 @@ func TestGpos4_1Apply(t *testing.T) {
 		MarkArray: []markarray.Record{
 			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
 		},
-		BaseArray: [][]anchor.Table{
+		BaseArray: [][]*anchor.Table{
 			{{X: 200, Y: 300}}, // base index 0, class 0
 		},
 	}
@@ -232,7 +264,7 @@ func TestGpos5_1(t *testing.T) {
 			{Class: 0, Table: anchor.Table{X: 1, Y: 2}},
 			{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
 		},
-		LigArray: [][][]anchor.Table{
+		LigArray: [][][]*anchor.Table{
 			// ligature 20: two components, two mark classes
 			{
 				{
@@ -241,13 +273,13 @@ func TestGpos5_1(t *testing.T) {
 				},
 				{
 					{X: 50, Y: 60}, // comp 1, class 0
-					{},             // comp 1, class 1 (NULL)
+					nil,            // comp 1, class 1 (NULL)
 				},
 			},
 			// ligature 21: one component, two mark classes
 			{
 				{
-					{},              // comp 0, class 0 (NULL)
+					nil,             // comp 0, class 0 (NULL)
 					{X: 70, Y: -10}, // comp 0, class 1
 				},
 			},
@@ -288,7 +320,7 @@ func TestGpos5_1Apply(t *testing.T) {
 		MarkArray: []markarray.Record{
 			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
 		},
-		LigArray: [][][]anchor.Table{
+		LigArray: [][][]*anchor.Table{
 			{
 				{{X: 200, Y: 300}}, // component 0, class 0
 				{{X: 400, Y: 500}}, // component 1, class 0
@@ -367,21 +399,21 @@ func TestGpos6_1Apply(t *testing.T) {
 		attMark  glyph.ID    = 10 // the attaching mark (Mark1Cov)
 		baseAdv  funit.Int16 = 1000
 	)
-	mk := func(mark2Anchor anchor.Table) *Gpos6_1 {
+	mk := func(mark2Anchor *anchor.Table) *Gpos6_1 {
 		return &Gpos6_1{
 			Mark1Cov: coverage.Table{attMark: 0},
 			Mark2Cov: coverage.Table{baseMark: 0},
 			Mark1Array: []markarray.Record{
 				{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
 			},
-			Mark2Array: [][]anchor.Table{
+			Mark2Array: [][]*anchor.Table{
 				{mark2Anchor}, // mark2 index 0, class 0
 			},
 		}
 	}
 
 	t.Run("attaches to preceding mark", func(t *testing.T) {
-		l := mk(anchor.Table{X: 200, Y: 300})
+		l := mk(&anchor.Table{X: 200, Y: 300})
 		seq := []glyph.Info{
 			{GID: baseMark, Advance: baseAdv},
 			{GID: attMark},
@@ -395,7 +427,7 @@ func TestGpos6_1Apply(t *testing.T) {
 	})
 
 	t.Run("null anchor leaves the mark unmoved", func(t *testing.T) {
-		l := mk(anchor.Table{}) // IsEmpty
+		l := mk(nil) // absent anchor
 		seq := []glyph.Info{
 			{GID: baseMark, Advance: baseAdv},
 			{GID: attMark},
@@ -407,7 +439,7 @@ func TestGpos6_1Apply(t *testing.T) {
 	})
 
 	t.Run("no preceding mark leaves the mark unmoved", func(t *testing.T) {
-		l := mk(anchor.Table{X: 200, Y: 300})
+		l := mk(&anchor.Table{X: 200, Y: 300})
 		seq := []glyph.Info{
 			{GID: 999}, // not in Mark2Cov
 			{GID: attMark},
@@ -510,6 +542,53 @@ func FuzzGpos2_1(f *testing.F) {
 	})
 }
 
+// TestGpos2_1PairSetDeviceBase feeds a spec-conformant PairPosFormat1
+// subtable whose value-record device offset is measured from the PairSet
+// table.  Resolving it from the subtable start instead would read the wrong
+// bytes, so this pins the offset base independently of the round trip.
+func TestGpos2_1PairSetDeviceBase(t *testing.T) {
+	dev := &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1}
+	covBytes := coverage.Table{5: 0}.Encode()
+	devBytes := dev.Encode()
+
+	// device follows the single PairValueRecord; the offset is relative to
+	// the PairSet table start: pairValueCount + secondGlyph + value record
+	deviceOffset := 2 + 2 + (2 + 2)
+	pairSetOffset := 12 + len(covBytes)
+
+	var data []byte
+	data = append(data,
+		0x00, 0x01, // posFormat
+		0x00, 0x0c, // coverageOffset = 12
+		0x00, 0x11, // valueFormat1 = X_PLACEMENT | X_PLACEMENT_DEVICE
+		0x00, 0x00, // valueFormat2
+		0x00, 0x01, // pairSetCount
+		byte(pairSetOffset>>8), byte(pairSetOffset),
+	)
+	data = append(data, covBytes...)
+	data = append(data,
+		0x00, 0x01, // pairValueCount
+		0x00, 0x09, // secondGlyph
+		0x00, 0x64, // xPlacement = 100
+		byte(deviceOffset>>8), byte(deviceOffset),
+	)
+	data = append(data, devBytes...)
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if _, err := p.ReadUint16(); err != nil { // consume posFormat
+		t.Fatal(err)
+	}
+	sub, err := readGpos2_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := sub.(Gpos2_1)[glyph.Pair{Left: 5, Right: 9}]
+	want := &PairAdjust{First: &GposValueRecord{XPlacement: 100, XPlacementDev: dev}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("device resolved from wrong base (-want +got):\n%s", diff)
+	}
+}
+
 func FuzzGpos3_1(f *testing.F) {
 	l := &Gpos3_1{}
 	f.Add(l.encode())
@@ -522,18 +601,18 @@ func FuzzGpos3_1(f *testing.F) {
 		},
 		Records: []EntryExitRecord{
 			{
-				Entry: anchor.Table{X: 1, Y: 2},
-				Exit:  anchor.Table{X: 3, Y: 4},
+				Entry: &anchor.Table{X: 1, Y: 2},
+				Exit:  &anchor.Table{X: 3, Y: 4},
 			},
 			{
-				Entry: anchor.Table{X: -1, Y: -2},
-				Exit:  anchor.Table{X: -3, Y: -4},
+				Entry: &anchor.Table{X: -1, Y: -2},
+				Exit:  &anchor.Table{X: -3, Y: -4},
 			},
 			{
-				Entry: anchor.Table{X: 0, Y: 1},
+				Entry: &anchor.Table{X: 0, Y: 1},
 			},
 			{
-				Exit: anchor.Table{X: 1, Y: 0},
+				Exit: &anchor.Table{X: 1, Y: 0},
 			},
 		},
 	}
@@ -580,7 +659,7 @@ func FuzzGpos4_1(f *testing.F) {
 				},
 			},
 		},
-		BaseArray: [][]anchor.Table{
+		BaseArray: [][]*anchor.Table{
 			{
 				{X: -2, Y: -1},
 				{X: 0, Y: 1},
@@ -639,7 +718,7 @@ func FuzzGpos6_1(f *testing.F) {
 				},
 			},
 		},
-		Mark2Array: [][]anchor.Table{
+		Mark2Array: [][]*anchor.Table{
 			{
 				{X: -2, Y: -1},
 				{X: 0, Y: 1},
@@ -671,7 +750,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 			MarkCov:   coverage.Table{1: 0},
 			BaseCov:   coverage.Table{2: 0, 3: 1},
 			MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
-			BaseArray: [][]anchor.Table{
+			BaseArray: [][]*anchor.Table{
 				{{X: 1}, {X: 2}}, // width 2
 				{{X: 3}},         // width 1 — inconsistent
 			},
@@ -684,7 +763,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 			MarkCov:   coverage.Table{1: 0},
 			BaseCov:   coverage.Table{2: 0},
 			MarkArray: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
-			BaseArray: [][]anchor.Table{{{X: 1}}}, // markClassCount = 1
+			BaseArray: [][]*anchor.Table{{{X: 1}}}, // markClassCount = 1
 		}
 		assertPanics(t, func() { _ = l.encodeLen() })
 	})
@@ -694,7 +773,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 			MarkCov:   coverage.Table{1: 0},
 			LigCov:    coverage.Table{2: 0, 3: 1},
 			MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
-			LigArray: [][][]anchor.Table{
+			LigArray: [][][]*anchor.Table{
 				{{{X: 1}, {X: 2}}}, // width 2
 				{{{X: 3}}},         // width 1 — inconsistent
 			},
@@ -707,7 +786,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 			MarkCov:   coverage.Table{1: 0},
 			LigCov:    coverage.Table{2: 0},
 			MarkArray: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
-			LigArray:  [][][]anchor.Table{{{{X: 1}}}}, // markClassCount = 1
+			LigArray:  [][][]*anchor.Table{{{{X: 1}}}}, // markClassCount = 1
 		}
 		assertPanics(t, func() { _ = l.encodeLen() })
 	})
@@ -717,7 +796,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 			Mark1Cov:   coverage.Table{1: 0},
 			Mark2Cov:   coverage.Table{2: 0, 3: 1},
 			Mark1Array: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
-			Mark2Array: [][]anchor.Table{
+			Mark2Array: [][]*anchor.Table{
 				{{X: 1}, {X: 2}}, // width 2
 				{{X: 3}},         // width 1 — inconsistent
 			},
@@ -730,7 +809,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 			Mark1Cov:   coverage.Table{1: 0},
 			Mark2Cov:   coverage.Table{2: 0},
 			Mark1Array: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
-			Mark2Array: [][]anchor.Table{{{X: 1}}}, // markClassCount = 1
+			Mark2Array: [][]*anchor.Table{{{X: 1}}}, // markClassCount = 1
 		}
 		assertPanics(t, func() { _ = l.encodeLen() })
 	})

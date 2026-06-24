@@ -25,6 +25,33 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
+func TestScriptListFeatureIndexSentinel(t *testing.T) {
+	// 0xFFFF is the "no feature" sentinel for requiredFeatureIndex only; in
+	// the optional list it must be dropped, not turned into a reference to
+	// feature 0.
+	info := ScriptListInfo{}
+	info[language.English] = &Features{
+		Required: 0xFFFF,
+		Optional: []FeatureIndex{1, 0xFFFF, 3},
+	}
+	data := info.encode()
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	got, err := readScriptList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected one language entry, got %d", len(got))
+	}
+	want := []FeatureIndex{1, 3}
+	for _, feat := range got {
+		if !reflect.DeepEqual(feat.Optional, want) {
+			t.Errorf("featureIndices = %v, want %v", feat.Optional, want)
+		}
+	}
+}
+
 func FuzzScriptList(f *testing.F) {
 	info := ScriptListInfo{}
 	info[language.MustParse("und-Zzzz")] = &Features{

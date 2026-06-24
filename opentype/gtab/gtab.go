@@ -136,8 +136,8 @@ func readGtab(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type, sr subt
 			}
 		}
 	}
-	if FeatureVariationsOffset != 0 && FeatureVariationsOffset < endOfHeader ||
-		int64(FeatureVariationsOffset) >= fileSize {
+	if FeatureVariationsOffset != 0 &&
+		(FeatureVariationsOffset < endOfHeader || int64(FeatureVariationsOffset) >= fileSize) {
 		return nil, &parser.InvalidFontError{
 			SubSystem: "sfnt/opentype/gtab",
 			Reason:    fmt.Sprintf("%s header has invalid FeatureVariationsOffset", tp),
@@ -158,7 +158,9 @@ func readGtab(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type, sr subt
 		return nil, err
 	}
 
-	_ = FeatureVariationsOffset // TODO(voss): implement this
+	// TODO(voss): read the feature variations table (version 1.1).  Until
+	// then its data is dropped, so a variable font does not round-trip it.
+	_ = FeatureVariationsOffset
 
 	return info, nil
 }

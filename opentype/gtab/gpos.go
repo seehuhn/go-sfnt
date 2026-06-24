@@ -368,11 +368,13 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			if err != nil {
 				return nil, err
 			}
-			first, err := readValueRecord(p, valueFormat1, subtablePos)
+			// value-record device offsets are measured from the start of
+			// the PairSet table, not the subtable
+			first, err := readValueRecord(p, valueFormat1, subtablePos+int64(offset))
 			if err != nil {
 				return nil, err
 			}
-			second, err := readValueRecord(p, valueFormat2, subtablePos)
+			second, err := readValueRecord(p, valueFormat2, subtablePos+int64(offset))
 			if err != nil {
 				return nil, err
 			}
@@ -476,14 +478,20 @@ func (l Gpos2_1) encode() []byte {
 	}
 	pairDev := make([][]devOff, pairSetCount)
 	for i, adj := range adjust {
+		// device offsets are written relative to the PairSet table start
+		base := pairSetOffsets[i]
 		row := make([]devOff, len(pairKeys[i]))
 		for j, g := range pairKeys[i] {
 			v := adj[g]
 			for k, d := range v.First.deviceTables() {
-				row[j].first[k] = pool.add(d)
+				if off := pool.add(d); off != 0 {
+					row[j].first[k] = off - base
+				}
 			}
 			for k, d := range v.Second.deviceTables() {
-				row[j].second[k] = pool.add(d)
+				if off := pool.add(d); off != 0 {
+					row[j].second[k] = off - base
+				}
 			}
 		}
 		pairDev[i] = row
@@ -750,8 +758,8 @@ type Gpos3_1 struct {
 // subtables.  The Exit anchor point of a glyph is aligned with the Entry anchor
 // point of the following glyph.
 type EntryExitRecord struct {
-	Entry anchor.Table
-	Exit  anchor.Table
+	Entry *anchor.Table // nil if absent
+	Exit  *anchor.Table // nil if absent
 }
 
 // apply implements the [Subtable] interface.
@@ -770,7 +778,9 @@ func (l *Gpos3_1) apply(ctx *Context, a, b int) int {
 		prev, ok := l.Cov[prevGlyph.GID]
 		if ok {
 			prevRec := l.Records[prev]
-			seq[a].YOffset = prevGlyph.YOffset + prevRec.Exit.Y - rec.Entry.Y
+			if prevRec.Exit != nil && rec.Entry != nil {
+				seq[a].YOffset = prevGlyph.YOffset + prevRec.Exit.Y - rec.Entry.Y
+			}
 		}
 	}
 	if a < b-1 {
@@ -778,7 +788,9 @@ func (l *Gpos3_1) apply(ctx *Context, a, b int) int {
 		next, ok := l.Cov[nextGlyph.GID]
 		if ok {
 			nextRec := l.Records[next]
-			seq[a].Advance = seq[a].XOffset + rec.Exit.X - nextGlyph.XOffset - nextRec.Entry.X
+			if rec.Exit != nil && nextRec.Entry != nil {
+				seq[a].Advance = seq[a].XOffset + rec.Exit.X - nextGlyph.XOffset - nextRec.Entry.X
+			}
 		}
 	}
 
@@ -810,16 +822,18 @@ func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 	for i := range records {
 		if offsets[2*i] != 0 {
-			records[i].Entry, err = anchor.Read(p, subtablePos+int64(offsets[2*i]))
+			entry, err := anchor.Read(p, subtablePos+int64(offsets[2*i]))
 			if err != nil {
 				return nil, err
 			}
+			records[i].Entry = &entry
 		}
 		if offsets[2*i+1] != 0 {
-			records[i].Exit, err = anchor.Read(p, subtablePos+int64(offsets[2*i+1]))
+			exit, err := anchor.Read(p, subtablePos+int64(offsets[2*i+1]))
 			if err != nil {
 				return nil, err
 			}
+			records[i].Exit = &exit
 		}
 	}
 
@@ -845,11 +859,11 @@ func (l *Gpos3_1) encodeLen() int {
 	total := 6
 	total += 4 * len(l.Records)
 	for _, rec := range l.Records {
-		if !rec.Entry.IsEmpty() {
-			total += 6
+		if rec.Entry != nil {
+			total += rec.Entry.EncodeLen()
 		}
-		if !rec.Exit.IsEmpty() {
-			total += 6
+		if rec.Exit != nil {
+			total += rec.Exit.EncodeLen()
 		}
 	}
 	total += l.Cov.EncodeLen()
@@ -864,13 +878,13 @@ func (l *Gpos3_1) encode() []byte {
 	entryOffs := make([]uint16, entryExitCount)
 	exitOffs := make([]uint16, entryExitCount)
 	for i, rec := range l.Records {
-		if !rec.Entry.IsEmpty() {
+		if rec.Entry != nil {
 			entryOffs[i] = uint16(total)
-			total += 6
+			total += rec.Entry.EncodeLen()
 		}
-		if !rec.Exit.IsEmpty() {
+		if rec.Exit != nil {
 			exitOffs[i] = uint16(total)
-			total += 6
+			total += rec.Exit.EncodeLen()
 		}
 	}
 	coverageOffset := total
