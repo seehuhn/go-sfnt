@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.7.4] (2026-06-25)
+
+### Added
+- GPOS lookup type 5 (mark-to-ligature) positioning.
+- Anchor table formats 2 and 3, GDEF list tables, and GPOS feature
+  parameters.
+
+### Changed
+- `parser.New` and `parser.Read` now require an explicit memory budget.
+- The `Font` struct was reorganised to group the font-unit metrics
+  together.
+- Advance widths are stored as unsigned values.
+
+### Fixed
+- GPOS lookup type 4 (mark-to-base) attachment is now positioned
+  absolutely, as the specification requires.
+- `WriteTrueTypePDF` preserves glyph names.
+- Per-FD font matrices are composed when emitting `hmtx` advance
+  widths and glyph bounding boxes.
+- Reject `cmap` format 12 segments with out-of-range glyph IDs and
+  table headers whose offset plus length overflows; guard
+  `SeqContext2` against an out-of-range class index.
+
 ## [0.7.3] (2026-05-19)
 
 ### Added
