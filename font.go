@@ -78,7 +78,17 @@ type Font struct {
 	IsSerif    bool // glyph shapes have serifs
 	IsScript   bool // glyphs resemble cursive handwriting
 
+	// CodePageRange records which code pages the font declares coverage for,
+	// as reported by the OS/2 table.  These bits are an advisory hint set by
+	// the font's author and are not guaranteed to match the actual cmap
+	// coverage.
 	CodePageRange os2.CodePageRange
+
+	// UnicodeRange records which Unicode blocks the font declares coverage
+	// for, as reported by the OS/2 table.  These bits are an advisory hint
+	// set by the font's author and are not guaranteed to match the actual
+	// cmap coverage.
+	UnicodeRange os2.UnicodeRange
 
 	Version          head.Version
 	CreationTime     time.Time

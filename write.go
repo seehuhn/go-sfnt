@@ -292,6 +292,7 @@ func (f *Font) makeOS2() []byte {
 		FamilyClass: familyClass,
 
 		CodePageRange: f.CodePageRange,
+		UnicodeRange:  f.UnicodeRange,
 
 		PermUse: f.PermUse,
 	}

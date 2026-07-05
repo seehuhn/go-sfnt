@@ -470,6 +470,7 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 
 	if os2Info != nil {
 		info.CodePageRange = os2Info.CodePageRange
+		info.UnicodeRange = os2Info.UnicodeRange
 	}
 
 	if dir.Has("GDEF") {
