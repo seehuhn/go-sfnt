@@ -247,7 +247,7 @@ func (t *Table) Encode() []byte {
 		inst := &t.Instances[i]
 		buf = appendU16(buf, inst.NameID)
 		buf = appendU16(buf, inst.Flags)
-		for j := 0; j < axisCount; j++ {
+		for j := range axisCount {
 			var c float64
 			if j < len(inst.Coordinates) {
 				c = inst.Coordinates[j]
