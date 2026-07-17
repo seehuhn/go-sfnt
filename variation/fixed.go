@@ -39,7 +39,11 @@ func (f F2Dot14) Float64() float64 {
 
 // F2Dot14FromFloat converts f to the nearest F2Dot14 value, clamping to
 // the representable range if f is out of bounds.
+// NaN input returns 0.
 func F2Dot14FromFloat(f float64) F2Dot14 {
+	if math.IsNaN(f) {
+		return 0
+	}
 	v := math.Round(f * 16384)
 	switch {
 	case v > math.MaxInt16:
@@ -67,7 +71,11 @@ func (f Fixed) Float64() float64 {
 
 // FixedFromFloat converts f to the nearest Fixed value, clamping to the
 // representable range if f is out of bounds.
+// NaN input returns 0.
 func FixedFromFloat(f float64) Fixed {
+	if math.IsNaN(f) {
+		return 0
+	}
 	v := math.Round(f * 65536)
 	switch {
 	case v > math.MaxInt32:

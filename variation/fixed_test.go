@@ -43,7 +43,7 @@ func TestF2Dot14FromFloatClamp(t *testing.T) {
 	}{
 		{2.0, math.MaxInt16},              // above range, clamps to max
 		{-3.0, math.MinInt16},             // below range, clamps to min
-		{1.99993896484375, math.MaxInt16}, // exactly the max representable value
+		{1.99993896484375, math.MaxInt16}, // max representable value, not clamped
 		{-2.0000610351563, math.MinInt16}, // just below the min representable value
 	}
 	for _, c := range cases {
@@ -64,6 +64,23 @@ func TestF2Dot14FromFloatTie(t *testing.T) {
 		{-0.5 / 16384, -1},
 		{1.5 / 16384, 2},
 		{-1.5 / 16384, -2},
+	}
+	for _, c := range cases {
+		got := F2Dot14FromFloat(c.in)
+		if got != c.want {
+			t.Errorf("F2Dot14FromFloat(%v) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
+func TestF2Dot14FromFloatSpecialValues(t *testing.T) {
+	cases := []struct {
+		in   float64
+		want F2Dot14
+	}{
+		{math.NaN(), 0},
+		{math.Inf(1), math.MaxInt16},
+		{math.Inf(-1), math.MinInt16},
 	}
 	for _, c := range cases {
 		got := F2Dot14FromFloat(c.in)
@@ -107,6 +124,23 @@ func TestFixedFromFloatTie(t *testing.T) {
 	}{
 		{0.5 / 65536, 1},
 		{-0.5 / 65536, -1},
+	}
+	for _, c := range cases {
+		got := FixedFromFloat(c.in)
+		if got != c.want {
+			t.Errorf("FixedFromFloat(%v) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFixedFromFloatSpecialValues(t *testing.T) {
+	cases := []struct {
+		in   float64
+		want Fixed
+	}{
+		{math.NaN(), 0},
+		{math.Inf(1), math.MaxInt32},
+		{math.Inf(-1), math.MinInt32},
 	}
 	for _, c := range cases {
 		got := FixedFromFloat(c.in)
