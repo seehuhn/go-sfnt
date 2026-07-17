@@ -200,7 +200,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Font, error) {
 		if err != nil {
 			return nil, err
 		}
-		cff.FDSelect, err = readFDSelect(p, nGlyphs, len(cff.Private))
+		cff.FDSelect, err = readFDSelect(p, nGlyphs, len(cff.Private), false)
 		if err != nil {
 			return nil, err
 		}

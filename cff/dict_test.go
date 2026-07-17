@@ -17,9 +17,264 @@
 package cff
 
 import (
+	"bytes"
 	"math"
+	"reflect"
 	"testing"
 )
+
+// constK returns a regionCount function that reports k regions for every
+// variation-store index.
+func constK(k int) func(int) (int, error) {
+	return func(int) (int, error) { return k, nil }
+}
+
+func TestDictCFF2RoundTrip(t *testing.T) {
+	cases := []struct {
+		name string
+		dict cffDict
+		k    int
+	}{
+		{
+			name: "plain",
+			dict: cffDict{
+				opFontMatrix:  []any{0.001, 0.0, 0.0, 0.001, 0.0, 0.0},
+				opCharStrings: []any{int32(1234)},
+			},
+			k: 2,
+		},
+		{
+			name: "blend-scalar",
+			dict: cffDict{
+				opVSIndex: []any{int32(3)},
+				opStdHW:   []any{dictBlendValue{Default: int32(10), Deltas: []any{int32(1), int32(-2)}}},
+			},
+			k: 2,
+		},
+		{
+			name: "blend-array",
+			dict: cffDict{
+				opVSIndex: []any{int32(1)},
+				opBlueValues: []any{
+					dictBlendValue{Default: int32(-20), Deltas: []any{int32(1), int32(2)}},
+					dictBlendValue{Default: int32(30), Deltas: []any{int32(-3), int32(4)}},
+				},
+			},
+			k: 2,
+		},
+		{
+			name: "blend-no-vsindex",
+			dict: cffDict{
+				opStdVW: []any{dictBlendValue{Default: int32(80), Deltas: []any{int32(5), int32(6)}}},
+			},
+			k: 2,
+		},
+		{
+			name: "mixed-plain-and-blend",
+			dict: cffDict{
+				opStemSnapH: []any{
+					int32(10),
+					dictBlendValue{Default: int32(20), Deltas: []any{int32(1), int32(2)}},
+					int32(30),
+				},
+			},
+			k: 2,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			blob := tc.dict.encodeCFF2()
+			out, err := decodeDictCFF2(blob, constK(tc.k))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(out, tc.dict) {
+				t.Errorf("round trip failed:\n got %#v\nwant %#v", out, tc.dict)
+			}
+		})
+	}
+}
+
+func TestDictCFF2Malformed(t *testing.T) {
+	t.Run("underflow-empty", func(t *testing.T) {
+		buf := []byte{byte(opBlend)}
+		if _, err := decodeDictCFF2(buf, constK(2)); err == nil {
+			t.Error("expected error")
+		}
+	})
+	t.Run("underflow-operands", func(t *testing.T) {
+		// n=2, k=2 needs 6 operands but only 3 present
+		buf := &bytes.Buffer{}
+		encodeDictNumber(buf, int32(1))
+		encodeDictNumber(buf, int32(2))
+		encodeDictNumber(buf, int32(3))
+		encodeDictNumber(buf, int32(2))
+		buf.WriteByte(byte(opBlend))
+		if _, err := decodeDictCFF2(buf.Bytes(), constK(2)); err == nil {
+			t.Error("expected error")
+		}
+	})
+	t.Run("negative-region-count", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		encodeDictNumber(buf, int32(1))
+		encodeDictNumber(buf, int32(1))
+		buf.WriteByte(byte(opBlend))
+		if _, err := decodeDictCFF2(buf.Bytes(), constK(-1)); err == nil {
+			t.Error("expected error")
+		}
+	})
+	t.Run("region-count-error", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		encodeDictNumber(buf, int32(1))
+		encodeDictNumber(buf, int32(1))
+		buf.WriteByte(byte(opBlend))
+		bad := func(int) (int, error) { return 0, errCorruptDict }
+		if _, err := decodeDictCFF2(buf.Bytes(), bad); err == nil {
+			t.Error("expected error")
+		}
+	})
+	t.Run("nested-blend", func(t *testing.T) {
+		// a blended value must not be re-blended as another blend's operand
+		buf := &bytes.Buffer{}
+		for _, x := range []int32{1, 2, 3, 1} { // first blend n=1,k=2
+			encodeDictNumber(buf, x)
+		}
+		buf.WriteByte(byte(opBlend))
+		for _, x := range []int32{4, 5, 1} { // second blend reuses the result as base
+			encodeDictNumber(buf, x)
+		}
+		buf.WriteByte(byte(opBlend))
+		if _, err := decodeDictCFF2(buf.Bytes(), constK(2)); err == nil {
+			t.Error("expected error")
+		}
+	})
+}
+
+func TestDictCFF2BlendCap(t *testing.T) {
+	// with k=0 the cap n*(k+1)+1 <= 513 reduces to n <= 512
+	build := func(n int) []byte {
+		buf := &bytes.Buffer{}
+		for range n {
+			encodeDictNumber(buf, int32(0))
+		}
+		encodeDictNumber(buf, int32(n))
+		buf.WriteByte(byte(opBlend))
+		buf.WriteByte(byte(opBlueValues))
+		return buf.Bytes()
+	}
+
+	if _, err := decodeDictCFF2(build(512), constK(0)); err != nil {
+		t.Errorf("n=512 should be accepted: %v", err)
+	}
+	if _, err := decodeDictCFF2(build(513), constK(0)); err == nil {
+		t.Error("n=513 should exceed the cap")
+	}
+}
+
+func TestDictCFF2Accessors(t *testing.T) {
+	d := cffDict{
+		opVSIndex: []any{int32(0)},
+		opStdHW:   []any{dictBlendValue{Default: int32(50), Deltas: []any{int32(3), int32(-1)}}},
+		opStdVW:   []any{int32(70)},
+	}
+
+	bv, ok := d.getBlend(opStdHW)
+	if !ok || bv.Default != 50 || !reflect.DeepEqual(bv.Deltas, []float64{3, -1}) {
+		t.Errorf("getBlend blend: %+v ok=%v", bv, ok)
+	}
+	bv, ok = d.getBlend(opStdVW)
+	if !ok || bv.Default != 70 || bv.Deltas != nil {
+		t.Errorf("getBlend plain: %+v ok=%v", bv, ok)
+	}
+
+	// delta-decoded array: defaults and per-region deltas accumulate
+	arr := cffDict{
+		opBlueValues: []any{
+			dictBlendValue{Default: int32(-20), Deltas: []any{int32(1), int32(2)}},
+			dictBlendValue{Default: int32(50), Deltas: []any{int32(3), int32(4)}},
+		},
+	}.getBlendArray(opBlueValues)
+	if len(arr) != 2 {
+		t.Fatalf("len = %d", len(arr))
+	}
+	if arr[0].Default != -20 || arr[1].Default != 30 {
+		t.Errorf("defaults not accumulated: %v %v", arr[0].Default, arr[1].Default)
+	}
+	if !reflect.DeepEqual(arr[1].Deltas, []float64{4, 6}) {
+		t.Errorf("deltas not accumulated: %v", arr[1].Deltas)
+	}
+}
+
+func FuzzDictCFF2(f *testing.F) {
+	seeds := []cffDict{
+		{opCharStrings: []any{int32(100)}},
+		{opVSIndex: []any{int32(0)}, opStdHW: []any{dictBlendValue{Default: int32(10), Deltas: []any{int32(1), int32(2)}}}},
+	}
+	for _, d := range seeds {
+		f.Add(d.encodeCFF2())
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		rc := constK(2)
+		d1, err := decodeDictCFF2(data, rc)
+		if err != nil {
+			return
+		}
+
+		data2 := d1.encodeCFF2()
+
+		d2, err := decodeDictCFF2(data2, rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(d1) != len(d2) {
+			t.Fatalf("wrong length: %d != %d", len(d1), len(d2))
+		}
+		for key, v1 := range d1 {
+			v2, ok := d2[key]
+			if !ok {
+				t.Fatalf("missing key %04x", key)
+			}
+			if len(v1) != len(v2) {
+				t.Fatalf("wrong operand count for %04x: %d != %d", key, len(v1), len(v2))
+			}
+			for i := range v1 {
+				if !operandsClose(v1[i], v2[i]) {
+					t.Fatalf("value mismatch for %04x: %v != %v", key, v1[i], v2[i])
+				}
+			}
+		}
+	})
+}
+
+// numClose reports whether two numeric DICT operands agree within the
+// tolerance of the 9-significant-digit float encoding.
+func numClose(a, b any) bool {
+	x, y := toFloat(a), toFloat(b)
+	return math.Abs(x-y) <= 1e-8*(math.Abs(x)+math.Abs(y))
+}
+
+func operandsClose(a, b any) bool {
+	ba, aok := a.(dictBlendValue)
+	bb, bok := b.(dictBlendValue)
+	if aok != bok {
+		return false
+	}
+	if !aok {
+		return numClose(a, b)
+	}
+	if !numClose(ba.Default, bb.Default) || len(ba.Deltas) != len(bb.Deltas) {
+		return false
+	}
+	for i := range ba.Deltas {
+		if !numClose(ba.Deltas[i], bb.Deltas[i]) {
+			return false
+		}
+	}
+	return true
+}
 
 func TestDictDecodeFloat(t *testing.T) {
 	cases := []struct {

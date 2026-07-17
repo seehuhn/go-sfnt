@@ -149,39 +149,7 @@ func (d cffDict) encode(ss *cffStrings) []byte {
 		}
 
 		for _, arg := range args {
-			switch a := arg.(type) {
-			case int32:
-				switch {
-				case a >= -107 && a <= 107:
-					res.WriteByte(byte(a + 139))
-				case a >= 108 && a <= 1131:
-					// a = (b0–247)*256+b1+108
-					a -= 108
-					b1 := byte(a)
-					a >>= 8
-					b0 := byte(a + 247)
-					res.Write([]byte{b0, b1})
-				case a >= -1131 && a <= -108:
-					// a = -(b0–251)*256-b1-108
-					a = -108 - a
-					b1 := byte(a)
-					a >>= 8
-					b0 := byte(a + 251)
-					res.Write([]byte{b0, b1})
-				case a >= -32768 && a <= 32767:
-					a16 := uint16(a)
-					res.Write([]byte{28, byte(a16 >> 8), byte(a16)})
-				default:
-					a32 := uint32(a)
-					res.Write([]byte{29, byte(a32 >> 24), byte(a32 >> 16), byte(a32 >> 8), byte(a32)})
-				}
-			case float64:
-				buf := encodeFloat(a)
-				res.WriteByte(0x1e)
-				res.Write(buf)
-			default:
-				panic("unexpected type")
-			}
+			encodeDictNumber(res, arg)
 		}
 		if op > 255 {
 			res.WriteByte(12)
@@ -189,6 +157,43 @@ func (d cffDict) encode(ss *cffStrings) []byte {
 		res.WriteByte(byte(op))
 	}
 	return res.Bytes()
+}
+
+// encodeDictNumber writes a single numeric DICT operand (int32 or float64).
+func encodeDictNumber(res *bytes.Buffer, arg any) {
+	switch a := arg.(type) {
+	case int32:
+		switch {
+		case a >= -107 && a <= 107:
+			res.WriteByte(byte(a + 139))
+		case a >= 108 && a <= 1131:
+			// a = (b0–247)*256+b1+108
+			a -= 108
+			b1 := byte(a)
+			a >>= 8
+			b0 := byte(a + 247)
+			res.Write([]byte{b0, b1})
+		case a >= -1131 && a <= -108:
+			// a = -(b0–251)*256-b1-108
+			a = -108 - a
+			b1 := byte(a)
+			a >>= 8
+			b0 := byte(a + 251)
+			res.Write([]byte{b0, b1})
+		case a >= -32768 && a <= 32767:
+			a16 := uint16(a)
+			res.Write([]byte{28, byte(a16 >> 8), byte(a16)})
+		default:
+			a32 := uint32(a)
+			res.Write([]byte{29, byte(a32 >> 24), byte(a32 >> 16), byte(a32 >> 8), byte(a32)})
+		}
+	case float64:
+		buf := encodeFloat(a)
+		res.WriteByte(0x1e)
+		res.Write(buf)
+	default:
+		panic("unexpected type")
+	}
 }
 
 // decodes a float (without the leading 0x1e)
@@ -645,6 +650,20 @@ func (d dictOp) String() string {
 		return "FDArray"
 	case opFDSelect:
 		return "FDSelect"
+	case opVStore:
+		return "vstore"
+	case opVSIndex:
+		return "vsindex"
+	case opBlend:
+		return "blend"
+	case opStemSnapH:
+		return "StemSnapH"
+	case opStemSnapV:
+		return "StemSnapV"
+	case opLanguageGroup:
+		return "LanguageGroup"
+	case opExpansionFactor:
+		return "ExpansionFactor"
 
 	case opBlueValues:
 		return "BlueValues"
@@ -693,6 +712,7 @@ const (
 	opEncoding           dictOp = 0x0010
 	opCharStrings        dictOp = 0x0011
 	opPrivate            dictOp = 0x0012
+	opVStore             dictOp = 0x0018 // CFF2 top DICT
 	opCopyright          dictOp = 0x0C00
 	opIsFixedPitch       dictOp = 0x0C01
 	opItalicAngle        dictOp = 0x0C02
@@ -701,6 +721,10 @@ const (
 	// opPaintType          dictOp = 0x0C05
 	opCharstringType  dictOp = 0x0C06
 	opFontMatrix      dictOp = 0x0C07
+	opStemSnapH       dictOp = 0x0C0C
+	opStemSnapV       dictOp = 0x0C0D
+	opLanguageGroup   dictOp = 0x0C11
+	opExpansionFactor dictOp = 0x0C12
 	opSyntheticBase   dictOp = 0x0C14
 	opPostScript      dictOp = 0x0C15
 	opBaseFontName    dictOp = 0x0C16
@@ -724,6 +748,8 @@ const (
 	opSubrs            dictOp = 0x0013 // Offset (self) to local subrs
 	opDefaultWidthX    dictOp = 0x0014
 	opNominalWidthX    dictOp = 0x0015
+	opVSIndex          dictOp = 0x0016 // CFF2 private DICT
+	opBlend            dictOp = 0x0017 // CFF2 private DICT
 	opBlueScale        dictOp = 0x0C09
 	opBlueShift        dictOp = 0x0C0A
 	opBlueFuzz         dictOp = 0x0C0B
@@ -752,3 +778,320 @@ const (
 )
 
 var errCorruptDict = invalidSince("corrupt dict")
+
+// dictBlendValue is a variable CFF2 DICT operand: a default value plus one
+// delta per active variation region.  Default and each delta are int32 or
+// float64, matching the plain DICT operand representation.
+type dictBlendValue struct {
+	Default any
+	Deltas  []any
+}
+
+// resolvedBlend is a DICT operand resolved to float64 values.
+type resolvedBlend struct {
+	Default float64
+	Deltas  []float64
+}
+
+// cff2BlendCap bounds the operands a single blend operator may consume:
+// n*(k+1)+1 <= cff2BlendCap.
+const cff2BlendCap = 513
+
+// decodeDictCFF2 decodes a CFF2 top or private DICT.  Unlike a CFF1 DICT, a
+// CFF2 DICT contains no string (SID) operands and may use the blend
+// operator to make operands variable.  regionCount reports the number of
+// variation regions k for a given vsindex; it is called with the DICT's
+// current vsindex, which is 0 unless a vsindex operator has set it.
+func decodeDictCFF2(buf []byte, regionCount func(vsindex int) (int, error)) (cffDict, error) {
+	res := cffDict{}
+	var stack []any
+	vsindex := 0
+
+	for len(buf) > 0 {
+		b0 := buf[0]
+		switch {
+		case b0 == 12:
+			if len(buf) < 2 {
+				return nil, errCorruptDict
+			}
+			op := dictOp(b0)<<8 | dictOp(buf[1])
+			res[op] = stack
+			stack = nil
+			buf = buf[2:]
+		case b0 == 22: // vsindex
+			if len(stack) == 0 {
+				return nil, errCorruptDict
+			}
+			v, ok := stack[len(stack)-1].(int32)
+			if !ok {
+				return nil, errCorruptDict
+			}
+			vsindex = int(v)
+			res[opVSIndex] = []any{int32(vsindex)}
+			stack = nil
+			buf = buf[1:]
+		case b0 == 23: // blend
+			var err error
+			stack, err = applyDictBlend(stack, vsindex, regionCount)
+			if err != nil {
+				return nil, err
+			}
+			buf = buf[1:]
+		case b0 <= 24: // single-byte operators (includes vstore, op 24)
+			res[dictOp(b0)] = stack
+			stack = nil
+			buf = buf[1:]
+		case b0 <= 27: // reserved
+			return nil, errCorruptDict
+		case b0 == 28:
+			if len(buf) < 3 {
+				return nil, errCorruptDict
+			}
+			stack = append(stack, int32(int16(uint16(buf[1])<<8|uint16(buf[2]))))
+			buf = buf[3:]
+		case b0 == 29:
+			if len(buf) < 5 {
+				return nil, errCorruptDict
+			}
+			stack = append(stack,
+				int32(uint32(buf[1])<<24|uint32(buf[2])<<16|uint32(buf[3])<<8|uint32(buf[4])))
+			buf = buf[5:]
+		case b0 == 30:
+			tmp, x, err := decodeFloat(buf[1:])
+			if err != nil {
+				return nil, err
+			}
+			stack = append(stack, x)
+			buf = tmp
+		case b0 == 31: // reserved
+			return nil, errCorruptDict
+		case b0 <= 246:
+			stack = append(stack, int32(b0)-139)
+			buf = buf[1:]
+		case b0 <= 250:
+			if len(buf) < 2 {
+				return nil, errCorruptDict
+			}
+			stack = append(stack, int32(b0)*256+int32(buf[1])+(108-247*256))
+			buf = buf[2:]
+		case b0 <= 254:
+			if len(buf) < 2 {
+				return nil, errCorruptDict
+			}
+			stack = append(stack, -int32(b0)*256-int32(buf[1])-(108-251*256))
+			buf = buf[2:]
+		default: // 255 reserved
+			return nil, errCorruptDict
+		}
+	}
+
+	if len(stack) > 0 {
+		return nil, errCorruptDict
+	}
+
+	return res, nil
+}
+
+// applyDictBlend consumes the blend operands from the top of stack and
+// replaces them with the n blended values.  The stack layout before blend
+// is [ ... n defaults, n*k deltas, n ], and afterwards the n blended values
+// remain in place of the consumed operands.
+func applyDictBlend(stack []any, vsindex int, regionCount func(int) (int, error)) ([]any, error) {
+	if len(stack) == 0 {
+		return nil, errCorruptDict
+	}
+	nVal, ok := stack[len(stack)-1].(int32)
+	if !ok {
+		return nil, errCorruptDict
+	}
+	n := int(nVal)
+	stack = stack[:len(stack)-1]
+	if n < 0 || n > cff2BlendCap {
+		return nil, errCorruptDict
+	}
+
+	k, err := regionCount(vsindex)
+	if err != nil {
+		return nil, err
+	}
+	if k < 0 || (n > 0 && k >= cff2BlendCap) {
+		return nil, errCorruptDict
+	}
+	if n*(k+1)+1 > cff2BlendCap {
+		return nil, errCorruptDict
+	}
+
+	need := n + n*k
+	if len(stack) < need {
+		return nil, errCorruptDict
+	}
+	base := len(stack) - need
+	defaults := stack[base : base+n]
+	deltas := stack[base+n:]
+
+	// blend operands must be plain numbers; a blended value cannot itself
+	// be re-blended (this keeps dictBlendValue.Default/Deltas plain)
+	for _, v := range stack[base:] {
+		if _, ok := v.(dictBlendValue); ok {
+			return nil, errCorruptDict
+		}
+	}
+
+	blended := make([]any, n)
+	for i := range n {
+		bv := dictBlendValue{Default: defaults[i]}
+		if k > 0 {
+			ds := make([]any, k)
+			copy(ds, deltas[i*k:i*k+k])
+			bv.Deltas = ds
+		}
+		blended[i] = bv
+	}
+	stack = append(stack[:base], blended...)
+	if len(stack) == 0 {
+		return nil, nil
+	}
+	return stack, nil
+}
+
+// encodeCFF2 encodes a CFF2 top or private DICT.  A vsindex operator, if
+// present, is emitted first so that it precedes any blend.  A blend
+// operator is emitted for each run of consecutive blended operands (values
+// carrying deltas); operands without deltas are emitted as plain numbers.
+func (d cffDict) encodeCFF2() []byte {
+	res := &bytes.Buffer{}
+
+	if vs, ok := d[opVSIndex]; ok {
+		for _, arg := range vs {
+			encodeDictNumber(res, arg)
+		}
+		res.WriteByte(byte(opVSIndex))
+	}
+
+	for _, op := range d.sortedKeys() {
+		if op == opVSIndex {
+			continue
+		}
+		encodeCFF2Operands(res, d[op])
+		if op > 255 {
+			res.WriteByte(12)
+		}
+		res.WriteByte(byte(op))
+	}
+	return res.Bytes()
+}
+
+// encodeCFF2Operands writes the operands of a single CFF2 DICT key, emitting
+// blend operators for runs of blended values.
+func encodeCFF2Operands(res *bytes.Buffer, operands []any) {
+	i := 0
+	for i < len(operands) {
+		bv, ok := operands[i].(dictBlendValue)
+		if !ok || len(bv.Deltas) == 0 {
+			encodeDictNumber(res, plainOperand(operands[i]))
+			i++
+			continue
+		}
+
+		// run of consecutive blended values sharing the same delta count
+		k := len(bv.Deltas)
+		j := i
+		for j < len(operands) {
+			b, ok := operands[j].(dictBlendValue)
+			if !ok || len(b.Deltas) != k {
+				break
+			}
+			j++
+		}
+		run := operands[i:j]
+		for _, r := range run {
+			encodeDictNumber(res, r.(dictBlendValue).Default)
+		}
+		for _, r := range run {
+			for _, dl := range r.(dictBlendValue).Deltas {
+				encodeDictNumber(res, dl)
+			}
+		}
+		encodeDictNumber(res, int32(len(run)))
+		res.WriteByte(byte(opBlend))
+		i = j
+	}
+}
+
+// plainOperand returns the numeric value of a plain operand, or the default
+// of a blended operand that carries no deltas.
+func plainOperand(v any) any {
+	if bv, ok := v.(dictBlendValue); ok {
+		return bv.Default
+	}
+	return v
+}
+
+func toFloat(v any) float64 {
+	switch x := v.(type) {
+	case int32:
+		return float64(x)
+	case float64:
+		return x
+	default:
+		return 0
+	}
+}
+
+func resolveBlend(v any) resolvedBlend {
+	bv, ok := v.(dictBlendValue)
+	if !ok {
+		return resolvedBlend{Default: toFloat(v)}
+	}
+	res := resolvedBlend{Default: toFloat(bv.Default)}
+	if len(bv.Deltas) > 0 {
+		res.Deltas = make([]float64, len(bv.Deltas))
+		for i, d := range bv.Deltas {
+			res.Deltas[i] = toFloat(d)
+		}
+	}
+	return res
+}
+
+// getBlend returns the single-operand value of op, plain or blended,
+// resolved to float64.
+func (d cffDict) getBlend(op dictOp) (resolvedBlend, bool) {
+	v := d[op]
+	if len(v) != 1 {
+		return resolvedBlend{}, false
+	}
+	return resolveBlend(v[0]), true
+}
+
+// getBlendArray returns the delta-encoded array operands of op resolved to
+// float64.  The default values and each region's deltas are decoded as
+// running sums, so element i holds the absolute value for its region.
+func (d cffDict) getBlendArray(op dictOp) []resolvedBlend {
+	vals := d[op]
+	if len(vals) == 0 {
+		return nil
+	}
+	res := make([]resolvedBlend, len(vals))
+	var prevDefault float64
+	var prevDeltas []float64
+	for i, v := range vals {
+		rb := resolveBlend(v)
+		prevDefault += rb.Default
+		out := resolvedBlend{Default: prevDefault}
+		if len(rb.Deltas) > 0 {
+			if len(prevDeltas) < len(rb.Deltas) {
+				grown := make([]float64, len(rb.Deltas))
+				copy(grown, prevDeltas)
+				prevDeltas = grown
+			}
+			acc := make([]float64, len(rb.Deltas))
+			for j := range rb.Deltas {
+				prevDeltas[j] += rb.Deltas[j]
+				acc[j] = prevDeltas[j]
+			}
+			out.Deltas = acc
+		}
+		res[i] = out
+	}
+	return res
+}

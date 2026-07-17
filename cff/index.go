@@ -46,16 +46,40 @@ func readIndex(p *parser.Parser) (cffIndex, error) {
 	if count == 0 {
 		return nil, nil
 	}
+	return readIndexBody(p, int(count))
+}
 
+// readIndex32 reads a CFF2 INDEX, which uses a uint32 count instead of the
+// uint16 count of a CFF1 INDEX.  An empty CFF2 INDEX is four zero bytes.
+func readIndex32(p *parser.Parser) (cffIndex, error) {
+	count, err := p.ReadUint32()
+	if err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, nil
+	}
+	// bound count before allocating: each of the count+1 offsets needs at
+	// least one byte, so count cannot exceed the remaining input
+	if int64(count) > p.Size()-p.Pos() {
+		return nil, invalidSince("INDEX count exceeds input size")
+	}
+	return readIndexBody(p, int(count))
+}
+
+// readIndexBody reads the offSize, offset array and object data of an INDEX,
+// given the already-read object count.  It is shared by the CFF1 (readIndex)
+// and CFF2 (readIndex32) readers.
+func readIndexBody(p *parser.Parser, count int) (cffIndex, error) {
 	offSize, err := p.ReadUint8()
 	if err != nil {
 		return nil, err
 	}
 
-	var offsets []uint32
+	offsets := make([]uint32, 0, count+1)
 	prevOffset := uint32(1)
 	size := p.Size()
-	for i := 0; i <= int(count); i++ {
+	for i := 0; i <= count; i++ {
 		blob, err := p.ReadBytes(int(offSize))
 		if err != nil {
 			return nil, err
@@ -82,7 +106,7 @@ func readIndex(p *parser.Parser) (cffIndex, error) {
 	}
 
 	res := make([][]byte, count)
-	for i := 0; i < int(count); i++ {
+	for i := range count {
 		res[i] = buf[offsets[i]:offsets[i+1]]
 	}
 
@@ -99,6 +123,33 @@ func (data cffIndex) encode() []byte {
 		return []byte{0, 0}
 	}
 
+	out := &bytes.Buffer{}
+	out.Write([]byte{byte(count >> 8), byte(count)}) // count
+	data.encodeBody(out)
+	return out.Bytes()
+}
+
+// encode32 converts a CFF2 INDEX to its binary representation, using a
+// uint32 count.  An empty CFF2 INDEX encodes as four zero bytes.
+func (data cffIndex) encode32() []byte {
+	count := len(data)
+	if count == 0 {
+		return []byte{0, 0, 0, 0}
+	}
+
+	out := &bytes.Buffer{}
+	out.Write([]byte{
+		byte(count >> 24), byte(count >> 16), byte(count >> 8), byte(count), // count
+	})
+	data.encodeBody(out)
+	return out.Bytes()
+}
+
+// encodeBody writes the offSize, offset array and object data of an INDEX,
+// i.e. everything after the count.  Shared by encode and encode32.
+func (data cffIndex) encodeBody(out *bytes.Buffer) {
+	count := len(data)
+
 	bodyLength := 0
 	for _, blob := range data {
 		bodyLength += len(blob)
@@ -112,11 +163,7 @@ func (data cffIndex) encode() []byte {
 		panic("cff: too much data for INDEX")
 	}
 
-	out := &bytes.Buffer{}
-	out.Write([]byte{
-		byte(count >> 8), byte(count), // count
-		byte(offSize), // offSize
-	})
+	out.WriteByte(byte(offSize))
 
 	// offset
 	var offsetBuf [4]byte
@@ -135,6 +182,4 @@ func (data cffIndex) encode() []byte {
 	for i := range count {
 		out.Write(data[i])
 	}
-
-	return out.Bytes()
 }
