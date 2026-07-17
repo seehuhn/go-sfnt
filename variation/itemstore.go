@@ -330,7 +330,7 @@ func analyzeItemVariationData(d *ItemVariationData) ivdLayout {
 		threshold = 2
 	}
 	wordCount := 0
-	for j := 0; j < ric; j++ {
+	for j := range ric {
 		if need[j] >= threshold {
 			wordCount = j + 1
 		}
@@ -406,7 +406,7 @@ func (s *ItemVariationStore) Encode() []byte {
 	buf = appendU16(buf, uint16(l.axisCount))
 	buf = appendU16(buf, uint16(len(s.Regions)))
 	for _, r := range s.Regions {
-		for j := 0; j < l.axisCount; j++ {
+		for j := range l.axisCount {
 			var axis RegionAxis
 			if j < len(r) {
 				axis = r[j]
