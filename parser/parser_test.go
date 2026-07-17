@@ -19,6 +19,8 @@ package parser
 import (
 	"bytes"
 	"testing"
+
+	"seehuhn.de/go/membudget"
 )
 
 func TestPos(t *testing.T) {
@@ -47,5 +49,50 @@ func TestPos(t *testing.T) {
 	}
 	if p.Pos() != 5 {
 		t.Errorf("wrong position, expected 5 but got %d", p.Pos())
+	}
+}
+
+func TestReadInt32(t *testing.T) {
+	data := []byte{0xFF, 0xFF, 0xFF, 0xFB} // -5
+	buf := bytes.NewReader(data)
+	p := New(buf, NewBudget(int64(len(data))))
+
+	val, err := p.ReadInt32()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != -5 {
+		t.Errorf("wrong value, expected -5 but got %d", val)
+	}
+}
+
+func TestReadInt16Slice(t *testing.T) {
+	data := []byte{0xFF, 0xFF, 0x00, 0x02, 0x80, 0x00}
+	buf := bytes.NewReader(data)
+	p := New(buf, NewBudget(int64(len(data))))
+
+	got, err := p.ReadInt16Slice(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []int16{-1, 2, -32768}
+	if len(got) != len(want) {
+		t.Fatalf("wrong length, expected %d but got %d", len(want), len(got))
+	}
+	for i, v := range want {
+		if got[i] != v {
+			t.Errorf("wrong value at %d, expected %d but got %d", i, v, got[i])
+		}
+	}
+}
+
+func TestReadInt16SliceBudget(t *testing.T) {
+	data := make([]byte, 6)
+	buf := bytes.NewReader(data)
+	p := New(buf, membudget.New(1))
+
+	_, err := p.ReadInt16Slice(3)
+	if err == nil {
+		t.Error("expected budget error, got nil")
 	}
 }

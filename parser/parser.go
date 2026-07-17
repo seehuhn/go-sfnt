@@ -150,6 +150,12 @@ func (p *Parser) ReadUint32() (uint32, error) {
 	return uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3]), nil
 }
 
+// ReadInt32 reads a single int32 value from the current position.
+func (p *Parser) ReadInt32() (int32, error) {
+	val, err := p.ReadUint32()
+	return int32(val), err
+}
+
 // ReadUint16Slice reads a length followed by a sequence of uint16 values.
 // The allocated slice is charged against p.Budget.
 func (p *Parser) ReadUint16Slice() ([]uint16, error) {
@@ -163,6 +169,23 @@ func (p *Parser) ReadUint16Slice() ([]uint16, error) {
 	}
 	for i := range res {
 		val, err := p.ReadUint16()
+		if err != nil {
+			return nil, err
+		}
+		res[i] = val
+	}
+	return res, nil
+}
+
+// ReadInt16Slice reads a sequence of n int16 values.  The allocated slice
+// is charged against p.Budget.
+func (p *Parser) ReadInt16Slice(n int) ([]int16, error) {
+	res, err := membudget.AllocSlice[int16](p.Budget, n)
+	if err != nil {
+		return nil, err
+	}
+	for i := range res {
+		val, err := p.ReadInt16()
 		if err != nil {
 			return nil, err
 		}
