@@ -366,13 +366,3 @@ func (r *byteReader) int16() (int16, error) {
 	v, err := r.uint16()
 	return int16(v), err
 }
-
-func (r *byteReader) int32() (int32, error) {
-	if r.pos+4 > len(r.data) {
-		return 0, errShortTupleData
-	}
-	v := uint32(r.data[r.pos])<<24 | uint32(r.data[r.pos+1])<<16 |
-		uint32(r.data[r.pos+2])<<8 | uint32(r.data[r.pos+3])
-	r.pos += 4
-	return int32(v), nil
-}
