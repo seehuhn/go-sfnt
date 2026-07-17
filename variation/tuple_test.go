@@ -133,12 +133,12 @@ func TestTupleRoundTrip(t *testing.T) {
 			},
 		},
 		{
-			name: "private points, word and long deltas", axisCount: 1, dims: 1, nPoints: 20,
+			name: "private points, word deltas", axisCount: 1, dims: 1, nPoints: 20,
 			tuples: []TupleVariation{
 				{
 					Peak:   []F2Dot14{f2(-0.5)},
 					Points: []uint16{0, 5, 19},
-					Deltas: []int32{300, -300, 100000},
+					Deltas: []int32{300, -300, 30000},
 				},
 			},
 		},

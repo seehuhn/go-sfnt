@@ -17,6 +17,7 @@
 package variation
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -32,8 +33,9 @@ func TestParsePackedDeltas(t *testing.T) {
 		{"zero run", []byte{0x84}, 5, []int32{0, 0, 0, 0, 0}},
 		{"byte run", []byte{0x02, 0x0A, 0xFB, 0x03}, 3, []int32{10, -5, 3}},
 		{"word run", []byte{0x41, 0x01, 0x00, 0xFF, 0xFF}, 2, []int32{256, -1}},
-		// 0xC0 = DELTAS_ARE_LONGS per OT 1.9.1 (32-bit deltas).
-		{"long run OT 1.9.1", []byte{0xC0, 0x00, 0x01, 0x00, 0x00}, 1, []int32{65536}},
+		// 0xC0 = DELTAS_ARE_ZERO|DELTAS_ARE_WORDS; per OT 1.9.1 the ZERO bit
+		// dominates, so this is a zero run with no data bytes.
+		{"0xC0 zero run", []byte{0xC0, 0x00, 0x01, 0x00, 0x00}, 1, []int32{0}},
 		// over-supply: run declares 3 values, only 2 needed.
 		{"over-supply tolerated", []byte{0x02, 0x01, 0x02, 0x03}, 2, []int32{1, 2}},
 		// mixed runs: zero run, then byte run.
@@ -53,23 +55,24 @@ func TestParsePackedDeltas(t *testing.T) {
 }
 
 // TestParsePackedDeltasLongHistorical documents that a 0xC0 control byte is
-// decoded as DELTAS_ARE_LONGS (OT 1.9.1), not as a zero-run-of-words (the
-// older interpretation where DELTAS_ARE_ZERO dominated).
+// decoded as a zero run (OT 1.9.1: DELTAS_ARE_ZERO dominates
+// DELTAS_ARE_WORDS), not as a 32-bit delta.  There is no 32-bit delta form
+// in tuple variation stores; LONG_WORDS belongs to ItemVariationStore only.
 func TestParsePackedDeltasLongHistorical(t *testing.T) {
-	data := []byte{0xC0, 0x00, 0x00, 0x00, 0x2A} // one 32-bit delta = 42
+	data := []byte{0xC0, 0x01, 0x02, 0x03, 0x04} // zero run, arbitrary trailing bytes
 	r := &byteReader{data: data, pos: 0}
 	got, err := parsePackedDeltas(r, 1, testBudget())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// OT 1.9.1 behavior: value 42.
-	if len(got) != 1 || got[0] != 42 {
-		t.Errorf("OT 1.9.1: got %v, want [42]", got)
+	// OT 1.9.1 behavior: a single zero delta.
+	if len(got) != 1 || got[0] != 0 {
+		t.Errorf("OT 1.9.1: got %v, want [0]", got)
 	}
-	// old interpretation would have yielded a single zero and consumed no
-	// data bytes; assert we did not do that.
-	if r.pos != 5 {
-		t.Errorf("expected 5 bytes consumed, got %d", r.pos)
+	// the zero run carries no data bytes; only the control byte is
+	// consumed, leaving the rest for the next run.
+	if r.pos != 1 {
+		t.Errorf("expected 1 byte consumed, got %d", r.pos)
 	}
 }
 
@@ -87,11 +90,15 @@ func TestPackedDeltasRoundTrip(t *testing.T) {
 		{0, 0, 0, 0},
 		{1, -1, 2, -2},
 		{300, -300},
-		{100000, -100000},
-		{0, 5, 0, 0, 300, 100000, 0, 1},
+		{30000, -30000},
+		{0, 5, 0, 0, 300, 30000, 0, 1},
 	}
 	for i, deltas := range cases {
-		enc := encodePackedDeltas(deltas)
+		enc, err := encodePackedDeltas(deltas)
+		if err != nil {
+			t.Errorf("case %d: encode: %v", i, err)
+			continue
+		}
 		r := &byteReader{data: enc, pos: 0}
 		got, err := parsePackedDeltas(r, len(deltas), testBudget())
 		if err != nil {
@@ -104,6 +111,20 @@ func TestPackedDeltasRoundTrip(t *testing.T) {
 		}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("case %d: mismatch (-want +got):\n%s", i, diff)
+		}
+	}
+}
+
+func TestEncodePackedDeltasOutOfRange(t *testing.T) {
+	cases := [][]int32{
+		{100000},
+		{-100000},
+		{math.MaxInt16 + 1},
+		{math.MinInt16 - 1},
+	}
+	for i, deltas := range cases {
+		if _, err := encodePackedDeltas(deltas); err == nil {
+			t.Errorf("case %d: expected error for out-of-int16-range delta %v", i, deltas)
 		}
 	}
 }

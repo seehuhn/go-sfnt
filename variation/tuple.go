@@ -133,8 +133,14 @@ func DecodeTupleData(data []byte, axisCount, dims, nPoints int, allowSharedPoint
 	if err != nil {
 		return nil, err
 	}
-	sizes := make([]int, count)
-	private := make([]bool, count)
+	sizes, err := membudget.AllocSlice[int](budget, count)
+	if err != nil {
+		return nil, err
+	}
+	private, err := membudget.AllocSlice[bool](budget, count)
+	if err != nil {
+		return nil, err
+	}
 
 	// tuple headers occupy the range [4, dataOffset)
 	hr := &byteReader{data: data[:dataOffset], pos: 4}
@@ -266,7 +272,11 @@ func EncodeTupleData(tuples []TupleVariation, axisCount, dims, nPoints int, shar
 			}
 			sd = append(sd, pb...)
 		}
-		sd = append(sd, encodePackedDeltas(tv.Deltas)...)
+		pd, err := encodePackedDeltas(tv.Deltas)
+		if err != nil {
+			return nil, err
+		}
+		sd = append(sd, pd...)
 		if len(sd) > 0xFFFF {
 			return nil, errors.New("variation: tuple data too large")
 		}

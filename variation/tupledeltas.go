@@ -17,13 +17,16 @@
 package variation
 
 import (
+	"errors"
 	"math"
 
 	"seehuhn.de/go/membudget"
 )
 
-// flags in a packed delta run control byte.  Per OpenType 1.9.1, the
-// combination DELTAS_ARE_ZERO|DELTAS_ARE_WORDS (0xC0) selects 32-bit deltas.
+// flags in a packed delta run control byte.  Per OpenType 1.9.1,
+// DELTAS_ARE_ZERO dominates: if set (including 0xC0), the run is a zero run
+// with no data bytes and DELTAS_ARE_WORDS is ignored.  There is no 32-bit
+// delta form in tuple variation stores.
 const (
 	deltasAreZero     = 0x80
 	deltasAreWords    = 0x40
@@ -37,9 +40,6 @@ const (
 func parsePackedDeltas(r *byteReader, needed int, budget *membudget.Budget) ([]int32, error) {
 	if needed <= 0 {
 		return nil, nil
-	}
-	if err := budget.ChargeN(needed, 4); err != nil {
-		return nil, err
 	}
 	deltas, err := membudget.AllocSlice[int32](budget, needed)
 	if err != nil {
@@ -57,16 +57,7 @@ func parsePackedDeltas(r *byteReader, needed int, budget *membudget.Budget) ([]i
 		runLen := int(c&deltaRunCountMask) + 1
 		take := min(runLen, needed-produced)
 		switch {
-		case zero && words: // 0xC0: 32-bit deltas
-			for range take {
-				v, err := r.int32()
-				if err != nil {
-					return nil, err
-				}
-				deltas[produced] = v
-				produced++
-			}
-		case zero: // run of zeros, no data bytes
+		case zero: // run of zeros, no data bytes; dominates DELTAS_ARE_WORDS
 			for range take {
 				deltas[produced] = 0
 				produced++
@@ -94,9 +85,10 @@ func parsePackedDeltas(r *byteReader, needed int, budget *membudget.Budget) ([]i
 	return deltas, nil
 }
 
-// encodePackedDeltas serializes deltas using the shortest of zero, byte,
-// word and long (32-bit) runs.  The output is deterministic.
-func encodePackedDeltas(deltas []int32) []byte {
+// encodePackedDeltas serializes deltas using the shortest of zero, byte and
+// word runs.  The output is deterministic.  Deltas outside the int16 range
+// cannot be represented and result in an error.
+func encodePackedDeltas(deltas []int32) ([]byte, error) {
 	var buf []byte
 	i := 0
 	n := len(deltas)
@@ -110,33 +102,31 @@ func encodePackedDeltas(deltas []int32) []byte {
 			i = j
 			continue
 		}
-		long := deltas[i] < math.MinInt16 || deltas[i] > math.MaxInt16
-		word := !long && (deltas[i] < math.MinInt8 || deltas[i] > math.MaxInt8)
+		if deltas[i] < math.MinInt16 || deltas[i] > math.MaxInt16 {
+			return nil, errors.New("variation: delta out of int16 range")
+		}
+		word := deltas[i] < math.MinInt8 || deltas[i] > math.MaxInt8
 		j := i + 1
 		for j < n && j-i < 64 {
 			v := deltas[j]
 			if v == 0 {
 				break
 			}
-			vlong := v < math.MinInt16 || v > math.MaxInt16
-			vword := !vlong && (v < math.MinInt8 || v > math.MaxInt8)
-			if vlong != long || vword != word {
+			if v < math.MinInt16 || v > math.MaxInt16 {
+				break
+			}
+			vword := v < math.MinInt8 || v > math.MaxInt8
+			if vword != word {
 				break
 			}
 			j++
 		}
-		switch {
-		case long:
-			buf = append(buf, byte(deltasAreZero|deltasAreWords|(j-i-1)))
-			for k := i; k < j; k++ {
-				buf = appendU32(buf, uint32(deltas[k]))
-			}
-		case word:
+		if word {
 			buf = append(buf, byte(deltasAreWords|(j-i-1)))
 			for k := i; k < j; k++ {
 				buf = appendU16(buf, uint16(deltas[k]))
 			}
-		default:
+		} else {
 			buf = append(buf, byte(j-i-1))
 			for k := i; k < j; k++ {
 				buf = append(buf, byte(deltas[k]))
@@ -144,5 +134,5 @@ func encodePackedDeltas(deltas []int32) []byte {
 		}
 		i = j
 	}
-	return buf
+	return buf, nil
 }
