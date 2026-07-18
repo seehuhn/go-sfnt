@@ -56,7 +56,6 @@ import (
 )
 
 // ReadFile reads a TrueType or OpenType font from a file.
-// The memory used while parsing is bounded in proportion to the file size.
 func ReadFile(fname string) (*Font, error) {
 	fd, err := os.Open(fname)
 	if err != nil {
