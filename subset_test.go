@@ -67,7 +67,10 @@ func TestFDSelect(t *testing.T) {
 	}
 
 	ss := []glyph.ID{0, 3, 5, 4}
-	i2 := i1.Subset(ss)
+	i2, err := i1.Subset(ss)
+	if err != nil {
+		t.Fatal(err)
+	}
 	o2 := i2.Outlines.(*cff.Outlines)
 
 	if len(o2.Private) != len(ss) {

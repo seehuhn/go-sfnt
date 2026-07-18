@@ -227,6 +227,38 @@ func TestInstantiateDefaults(t *testing.T) {
 	}
 }
 
+// TestInstantiateNoGvar checks that Instantiate tolerates a variable font
+// whose gvar table is missing (Read sets Gvar to nil when it fails to
+// decode, or on an axis-count mismatch, while leaving Fvar in place): glyph
+// outlines and widths pass through unchanged instead of panicking.
+func TestInstantiateNoGvar(t *testing.T) {
+	f := debug.MakeVarFont()
+	f.Gvar = nil
+	f.Hvar = nil
+	orig := f.Outlines.(*glyf.Outlines)
+
+	inst, err := f.Instantiate(map[string]float64{"wght": 900, "wdth": 75})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	o := inst.Outlines.(*glyf.Outlines)
+	for gid := range orig.Glyphs {
+		og := orig.Glyphs[gid]
+		ng := o.Glyphs[gid]
+		if _, ok := og.Data.(glyf.SimpleGlyph); ok {
+			if diff := cmp.Diff(simplePoints(t, og), simplePoints(t, ng)); diff != "" {
+				t.Errorf("gid %d outline changed without gvar:\n%s", gid, diff)
+			}
+		}
+	}
+	for gid, w := range orig.Widths {
+		if o.Widths[gid] != w {
+			t.Errorf("gid %d width = %d, want %d", gid, o.Widths[gid], w)
+		}
+	}
+}
+
 // TestInstantiateReceiverUnmodified verifies that Instantiate does not mutate
 // the receiver by comparing against an independent identical fixture.
 func TestInstantiateReceiverUnmodified(t *testing.T) {
@@ -354,6 +386,68 @@ func TestInstantiateErrors(t *testing.T) {
 		f.Outlines = &cff.Outlines{}
 		if _, err := f.Instantiate(nil); err == nil {
 			t.Error("expected an error for CFF outlines")
+		}
+	})
+}
+
+// FuzzInstantiate feeds arbitrary sfnt data through Read and, for variable
+// fonts, Instantiate.  It checks that Instantiate never panics or hangs, and
+// that a successful instantiation round-trips through Write/Read as a
+// non-variable font.
+func FuzzInstantiate(f *testing.F) {
+	varBuf := &bytes.Buffer{}
+	if _, err := debug.MakeVarFont().Write(varBuf); err != nil {
+		f.Fatal(err)
+	}
+	f.Add(varBuf.Bytes(), uint16(0), uint16(0))
+	f.Add(varBuf.Bytes(), uint16(0xFFFF), uint16(0xFFFF))
+	f.Add(varBuf.Bytes(), uint16(0x8000), uint16(0x4000))
+
+	otherBuf := &bytes.Buffer{}
+	if _, err := makeVariableFont(f).Write(otherBuf); err != nil {
+		f.Fatal(err)
+	}
+	f.Add(otherBuf.Bytes(), uint16(0), uint16(0xFFFF))
+
+	f.Fuzz(func(t *testing.T, data []byte, c1, c2 uint16) {
+		font, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+		if err != nil || !font.IsVariable() {
+			return
+		}
+
+		// scale c1, c2 into the ranges of the first two axes; any further
+		// axes are left at their default value.
+		coords := make(map[string]float64)
+		axes := font.VariationAxes()
+		for i, u := range []uint16{c1, c2} {
+			if i >= len(axes) {
+				break
+			}
+			ax := axes[i]
+			frac := float64(u) / 0xFFFF
+			coords[ax.Tag] = ax.Min + frac*(ax.Max-ax.Min)
+		}
+
+		inst, err := font.Instantiate(coords)
+		if err != nil {
+			return
+		}
+
+		if inst.IsVariable() {
+			t.Fatal("instantiated font is still variable")
+		}
+
+		buf := &bytes.Buffer{}
+		if _, err := inst.Write(buf); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+		out := buf.Bytes()
+		got, err := sfnt.Read(bytes.NewReader(out), parser.NewBudget(int64(len(out))))
+		if err != nil {
+			t.Fatalf("re-read failed: %v", err)
+		}
+		if got.IsVariable() {
+			t.Fatal("round-tripped instance is variable")
 		}
 	})
 }

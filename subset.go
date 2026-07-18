@@ -17,6 +17,7 @@
 package sfnt
 
 import (
+	"errors"
 	"fmt"
 
 	"seehuhn.de/go/postscript/cid"
@@ -31,12 +32,26 @@ import (
 	"seehuhn.de/go/sfnt/opentype/gtab"
 )
 
+// ErrVariableFont is returned by [Font.Subset] when called on a variable
+// font; call [Font.Instantiate] first to pin the font to a single instance.
+var ErrVariableFont = errors.New("sfnt: cannot subset variable font; call Instantiate first")
+
 // Subset returns a subset of the font containing containing the given
 // glyphs at the first positions.  More glyphs may be included in the
 // subset, if they occur as ligatures between the given glyphs.
 //
 // The slice glyphs must start with glyph ID 0 to represent the notdef glyph.
-func (f *Font) Subset(glyphs []glyph.ID) *Font {
+//
+// Subset returns [ErrVariableFont] for a variable font and an error for a
+// font with CFF2 outlines; neither can be subsetted directly.
+func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
+	if f.IsVariable() {
+		return nil, ErrVariableFont
+	}
+	if _, ok := f.Outlines.(*cff.OutlinesCFF2); ok {
+		return nil, errors.New("sfnt: cannot subset CFF2 font")
+	}
+
 	res := f.Clone()
 
 	s := subsetter{
@@ -70,7 +85,7 @@ func (f *Font) Subset(glyphs []glyph.ID) *Font {
 		res.Outlines = s.SubsetGlyf(outlines)
 	}
 
-	return res
+	return res, nil
 }
 
 type subsetter struct {

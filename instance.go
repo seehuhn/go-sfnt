@@ -95,29 +95,36 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	newGlyphs := make(glyf.Glyphs, numGlyphs)
 	phantomAdvances := make([]funit.Uint16, numGlyphs)
 
-	var totalGvar int64
-	for _, gd := range f.Gvar.PerGlyph {
-		totalGvar += int64(len(gd.Data))
-	}
-	workBudget := min(int64(64)*totalGvar+(1<<20), 1<<28)
+	if f.Gvar != nil {
+		var totalGvar int64
+		for _, gd := range f.Gvar.PerGlyph {
+			totalGvar += int64(len(gd.Data))
+		}
+		workBudget := min(int64(64)*totalGvar+(1<<20), 1<<28)
 
-	for gid := range numGlyphs {
-		var gvarLen int64
-		if gid < len(f.Gvar.PerGlyph) {
-			gvarLen = int64(len(f.Gvar.PerGlyph[gid].Data))
+		for gid := range numGlyphs {
+			var gvarLen int64
+			if gid < len(f.Gvar.PerGlyph) {
+				gvarLen = int64(len(f.Gvar.PerGlyph[gid].Data))
+			}
+			// A fresh per-glyph budget bounds one glyph's scratch (proportional to
+			// its point count and gvar block); the cumulative work budget bounds
+			// total CPU across all glyphs.
+			budget := membudget.New(int64(1<<24) + 64*gvarLen)
+			res, err := f.Gvar.Apply(outlines.Glyphs, outlines.Widths, glyph.ID(gid), norm, budget, &workBudget)
+			if err != nil {
+				return nil, err
+			}
+			newGlyphs[gid] = res.Glyph
+			phantomAdvances[gid] = res.Advance
 		}
-		// A fresh per-glyph budget bounds one glyph's scratch (proportional to
-		// its point count and gvar block); the cumulative work budget bounds
-		// total CPU across all glyphs.
-		budget := membudget.New(int64(1<<24) + 64*gvarLen)
-		res, err := f.Gvar.Apply(outlines.Glyphs, outlines.Widths, glyph.ID(gid), norm, budget, &workBudget)
-		if err != nil {
-			return nil, err
-		}
-		newGlyphs[gid] = res.Glyph
-		phantomAdvances[gid] = res.Advance
+		recomputeCompositeBBoxes(newGlyphs)
+	} else {
+		// no gvar table: glyph outlines and advances are unaffected by the
+		// variation coordinates.
+		copy(newGlyphs, outlines.Glyphs)
+		copy(phantomAdvances, outlines.Widths)
 	}
-	recomputeCompositeBBoxes(newGlyphs)
 
 	newOutlines := *outlines
 	newOutlines.Glyphs = newGlyphs
