@@ -115,7 +115,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 
 // Encode returns the binary form of the HVAR table.  The item variation
 // store is always written, even when Store is nil (as an empty store), since
-// the spec requires a non-zero store offset.  The output is deterministic.
+// a zero store offset is not permitted.  The output is deterministic.
 func (t *Table) Encode() []byte {
 	store := t.Store
 	if store == nil {
