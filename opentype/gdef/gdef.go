@@ -25,6 +25,7 @@ import (
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/parser"
+	"seehuhn.de/go/sfnt/variation"
 )
 
 // Table contains the parsed GDEF table.
@@ -35,7 +36,11 @@ type Table struct {
 	LigCaretList    *LigCaretList  // ligature caret list table, or nil
 	MarkAttachClass classdef.Table // class definition table for mark attachment type
 	MarkGlyphSets   []coverage.Set // table of mark glyph set definitions
-	// TODO(voss): Item Variation Store table (GDEF 1.3)
+
+	// ItemVarStore holds the shared delta values referenced by
+	// device/VariationIndex tables elsewhere in the font, or nil if
+	// absent (GDEF 1.3).
+	ItemVarStore *variation.ItemVariationStore
 }
 
 // IsMark returns true if it is known that the glyph represents a mark character.
@@ -150,9 +155,12 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 		}
 	}
 
-	// TODO(voss): read the item variation store (version 1.3).  Until then
-	// its data is dropped, so a variable font does not round-trip it.
-	_ = itemVarStoreOffset
+	if itemVarStoreOffset != 0 {
+		table.ItemVarStore, err = variation.ReadItemVariationStore(p, int64(itemVarStoreOffset))
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return table, nil
 }
@@ -162,9 +170,13 @@ func (table *Table) Encode() []byte {
 	version := uint32(0x00010000)
 	total := 12
 
-	if table.MarkGlyphSets != nil {
+	if table.MarkGlyphSets != nil || table.ItemVarStore != nil {
 		version = 0x00010002
 		total = 14
+	}
+	if table.ItemVarStore != nil {
+		version = 0x00010003
+		total = 18
 	}
 
 	var glyphClassDefOffset int
@@ -196,9 +208,15 @@ func (table *Table) Encode() []byte {
 			total += cov.EncodeLen()
 		}
 	}
+	var itemVarStoreOffset int
+	if table.ItemVarStore != nil {
+		itemVarStoreOffset = total
+		total += table.ItemVarStore.EncodeLen()
+	}
 
 	buf := make([]byte, 12, total)
-	// version was selected above (1.0, or 1.2 when mark glyph sets are present)
+	// version was selected above: 1.0, 1.2 for mark glyph sets, 1.3 for an
+	// item variation store
 	buf[0] = byte(version >> 24)
 	buf[1] = byte(version >> 16)
 	buf[2] = byte(version >> 8)
@@ -213,6 +231,11 @@ func (table *Table) Encode() []byte {
 	buf[11] = byte(markAttachClassDefOffset)
 	if version >= 0x00010002 {
 		buf = append(buf, byte(markGlyphSetsDefOffset>>8), byte(markGlyphSetsDefOffset))
+	}
+	if version >= 0x00010003 {
+		buf = append(buf,
+			byte(itemVarStoreOffset>>24), byte(itemVarStoreOffset>>16),
+			byte(itemVarStoreOffset>>8), byte(itemVarStoreOffset))
 	}
 	if glyphClassDefOffset > 0 {
 		buf = table.GlyphClass.Append(buf)
@@ -242,6 +265,9 @@ func (table *Table) Encode() []byte {
 			cov := set.ToTable()
 			buf = append(buf, cov.Encode()...)
 		}
+	}
+	if itemVarStoreOffset > 0 {
+		buf = append(buf, table.ItemVarStore.Encode()...)
 	}
 	return buf
 }
