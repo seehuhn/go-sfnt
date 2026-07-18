@@ -29,7 +29,8 @@ import (
 // instances (name, then PostScript name), STAT design axes, STAT axis
 // values, then the STAT elided fallback name.  Identical strings share one
 // ID.  An entry whose resolved Name is empty keeps its existing numeric ID
-// untouched.
+// untouched, and the allocator skips over all such preserved IDs so it never
+// hands out one of them to a different entry.
 //
 // fv and st are modified in place; either may be nil.  Read and Write share
 // this function so that a font's stored NameIDs always end up identical to
@@ -41,12 +42,17 @@ import (
 // registration in the "name" table; it is nil when no strings were
 // allocated.
 func canonicalizeVariationNames(fv *fvar.Table, st *stat.Table) map[name.ID]string {
+	preserved := preservedVariationNameIDs(fv, st)
+
 	extra := make(map[name.ID]string)
 	next := name.ID(256)
 	seen := make(map[string]name.ID)
 	alloc := func(s string) uint16 {
 		if id, ok := seen[s]; ok {
 			return uint16(id)
+		}
+		for preserved[next] {
+			next++
 		}
 		id := next
 		next++
@@ -90,6 +96,74 @@ func canonicalizeVariationNames(fv *fvar.Table, st *stat.Table) map[name.ID]stri
 		return nil
 	}
 	return extra
+}
+
+// preservedVariationNameIDs collects the numeric name IDs of entries whose
+// resolved Name is empty.  canonicalizeVariationNames leaves those IDs
+// untouched, so its allocator must avoid handing any of them out to a
+// different entry.
+func preservedVariationNameIDs(fv *fvar.Table, st *stat.Table) map[name.ID]bool {
+	preserved := make(map[name.ID]bool)
+
+	if fv != nil {
+		for i := range fv.Axes {
+			if fv.Axes[i].Name == "" {
+				preserved[name.ID(fv.Axes[i].NameID)] = true
+			}
+		}
+		for i := range fv.Instances {
+			inst := &fv.Instances[i]
+			if inst.Name == "" {
+				preserved[name.ID(inst.NameID)] = true
+			}
+			// PostScriptNameID 0xFFFF marks "absent", not a preserved ID.
+			if inst.PostScriptName == "" && inst.PostScriptNameID != 0xFFFF {
+				preserved[name.ID(inst.PostScriptNameID)] = true
+			}
+		}
+	}
+
+	if st != nil {
+		for i := range st.DesignAxes {
+			if st.DesignAxes[i].Name == "" {
+				preserved[name.ID(st.DesignAxes[i].NameID)] = true
+			}
+		}
+		for _, av := range st.AxisValues {
+			if id, ok := emptyAxisValueNameID(av); ok {
+				preserved[id] = true
+			}
+		}
+		if st.ElidedFallbackName == "" {
+			preserved[name.ID(st.ElidedFallbackNameID)] = true
+		}
+	}
+
+	return preserved
+}
+
+// emptyAxisValueNameID returns av's NameID and true when its resolved Name
+// is empty.
+func emptyAxisValueNameID(av stat.AxisValue) (name.ID, bool) {
+	switch v := av.(type) {
+	case *stat.Format1:
+		if v.Name == "" {
+			return name.ID(v.NameID), true
+		}
+	case *stat.Format2:
+		if v.Name == "" {
+			return name.ID(v.NameID), true
+		}
+	case *stat.Format3:
+		if v.Name == "" {
+			return name.ID(v.NameID), true
+		}
+	case *stat.Format4:
+		if v.Name == "" {
+			return name.ID(v.NameID), true
+		}
+	}
+	return 0, false
 }
 
 func cloneFvar(t *fvar.Table) *fvar.Table {
