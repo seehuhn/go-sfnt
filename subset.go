@@ -36,7 +36,7 @@ import (
 // font; call [Font.Instantiate] first to pin the font to a single instance.
 var ErrVariableFont = errors.New("sfnt: cannot subset variable font; call Instantiate first")
 
-// Subset returns a subset of the font containing containing the given
+// Subset returns a subset of the font containing the given
 // glyphs at the first positions.  More glyphs may be included in the
 // subset, if they occur as ligatures between the given glyphs.
 //
