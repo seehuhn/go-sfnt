@@ -18,6 +18,7 @@ package sfnt
 
 //go:generate python3 ../scripts/gen-var-expect.py $QUIRE_TESTFONTS/Junicode-VF.ttf -o testdata/varexpect/junicode.json --case defaults: --case bold-narrow:wght=700,wdth=87.5,ENLA=0 --case light:wght=300 --glyph A --glyph a --glyph B --glyph b --glyph O --glyph g --glyph f --glyph eacute
 //go:generate python3 ../scripts/gen-var-expect.py $QUIRE_TESTFONTS/Elstob-VF.ttf -o testdata/varexpect/elstob.json --case defaults: --case bold-display:wght=800,opsz=18,GRAD=1,SPAC=1 --glyph A --glyph a --glyph O --glyph eacute
+//go:generate python3 ../scripts/gen-var-expect.py $QUIRE_TESTFONTS/AdobeVFPrototype.otf -o testdata/varexpect/adobevf.json --case defaults: --case bold:wght=900 --glyph A --glyph B --glyph O --glyph a --glyph g --glyph zero
 
 import (
 	"bytes"
@@ -34,6 +35,7 @@ import (
 
 	"seehuhn.de/go/postscript/funit"
 
+	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/internal/testfonts"
@@ -66,6 +68,9 @@ type varExpectGlyph struct {
 	GID          int                `json:"gid"`
 	AdvanceWidth int                `json:"advance_width"`
 	Contours     [][]varExpectPoint `json:"contours"`
+	// Bounds is the control-point bounding box [xMin, yMin, xMax, yMax] used
+	// for CFF/CFF2 outlines in place of Contours; nil for a mark-free glyph.
+	Bounds *[4]float64 `json:"bounds"`
 }
 
 type varExpectMetrics struct {
@@ -168,22 +173,63 @@ func runVarExpectCase(t *testing.T, f *Font, c varExpectCase) {
 		}
 	}
 
-	outlines, ok := inst.Outlines.(*glyf.Outlines)
-	if !ok {
-		t.Fatalf("instanced outlines have type %T, want *glyf.Outlines", inst.Outlines)
-	}
-
 	names := make([]string, 0, len(c.Glyphs))
 	for name := range c.Glyphs {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
-	for _, name := range names {
-		want := c.Glyphs[name]
-		t.Run(name, func(t *testing.T) {
-			checkVarExpectGlyph(t, outlines, glyph.ID(want.GID), want)
-		})
+	switch outlines := inst.Outlines.(type) {
+	case *glyf.Outlines:
+		for _, name := range names {
+			want := c.Glyphs[name]
+			t.Run(name, func(t *testing.T) {
+				checkVarExpectGlyph(t, outlines, glyph.ID(want.GID), want)
+			})
+		}
+	case *cff.Outlines:
+		for _, name := range names {
+			want := c.Glyphs[name]
+			t.Run(name, func(t *testing.T) {
+				checkVarExpectGlyphCFF(t, outlines, glyph.ID(want.GID), want)
+			})
+		}
+	default:
+		t.Fatalf("instanced outlines have type %T, want glyf or CFF", inst.Outlines)
+	}
+}
+
+// checkVarExpectGlyphCFF compares one instanced CFF glyph against fontTools:
+// its advance width (design units, which equal hmtx units for the standard
+// 1000-unit setup) and its control-point bounding box.  Charstring outlines do
+// not decompose into a glyf-style point dump, so the box is the finest
+// comparison the fixture records.
+func checkVarExpectGlyphCFF(t *testing.T, outlines *cff.Outlines, gid glyph.ID, want varExpectGlyph) {
+	t.Helper()
+
+	if int(gid) >= len(outlines.Glyphs) {
+		t.Fatalf("gid %d out of range (numGlyphs=%d)", gid, len(outlines.Glyphs))
+	}
+	if got := int(math.Round(outlines.Glyphs[gid].Width)); got != want.AdvanceWidth {
+		t.Errorf("advance width = %d, want %d", got, want.AdvanceWidth)
+	}
+
+	bbox := outlines.Path(gid).BBox()
+	if want.Bounds == nil {
+		if !bbox.IsZero() {
+			t.Errorf("bounds = %v, want empty", bbox)
+		}
+		return
+	}
+	got := [4]float64{
+		math.Round(bbox.LLx), math.Round(bbox.LLy),
+		math.Round(bbox.URx), math.Round(bbox.URy),
+	}
+	for i := range got {
+		if math.Abs(got[i]-want.Bounds[i]) > pointTolerance {
+			t.Errorf("bounds = %v, want %v", got, *want.Bounds)
+			break
+		}
 	}
 }
 

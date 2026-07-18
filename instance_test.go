@@ -409,6 +409,13 @@ func FuzzInstantiate(f *testing.F) {
 	}
 	f.Add(otherBuf.Bytes(), uint16(0), uint16(0xFFFF))
 
+	cff2Buf := &bytes.Buffer{}
+	if _, err := makeVarCFF2Font().Write(cff2Buf); err != nil {
+		f.Fatal(err)
+	}
+	f.Add(cff2Buf.Bytes(), uint16(0), uint16(0))
+	f.Add(cff2Buf.Bytes(), uint16(0xFFFF), uint16(0xFFFF))
+
 	f.Fuzz(func(t *testing.T, data []byte, c1, c2 uint16) {
 		font, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 		if err != nil || !font.IsVariable() {

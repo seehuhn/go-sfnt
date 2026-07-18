@@ -29,6 +29,7 @@ import (
 	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/funit"
 
+	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/mvar"
@@ -61,10 +62,12 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 		(f.Gpos != nil && f.Gpos.VariationsRaw != nil) {
 		return nil, errors.New("sfnt: unresolvable feature variations")
 	}
-	outlines, ok := f.Outlines.(*glyf.Outlines)
-	if !ok {
-		// CFF2 instancing is task C7; CFF outlines are not variable.
-		return nil, errors.New("sfnt: CFF2 instancing not implemented")
+	switch f.Outlines.(type) {
+	case *glyf.Outlines, *cff.OutlinesCFF2:
+		// supported outline flavors
+	default:
+		// plain CFF outlines are not variable
+		return nil, errors.New("sfnt: outlines are not variable")
 	}
 
 	// step 2: normalize the axis coordinates
@@ -90,71 +93,19 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	// below so the receiver stays untouched.
 	out := *f
 
-	// step 4: instance the glyph outlines
-	numGlyphs := len(outlines.Glyphs)
-	newGlyphs := make(glyf.Glyphs, numGlyphs)
-	phantomAdvances := make([]funit.Uint16, numGlyphs)
-
-	if f.Gvar != nil {
-		var totalGvar int64
-		for _, gd := range f.Gvar.PerGlyph {
-			totalGvar += int64(len(gd.Data))
+	// steps 4–6: resolve the glyph outlines, advance widths and cvt values to
+	// the pinned instance.  The flavor-specific arm sets out.Outlines; the
+	// shared tail below (steps 7–12) is flavor-agnostic.
+	switch o := f.Outlines.(type) {
+	case *glyf.Outlines:
+		if err := instanceGlyf(f, &out, o, norm); err != nil {
+			return nil, err
 		}
-		workBudget := min(int64(64)*totalGvar+(1<<20), 1<<28)
-
-		for gid := range numGlyphs {
-			var gvarLen int64
-			if gid < len(f.Gvar.PerGlyph) {
-				gvarLen = int64(len(f.Gvar.PerGlyph[gid].Data))
-			}
-			// A fresh per-glyph budget bounds one glyph's scratch (proportional to
-			// its point count and gvar block); the cumulative work budget bounds
-			// total CPU across all glyphs.
-			budget := membudget.New(int64(1<<24) + 64*gvarLen)
-			res, err := f.Gvar.Apply(outlines.Glyphs, outlines.Widths, glyph.ID(gid), norm, budget, &workBudget)
-			if err != nil {
-				return nil, err
-			}
-			newGlyphs[gid] = res.Glyph
-			phantomAdvances[gid] = res.Advance
-		}
-		recomputeCompositeBBoxes(newGlyphs)
-	} else {
-		// no gvar table: glyph outlines and advances are unaffected by the
-		// variation coordinates.
-		copy(newGlyphs, outlines.Glyphs)
-		copy(phantomAdvances, outlines.Widths)
-	}
-
-	newOutlines := *outlines
-	newOutlines.Glyphs = newGlyphs
-
-	// step 5: advance widths (HVAR takes precedence over phantom advances)
-	if f.Hvar != nil || outlines.Widths != nil {
-		newWidths := make([]funit.Uint16, numGlyphs)
-		for gid := range numGlyphs {
-			if f.Hvar != nil {
-				var base float64
-				if gid < len(outlines.Widths) {
-					base = float64(outlines.Widths[gid])
-				}
-				newWidths[gid] = clampUint16(variation.OTRound(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm)))
-			} else {
-				newWidths[gid] = phantomAdvances[gid]
-			}
-		}
-		newOutlines.Widths = newWidths
-	}
-
-	// step 6: cvt via cvar
-	if f.Cvar != nil {
-		if cvt, ok := outlines.Tables["cvt "]; ok {
-			tables := maps.Clone(outlines.Tables)
-			tables["cvt "] = f.Cvar.Apply(cvt, norm)
-			newOutlines.Tables = tables
+	case *cff.OutlinesCFF2:
+		if err := instanceCFF2(f, &out, o, norm); err != nil {
+			return nil, err
 		}
 	}
-	out.Outlines = &newOutlines
 
 	// step 7: MVAR font-wide metrics
 	applyMVAR(&out, f.Mvar, norm)
@@ -209,6 +160,105 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	out.VariationsPostScriptName = ""
 
 	return &out, nil
+}
+
+// instanceGlyf resolves the TrueType glyph outlines, advance widths and cvt
+// values of out to the instance at norm (steps 4–6 of Instantiate).
+func instanceGlyf(f *Font, out *Font, outlines *glyf.Outlines, norm []variation.F2Dot14) error {
+	// step 4: instance the glyph outlines
+	numGlyphs := len(outlines.Glyphs)
+	newGlyphs := make(glyf.Glyphs, numGlyphs)
+	phantomAdvances := make([]funit.Uint16, numGlyphs)
+
+	if f.Gvar != nil {
+		var totalGvar int64
+		for _, gd := range f.Gvar.PerGlyph {
+			totalGvar += int64(len(gd.Data))
+		}
+		workBudget := min(int64(64)*totalGvar+(1<<20), 1<<28)
+
+		for gid := range numGlyphs {
+			var gvarLen int64
+			if gid < len(f.Gvar.PerGlyph) {
+				gvarLen = int64(len(f.Gvar.PerGlyph[gid].Data))
+			}
+			// A fresh per-glyph budget bounds one glyph's scratch (proportional to
+			// its point count and gvar block); the cumulative work budget bounds
+			// total CPU across all glyphs.
+			budget := membudget.New(int64(1<<24) + 64*gvarLen)
+			res, err := f.Gvar.Apply(outlines.Glyphs, outlines.Widths, glyph.ID(gid), norm, budget, &workBudget)
+			if err != nil {
+				return err
+			}
+			newGlyphs[gid] = res.Glyph
+			phantomAdvances[gid] = res.Advance
+		}
+		recomputeCompositeBBoxes(newGlyphs)
+	} else {
+		// no gvar table: glyph outlines and advances are unaffected by the
+		// variation coordinates.
+		copy(newGlyphs, outlines.Glyphs)
+		copy(phantomAdvances, outlines.Widths)
+	}
+
+	newOutlines := *outlines
+	newOutlines.Glyphs = newGlyphs
+
+	// step 5: advance widths (HVAR takes precedence over phantom advances)
+	if f.Hvar != nil || outlines.Widths != nil {
+		newWidths := make([]funit.Uint16, numGlyphs)
+		for gid := range numGlyphs {
+			if f.Hvar != nil {
+				var base float64
+				if gid < len(outlines.Widths) {
+					base = float64(outlines.Widths[gid])
+				}
+				newWidths[gid] = clampUint16(variation.OTRound(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm)))
+			} else {
+				newWidths[gid] = phantomAdvances[gid]
+			}
+		}
+		newOutlines.Widths = newWidths
+	}
+
+	// step 6: cvt via cvar
+	if f.Cvar != nil {
+		if cvt, ok := outlines.Tables["cvt "]; ok {
+			tables := maps.Clone(outlines.Tables)
+			tables["cvt "] = f.Cvar.Apply(cvt, norm)
+			newOutlines.Tables = tables
+		}
+	}
+	out.Outlines = &newOutlines
+	return nil
+}
+
+// instanceCFF2 resolves the CFF2 glyph outlines and advance widths of out to
+// the instance at norm (steps 4–6 of Instantiate), producing static CID-keyed
+// CFF outlines.  The top-level font matrix (out.FontMatrix, copied from the
+// receiver) is unchanged, so the rendering transform matches the CFF2 font.
+func instanceCFF2(f *Font, out *Font, outlines *cff.OutlinesCFF2, norm []variation.F2Dot14) error {
+	// advance widths in design units; HVAR overrides the static widths when
+	// present.  For the standard CFF2 setup (1000-unit em, 0.001 font matrix)
+	// design units and hmtx units coincide, so the HVAR delta adds directly.
+	var widths []float64
+	if f.Hvar != nil {
+		widths = make([]float64, len(outlines.Glyphs))
+		for gid := range widths {
+			var base float64
+			if gid < len(outlines.Widths) {
+				base = outlines.Widths[gid]
+			}
+			widths[gid] = variation.OTRound(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm))
+		}
+	}
+
+	static, err := outlines.Instance(norm, widths)
+	if err != nil {
+		return err
+	}
+	out.Outlines = static
+	return nil
 }
 
 // applyFeatureVariations returns feats with the substitutions of the first

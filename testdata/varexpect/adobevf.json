@@ -1,0 +1,151 @@
+{
+  "cases": [
+    {
+      "coords": {},
+      "glyphs": {
+        "A": {
+          "advance_width": 663,
+          "bounds": [
+            5,
+            0,
+            653,
+            675
+          ],
+          "gid": 34
+        },
+        "B": {
+          "advance_width": 628,
+          "bounds": [
+            45,
+            0,
+            583,
+            670
+          ],
+          "gid": 35
+        },
+        "O": {
+          "advance_width": 707,
+          "bounds": [
+            48,
+            -15,
+            659,
+            685
+          ],
+          "gid": 48
+        },
+        "a": {
+          "advance_width": 508,
+          "bounds": [
+            46,
+            -13,
+            501,
+            487
+          ],
+          "gid": 66
+        },
+        "g": {
+          "advance_width": 516,
+          "bounds": [
+            37,
+            -240,
+            493,
+            487
+          ],
+          "gid": 72
+        },
+        "zero": {
+          "advance_width": 497,
+          "bounds": [
+            41,
+            -13,
+            457,
+            660
+          ],
+          "gid": 17
+        }
+      },
+      "metrics": {
+        "ascent": 730,
+        "cap_height": 670,
+        "descent": -270
+      },
+      "name": "defaults"
+    },
+    {
+      "coords": {
+        "wght": 900.0
+      },
+      "glyphs": {
+        "A": {
+          "advance_width": 680,
+          "bounds": [
+            10,
+            0,
+            665,
+            652
+          ],
+          "gid": 34
+        },
+        "B": {
+          "advance_width": 660,
+          "bounds": [
+            28,
+            0,
+            645,
+            652
+          ],
+          "gid": 35
+        },
+        "O": {
+          "advance_width": 700,
+          "bounds": [
+            28,
+            -20,
+            672,
+            672
+          ],
+          "gid": 48
+        },
+        "a": {
+          "advance_width": 540,
+          "bounds": [
+            25,
+            -16,
+            548,
+            503
+          ],
+          "gid": 66
+        },
+        "g": {
+          "advance_width": 553,
+          "bounds": [
+            7,
+            -222,
+            548,
+            506
+          ],
+          "gid": 72
+        },
+        "zero": {
+          "advance_width": 560,
+          "bounds": [
+            34,
+            -16,
+            527,
+            640
+          ],
+          "gid": 17
+        }
+      },
+      "metrics": {
+        "ascent": 730,
+        "cap_height": 670,
+        "descent": -270
+      },
+      "name": "bold"
+    }
+  ],
+  "fonttools_version": "4.53.1",
+  "source_font": "AdobeVFPrototype.otf",
+  "source_sha256": "f7dc16e1ae8ed7de13e186fd20b9c254c1a0209724d30e2686874df64fa41e35"
+}
