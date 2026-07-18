@@ -74,10 +74,22 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 	var posX, posY Blend
 	hasMoved := false
 	var moveError error
+
+	// budgetErr latches the first emission-time budget failure; charge only
+	// runs while it is still nil, mirroring the moveError latch below.
+	var budgetErr error
+	charge := func(args ...Blend) {
+		if budgetErr != nil {
+			return
+		}
+		budgetErr = chargeBlendArgs(info.budget, args...)
+	}
+
 	rMoveTo := func(dx, dy Blend) {
 		hasMoved = true
 		posX = addBlend(posX, fixBlend(dx))
 		posY = addBlend(posY, fixBlend(dy))
+		charge(posX, posY)
 		res.Cmds = append(res.Cmds, GlyphOpCFF2{
 			Op:   OpMoveTo,
 			Args: []Blend{posX, posY},
@@ -89,6 +101,7 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 		}
 		posX = addBlend(posX, fixBlend(dx))
 		posY = addBlend(posY, fixBlend(dy))
+		charge(posX, posY)
 		res.Cmds = append(res.Cmds, GlyphOpCFF2{
 			Op:   OpLineTo,
 			Args: []Blend{posX, posY},
@@ -104,6 +117,7 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 		yb := addBlend(ya, fixBlend(dyb))
 		posX = addBlend(xb, fixBlend(dxc))
 		posY = addBlend(yb, fixBlend(dyc))
+		charge(xa, ya, xb, yb, posX, posY)
 		res.Cmds = append(res.Cmds, GlyphOpCFF2{
 			Op:   OpCurveTo,
 			Args: []Blend{xa, ya, xb, yb, posX, posY},
@@ -343,7 +357,9 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 					return nil, errStackUnderflow
 				}
 				stage = stageStems
-				appendStems(&res.HStem, stack)
+				if err := appendStems(info.budget, &res.HStem, stack); err != nil {
+					return nil, err
+				}
 				clearStack()
 
 			case t2vstem, t2vstemhm:
@@ -353,7 +369,9 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 					return nil, errStackUnderflow
 				}
 				stage = stageStems
-				appendStems(&res.VStem, stack)
+				if err := appendStems(info.budget, &res.VStem, stack); err != nil {
+					return nil, err
+				}
 				clearStack()
 
 			case t2hintmask, t2cntrmask:
@@ -366,7 +384,9 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 
 				// implicit vstem operands before hintmask (as in CFF1: a
 				// leading hstem/vstem pair sequence may omit the vstem op).
-				appendStems(&res.VStem, stack)
+				if err := appendStems(info.budget, &res.VStem, stack); err != nil {
+					return nil, err
+				}
 				clearStack()
 
 				nStems := (len(res.HStem) + len(res.VStem)) / 2
@@ -493,6 +513,9 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 			if moveError != nil {
 				return nil, moveError
 			}
+			if budgetErr != nil {
+				return nil, budgetErr
+			}
 		}
 	}
 
@@ -502,14 +525,35 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 
 // appendStems prefix-sums the operand pairs and appends the resulting absolute
 // stem edges (as Blend pairs) to *out.  A trailing odd operand is ignored.
-func appendStems(out *[]Blend, stack []Blend) {
+func appendStems(budget *membudget.Budget, out *[]Blend, stack []Blend) error {
 	var prev Blend
 	for i := 0; i+1 < len(stack); i += 2 {
 		a := addBlend(prev, stack[i])
 		b := addBlend(a, stack[i+1])
+		if err := chargeBlendArgs(budget, a, b); err != nil {
+			return err
+		}
 		*out = append(*out, a, b)
 		prev = b
 	}
+	return nil
+}
+
+// chargeBlendArgs charges the budget for the delta storage retained by args.
+// It is called at every site where a Blend is appended to a persistent slice
+// (res.Cmds args, HStem, VStem), so that a single cheap blend feeding a long
+// run of subsequent path operators cannot amplify memory far beyond the
+// n*k*8 charged at blend time: each emitted k-sized Deltas slice is charged
+// individually, at the point it is retained.
+func chargeBlendArgs(budget *membudget.Budget, args ...Blend) error {
+	for _, a := range args {
+		if a.Deltas != nil {
+			if err := budget.Charge(len(a.Deltas) * 8); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // addBlend returns the componentwise sum a+b.  Missing deltas are treated as

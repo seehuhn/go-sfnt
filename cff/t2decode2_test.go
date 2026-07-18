@@ -406,6 +406,49 @@ func TestDecodeCFF2BlendBudget(t *testing.T) {
 	}
 }
 
+// TestDecodeCFF2StickyBlendBudget checks that once a coordinate has been
+// blended, the k-sized Deltas slice re-emitted by every subsequent path
+// operator is charged against the budget.  A single cheap blend (n=1)
+// followed by a long run of plain hlineto operands must not be able to
+// allocate far more than the budget allows: the position stays "sticky"
+// blended (addBlend widens a nil Deltas to k once one side already has
+// Deltas), so each of the n plain line operators emits a fresh k-length
+// slice even though its own operand carries no deltas.
+func TestDecodeCFF2StickyBlendBudget(t *testing.T) {
+	const k = 100 // regions per blended value
+	const n = 400 // number of plain hlineto operands after the blend
+
+	parts := []any{0} // blended dx base
+	for range k {
+		parts = append(parts, 1) // blend deltas
+	}
+	parts = append(parts, 1, t2blend, 0, t2rmoveto) // n=1, blend, dy=0, rmoveto
+	for range n {
+		parts = append(parts, 1) // cheap plain hlineto operand
+	}
+	parts = append(parts, t2hlineto)
+	code := cs(parts...)
+
+	// tight budget: the charstring bytes and the single blend are cheap, but
+	// n emitted k-sized deltas would need n*k*8 bytes -- far more than this
+	// allows.
+	tight := &decodeInfoCFF2{
+		regionCount: fixedRegionCount(k, 8),
+		budget:      membudget.New(int64(len(code)) + 4096),
+	}
+	if _, err := tight.decodeCharStringCFF2(code); !errors.Is(err, membudget.ErrExceeded) {
+		t.Errorf("tight budget: err = %v, want ErrExceeded", err)
+	}
+
+	generous := &decodeInfoCFF2{
+		regionCount: fixedRegionCount(k, 8),
+		budget:      membudget.New(1 << 20),
+	}
+	if _, err := generous.decodeCharStringCFF2(code); err != nil {
+		t.Errorf("generous budget: unexpected error: %v", err)
+	}
+}
+
 func FuzzT2DecodeCFF2(f *testing.F) {
 	f.Add(cs(100, 200, t2rmoveto, 50, 0, t2rlineto))
 	f.Add(cs(0, 0, t2rmoveto, 10, 10, 10, 10, 10, 10, t2rrcurveto))
