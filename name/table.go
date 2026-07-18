@@ -148,6 +148,11 @@ func (t *Table) String() string {
 	return b.String()
 }
 
+// Get returns the string stored under the given name ID, or "" if absent.
+func (t *Table) Get(nameID ID) string {
+	return t.get(nameID)
+}
+
 func (t *Table) get(nameID ID) string {
 	switch nameID {
 	case 0:

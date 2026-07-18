@@ -28,14 +28,21 @@ import (
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
+	"seehuhn.de/go/sfnt/avar"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
+	"seehuhn.de/go/sfnt/cvar"
+	"seehuhn.de/go/sfnt/fvar"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/gvar"
 	"seehuhn.de/go/sfnt/head"
+	"seehuhn.de/go/sfnt/hvar"
+	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
+	"seehuhn.de/go/sfnt/stat"
 )
 
 // TODO(voss): read https://github.com/googlefonts/gf-docs/tree/main/VerticalMetrics
@@ -126,6 +133,18 @@ type Font struct {
 	Gdef *gdef.Table
 	Gsub *gtab.Info
 	Gpos *gtab.Info
+
+	Fvar *fvar.Table
+	Avar *avar.Table
+	Stat *stat.Table
+	Gvar *gvar.Table
+	Cvar *cvar.Table
+	Hvar *hvar.Table
+	Mvar *mvar.Table
+
+	// VariationsPostScriptName is "name" table entry 25 (the variations
+	// PostScript name prefix), retained for instancing.
+	VariationsPostScriptName string
 }
 
 // Clone makes a shallow copy of the font object.

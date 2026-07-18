@@ -22,12 +22,14 @@ import (
 	"io"
 	"maps"
 	"math"
+	"slices"
 	"time"
 
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
+	"seehuhn.de/go/sfnt/fvar"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/header"
@@ -36,11 +38,17 @@ import (
 	"seehuhn.de/go/sfnt/name"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/post"
+	"seehuhn.de/go/sfnt/stat"
 )
 
 // Write writes the binary form of the font to the given writer.
 func (f *Font) Write(w io.Writer) (int64, error) {
 	tableData := make(map[string][]byte)
+
+	// name-ID coordination for the variation tables must precede makeName so
+	// that the allocated strings can be registered in the "name" table.  The
+	// returned tables are clones; the caller's Font is never mutated.
+	fvarTable, statTable, nameExtra := f.assignVariationNameIDs()
 
 	hheaData, hmtxData := f.makeHmtx()
 	tableData["hhea"] = hheaData
@@ -51,7 +59,7 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 	}
 
 	tableData["OS/2"] = f.makeOS2()
-	tableData["name"] = f.makeName()
+	tableData["name"] = f.makeName(nameExtra)
 	postData, err := f.makePost()
 	if err != nil {
 		return 0, err
@@ -99,7 +107,158 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 		tableData["GPOS"] = f.Gpos.Encode()
 	}
 
+	if fvarTable != nil {
+		tableData["fvar"] = fvarTable.Encode()
+	}
+	if f.Avar != nil {
+		tableData["avar"] = f.Avar.Encode()
+	}
+	if statTable != nil {
+		tableData["STAT"] = statTable.Encode()
+	}
+	if f.Gvar != nil {
+		gvarData, err := f.Gvar.Encode()
+		if err != nil {
+			return 0, err
+		}
+		tableData["gvar"] = gvarData
+	}
+	if f.Cvar != nil {
+		var cvtCount int
+		if o, ok := f.Outlines.(*glyf.Outlines); ok {
+			cvtCount = len(o.Tables["cvt "]) / 2
+		}
+		cvarData, err := f.Cvar.Encode(cvtCount)
+		if err != nil {
+			return 0, err
+		}
+		tableData["cvar"] = cvarData
+	}
+	if f.Hvar != nil {
+		tableData["HVAR"] = f.Hvar.Encode()
+	}
+	if f.Mvar != nil {
+		mvarData, err := f.Mvar.Encode()
+		if err != nil {
+			return 0, err
+		}
+		tableData["MVAR"] = mvarData
+	}
+
 	return header.Write(w, scalerType, tableData)
+}
+
+// assignVariationNameIDs clones the font's "fvar" and "STAT" tables and assigns
+// deterministic "name" table IDs (>= 256) to their name strings.  It returns
+// the clones together with the strings to register in the "name" table, keyed
+// by the allocated ID.  Identical strings share one ID.  A NameID field whose
+// resolved Name is empty keeps its existing numeric value and contributes no
+// string.  The caller's Font is never mutated.
+func (f *Font) assignVariationNameIDs() (*fvar.Table, *stat.Table, map[name.ID]string) {
+	extra := make(map[name.ID]string)
+	next := name.ID(256)
+	seen := make(map[string]name.ID)
+	alloc := func(s string) uint16 {
+		if id, ok := seen[s]; ok {
+			return uint16(id)
+		}
+		id := next
+		next++
+		seen[s] = id
+		extra[id] = s
+		return uint16(id)
+	}
+
+	var fv *fvar.Table
+	if f.Fvar != nil {
+		fv = cloneFvar(f.Fvar)
+		for i := range fv.Axes {
+			if fv.Axes[i].Name != "" {
+				fv.Axes[i].NameID = alloc(fv.Axes[i].Name)
+			}
+		}
+		for i := range fv.Instances {
+			inst := &fv.Instances[i]
+			if inst.Name != "" {
+				inst.NameID = alloc(inst.Name)
+			}
+			if inst.PostScriptName != "" {
+				inst.PostScriptNameID = alloc(inst.PostScriptName)
+			}
+		}
+	}
+
+	var st *stat.Table
+	if f.Stat != nil {
+		st = cloneStat(f.Stat)
+		for i := range st.DesignAxes {
+			if st.DesignAxes[i].Name != "" {
+				st.DesignAxes[i].NameID = alloc(st.DesignAxes[i].Name)
+			}
+		}
+		for i, av := range st.AxisValues {
+			st.AxisValues[i] = assignAxisValueName(av, alloc)
+		}
+		if st.ElidedFallbackName != "" {
+			st.ElidedFallbackNameID = alloc(st.ElidedFallbackName)
+		}
+	}
+
+	if len(extra) == 0 {
+		extra = nil
+	}
+	return fv, st, extra
+}
+
+func cloneFvar(t *fvar.Table) *fvar.Table {
+	c := *t
+	c.Axes = slices.Clone(t.Axes)
+	c.Instances = slices.Clone(t.Instances)
+	for i := range c.Instances {
+		c.Instances[i].Coordinates = slices.Clone(t.Instances[i].Coordinates)
+	}
+	return &c
+}
+
+func cloneStat(t *stat.Table) *stat.Table {
+	c := *t
+	c.DesignAxes = slices.Clone(t.DesignAxes)
+	c.AxisValues = slices.Clone(t.AxisValues) // elements replaced by the caller
+	return &c
+}
+
+// assignAxisValueName returns a copy of av with its NameID reassigned when its
+// resolved Name is non-empty.
+func assignAxisValueName(av stat.AxisValue, alloc func(string) uint16) stat.AxisValue {
+	switch v := av.(type) {
+	case *stat.Format1:
+		c := *v
+		if c.Name != "" {
+			c.NameID = alloc(c.Name)
+		}
+		return &c
+	case *stat.Format2:
+		c := *v
+		if c.Name != "" {
+			c.NameID = alloc(c.Name)
+		}
+		return &c
+	case *stat.Format3:
+		c := *v
+		if c.Name != "" {
+			c.NameID = alloc(c.Name)
+		}
+		return &c
+	case *stat.Format4:
+		c := *v
+		c.Values = slices.Clone(v.Values)
+		if c.Name != "" {
+			c.NameID = alloc(c.Name)
+		}
+		return &c
+	default:
+		return av
+	}
 }
 
 // WriteTrueTypePDF writes the binary form of a TrueType font to the given
@@ -299,7 +458,9 @@ func (f *Font) makeOS2() []byte {
 	return os2Info.Encode()
 }
 
-func (f *Font) makeName() []byte {
+// makeName builds the "name" table.  extra carries additional strings keyed by
+// their allocated name ID (>= 256), typically from assignVariationNameIDs.
+func (f *Font) makeName(extra map[name.ID]string) []byte {
 	day := f.ModificationTime
 	if day.IsZero() {
 		day = f.CreationTime
@@ -323,6 +484,9 @@ func (f *Font) makeName() []byte {
 		Version:        "Version " + f.Version.String(),
 		PostScriptName: f.PostScriptName(),
 		SampleText:     f.SampleText,
+
+		VariationsPostScriptName: f.VariationsPostScriptName,
+		Extra:                    extra,
 	}
 	nameInfo := &name.Info{
 		Mac: name.Tables{

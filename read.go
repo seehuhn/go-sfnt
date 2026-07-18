@@ -31,21 +31,28 @@ import (
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
+	"seehuhn.de/go/sfnt/avar"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
+	"seehuhn.de/go/sfnt/cvar"
+	"seehuhn.de/go/sfnt/fvar"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/gvar"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
+	"seehuhn.de/go/sfnt/hvar"
 	"seehuhn.de/go/sfnt/kern"
 	"seehuhn.de/go/sfnt/maxp"
+	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/name"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/post"
+	"seehuhn.de/go/sfnt/stat"
 )
 
 // ReadFile reads a TrueType or OpenType font from a file.
@@ -542,7 +549,148 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		}
 	}
 
+	// Variation tables.  fvar is the gate: without it (or with no axes) the
+	// font is not variable and the remaining tables are skipped.  Each table
+	// is dropped silently on its own parse error; the font still loads.
+	if dir.Has("fvar") {
+		fvarFd, err := dir.TableReader(rr, "fvar")
+		if err == nil {
+			info.Fvar, err = fvar.Read(fvarFd, budget)
+			if err != nil {
+				info.Fvar = nil
+			}
+		}
+	}
+	if info.Fvar != nil && len(info.Fvar.Axes) == 0 {
+		info.Fvar = nil
+	}
+	if info.Fvar != nil {
+		axisCount := len(info.Fvar.Axes)
+
+		// resolve informational names and retain name ID 25
+		if nameTable != nil {
+			for i := range info.Fvar.Axes {
+				info.Fvar.Axes[i].Name = nameTable.Get(name.ID(info.Fvar.Axes[i].NameID))
+			}
+			for i := range info.Fvar.Instances {
+				inst := &info.Fvar.Instances[i]
+				inst.Name = nameTable.Get(name.ID(inst.NameID))
+				if inst.PostScriptNameID != 0xFFFF {
+					inst.PostScriptName = nameTable.Get(name.ID(inst.PostScriptNameID))
+				}
+			}
+			info.VariationsPostScriptName = nameTable.VariationsPostScriptName
+		}
+
+		if dir.Has("avar") {
+			avarFd, err := dir.TableReader(rr, "avar")
+			if err == nil {
+				info.Avar, err = avar.Read(avarFd, budget)
+				if err != nil {
+					info.Avar = nil
+				}
+			}
+		}
+		// a version 1 avar must supply one segment map per axis
+		if info.Avar != nil && info.Avar.IsSupported() && len(info.Avar.SegmentMaps) != axisCount {
+			info.Avar = nil
+		}
+
+		if dir.Has("STAT") {
+			statFd, err := dir.TableReader(rr, "STAT")
+			if err == nil {
+				info.Stat, err = stat.Read(statFd, budget)
+				if err != nil {
+					info.Stat = nil
+				}
+			}
+		}
+		if info.Stat != nil && nameTable != nil {
+			resolveStatNames(info.Stat, nameTable)
+		}
+
+		if dir.Has("gvar") {
+			gvarData, err := dir.ReadTableBytes(rr, "gvar")
+			if err == nil {
+				info.Gvar, err = gvar.Decode(gvarData, budget)
+				if err != nil {
+					info.Gvar = nil
+				}
+			}
+		}
+		if info.Gvar != nil {
+			if info.Gvar.AxisCount != axisCount {
+				info.Gvar = nil
+			} else {
+				// pad or truncate the per-glyph blocks to the real glyph
+				// count (permissive)
+				n := info.NumGlyphs()
+				if len(info.Gvar.PerGlyph) > n {
+					info.Gvar.PerGlyph = info.Gvar.PerGlyph[:n]
+				} else if len(info.Gvar.PerGlyph) < n {
+					padded := make([]gvar.GlyphData, n)
+					copy(padded, info.Gvar.PerGlyph)
+					info.Gvar.PerGlyph = padded
+				}
+			}
+		}
+
+		// cvar applies only to glyf fonts with a "cvt " table
+		if glyfOutlines, ok := info.Outlines.(*glyf.Outlines); ok && dir.Has("cvar") {
+			if cvt := glyfOutlines.Tables["cvt "]; cvt != nil {
+				cvarData, err := dir.ReadTableBytes(rr, "cvar")
+				if err == nil {
+					info.Cvar, err = cvar.Decode(cvarData, axisCount, len(cvt)/2, budget)
+					if err != nil {
+						info.Cvar = nil
+					}
+				}
+			}
+		}
+
+		if dir.Has("HVAR") {
+			hvarFd, err := dir.TableReader(rr, "HVAR")
+			if err == nil {
+				info.Hvar, err = hvar.Read(hvarFd, budget)
+				if err != nil {
+					info.Hvar = nil
+				}
+			}
+		}
+
+		if dir.Has("MVAR") {
+			mvarFd, err := dir.TableReader(rr, "MVAR")
+			if err == nil {
+				info.Mvar, err = mvar.Read(mvarFd, budget)
+				if err != nil {
+					info.Mvar = nil
+				}
+			}
+		}
+	}
+
 	return info, nil
+}
+
+// resolveStatNames fills in the informational Name fields of a STAT table from
+// the "name" table.
+func resolveStatNames(t *stat.Table, nameTable *name.Table) {
+	for i := range t.DesignAxes {
+		t.DesignAxes[i].Name = nameTable.Get(name.ID(t.DesignAxes[i].NameID))
+	}
+	for _, av := range t.AxisValues {
+		switch v := av.(type) {
+		case *stat.Format1:
+			v.Name = nameTable.Get(name.ID(v.NameID))
+		case *stat.Format2:
+			v.Name = nameTable.Get(name.ID(v.NameID))
+		case *stat.Format3:
+			v.Name = nameTable.Get(name.ID(v.NameID))
+		case *stat.Format4:
+			v.Name = nameTable.Get(name.ID(v.NameID))
+		}
+	}
+	t.ElidedFallbackName = nameTable.Get(name.ID(t.ElidedFallbackNameID))
 }
 
 func getNameTableVersion(t *name.Table) (head.Version, bool) {
