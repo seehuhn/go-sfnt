@@ -174,6 +174,14 @@ func FuzzFont(f *testing.F) {
 	}
 	f.Add(buf.Bytes())
 
+	// a minimal CFF2 font
+	buf.Reset()
+	_, err = makeCFF2Font().Write(buf)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(buf.Bytes())
+
 	// the hand-computable synthetic variable font from internal/debug
 	buf.Reset()
 	_, err = debug.MakeVarFont().Write(buf)

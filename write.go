@@ -18,6 +18,7 @@ package sfnt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -76,6 +77,13 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 		}
 		tableData["CFF "] = cffData
 		scalerType = header.ScalerTypeCFF
+	case *cff.OutlinesCFF2:
+		cff2Data, err := f.makeCFF2(outlines)
+		if err != nil {
+			return 0, err
+		}
+		tableData["CFF2"] = cff2Data
+		scalerType = header.ScalerTypeCFF
 	case *glyf.Outlines:
 		enc := outlines.Glyphs.Encode()
 		tableData["glyf"] = enc.GlyfData
@@ -115,7 +123,8 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 	if statTable != nil {
 		tableData["STAT"] = statTable.Encode()
 	}
-	if f.Gvar != nil {
+	// gvar applies only to glyf outlines, mirroring the read gate.
+	if _, ok := f.Outlines.(*glyf.Outlines); ok && f.Gvar != nil {
 		gvarData, err := f.Gvar.Encode()
 		if err != nil {
 			return 0, err
@@ -173,21 +182,24 @@ func (f *Font) assignVariationNameIDs() (*fvar.Table, *stat.Table, map[name.ID]s
 // "GDEF", and "kern" tables are omitted, as they are not required for
 // PDF embedding.
 //
-// If the font does not use TrueType outlines, the function panics.
+// If the font does not use TrueType outlines, the function returns an error.
 //
 // The optional arguments, if given, must be a sequence of pairs of strings and
 // byte slices.  Each pair is interpreted as the name of a table and the
 // corresponding data.  These tables are included in the output and override
 // the default tables, where applicable.
 func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) {
+	outlines, ok := f.Outlines.(*glyf.Outlines)
+	if !ok {
+		return 0, errors.New("sfnt: WriteTrueTypePDF requires TrueType outlines")
+	}
+
 	tableData := make(map[string][]byte)
 
 	if f.CMapTable != nil {
 		tableData["cmap"] = f.CMapTable.Encode()
 	}
 	tableData["hhea"], tableData["hmtx"] = f.makeHmtx()
-
-	outlines := f.Outlines.(*glyf.Outlines)
 	enc := outlines.Glyphs.Encode()
 	tableData["glyf"] = enc.GlyfData
 	tableData["loca"] = enc.LocaData
@@ -218,14 +230,21 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 
 // WriteOpenTypeCFFPDF writes a minimal OpenType file, which includes only the
 // tables required for PDF embedding.
+//
+// CFF2 outlines cannot be embedded this way (PDF supports static CFF only) and
+// the function returns an error for them.
 func (f *Font) WriteOpenTypeCFFPDF(w io.Writer) error {
+	outlines, ok := f.Outlines.(*cff.Outlines)
+	if !ok {
+		return errors.New("sfnt: WriteOpenTypeCFFPDF requires CFF outlines")
+	}
+
 	tableData := make(map[string][]byte)
 
 	if f.CMapTable != nil {
 		tableData["cmap"] = f.CMapTable.Encode()
 	}
 
-	outlines := f.Outlines.(*cff.Outlines)
 	cffData, err := f.makeCFF(outlines)
 	if err != nil {
 		return err
@@ -422,6 +441,19 @@ func (f *Font) makePost() ([]byte, error) {
 		postInfo.Names = outlines.Names
 	}
 	return postInfo.Encode(), nil
+}
+
+func (f *Font) makeCFF2(outlines *cff.OutlinesCFF2) ([]byte, error) {
+	myCff := &cff.FontCFF2{
+		FontMatrix:   f.FontMatrix,
+		OutlinesCFF2: outlines,
+	}
+
+	buf := &bytes.Buffer{}
+	if err := myCff.Write(buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (f *Font) makeCFF(outlines *cff.Outlines) ([]byte, error) {

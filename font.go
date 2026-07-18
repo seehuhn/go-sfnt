@@ -207,6 +207,25 @@ func (f *Font) AsCFF() *cff.Font {
 	}
 }
 
+// IsCFF2 returns true if the font contains CFF2 glyph outlines.
+func (f *Font) IsCFF2() bool {
+	_, ok := f.Outlines.(*cff.OutlinesCFF2)
+	return ok
+}
+
+// AsCFF2 returns the CFF2 font data for the given font.
+// Returns nil if the font does not contain CFF2 outlines.
+func (f *Font) AsCFF2() *cff.FontCFF2 {
+	outlines, ok := f.Outlines.(*cff.OutlinesCFF2)
+	if !ok {
+		return nil
+	}
+	return &cff.FontCFF2{
+		FontMatrix:   f.FontMatrix,
+		OutlinesCFF2: outlines,
+	}
+}
+
 // FullName returns the full name of the font.
 func (f *Font) FullName() string {
 	return f.FamilyName + " " + f.Subfamily()
@@ -318,6 +337,12 @@ func (f *Font) Widths() []float64 {
 			widths[gid] = g.Width
 		}
 		return widths
+	case *cff.OutlinesCFF2:
+		if outlines.Widths == nil {
+			return widths
+		}
+		copy(widths, outlines.Widths)
+		return widths
 	case *glyf.Outlines:
 		for i := range widths {
 			widths[i] = float64(outlines.Widths[i])
@@ -340,6 +365,15 @@ func (f *Font) WidthsPDF() []float64 {
 		for gid, g := range o.Glyphs {
 			q := o.GlyphAdvanceScale(f.FontMatrix, glyph.ID(gid))
 			widths[gid] = g.Width * q
+		}
+		return widths
+	case *cff.OutlinesCFF2:
+		if o.Widths == nil {
+			return nil
+		}
+		for gid, w := range o.Widths {
+			q := o.GlyphAdvanceScale(f.FontMatrix, glyph.ID(gid))
+			widths[gid] = w * q
 		}
 		return widths
 	case *glyf.Outlines:
@@ -377,13 +411,17 @@ func (f *Font) WidthsMapPDF() map[string]float64 {
 // GlyphBBoxes returns the glyph bounding boxes for the font.
 func (f *Font) GlyphBBoxes() []funit.Rect16 {
 	extents := make([]funit.Rect16, f.NumGlyphs())
-	switch f := f.Outlines.(type) {
+	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		for i, g := range f.Glyphs {
+		for i, g := range o.Glyphs {
 			extents[i] = g.Extent()
 		}
+	case *cff.OutlinesCFF2:
+		for i := range o.Glyphs {
+			extents[i] = toRect16(o.GlyphBBox(matrix.Identity, glyph.ID(i)))
+		}
 	case *glyf.Outlines:
-		for i, g := range f.Glyphs {
+		for i, g := range o.Glyphs {
 			if g == nil {
 				continue
 			}
@@ -393,6 +431,17 @@ func (f *Font) GlyphBBoxes() []funit.Rect16 {
 		panic("unexpected font type")
 	}
 	return extents
+}
+
+// toRect16 rounds a design-unit rectangle to the integer funit.Rect16 used by
+// the metrics tables.
+func toRect16(b rect.Rect) funit.Rect16 {
+	return funit.Rect16{
+		LLx: funit.Int16(math.Round(b.LLx)),
+		LLy: funit.Int16(math.Round(b.LLy)),
+		URx: funit.Int16(math.Round(b.URx)),
+		URy: funit.Int16(math.Round(b.URy)),
+	}
 }
 
 // GlyphBBoxesPDF returns per-glyph bounding boxes in PDF glyph space units
@@ -412,14 +461,19 @@ func (f *Font) GlyphBBoxesPDF() []rect.Rect {
 // GlyphWidth returns the advance width of the glyph with the given glyph ID,
 // in font design units.
 func (f *Font) GlyphWidth(gid glyph.ID) float64 {
-	switch f := f.Outlines.(type) {
+	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		return f.Glyphs[gid].Width
-	case *glyf.Outlines:
-		if f.Widths == nil {
+		return o.Glyphs[gid].Width
+	case *cff.OutlinesCFF2:
+		if o.Widths == nil {
 			return 0
 		}
-		return float64(f.Widths[gid])
+		return o.Widths[gid]
+	case *glyf.Outlines:
+		if o.Widths == nil {
+			return 0
+		}
+		return float64(o.Widths[gid])
 	default:
 		panic("unexpected font type")
 	}
@@ -431,6 +485,13 @@ func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 	case *cff.Outlines:
 		q := o.GlyphAdvanceScale(f.FontMatrix, gid)
 		return o.Glyphs[gid].Width * (q * 1000)
+
+	case *cff.OutlinesCFF2:
+		if o.Widths == nil {
+			return 0
+		}
+		q := o.GlyphAdvanceScale(f.FontMatrix, gid)
+		return o.Widths[gid] * (q * 1000)
 
 	case *glyf.Outlines:
 		if o.Widths == nil {
@@ -446,11 +507,13 @@ func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 // GlyphBBox returns the glyph bounding box for one glyph in font design
 // units.
 func (f *Font) GlyphBBox(gid glyph.ID) funit.Rect16 {
-	switch f := f.Outlines.(type) {
+	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		return f.Glyphs[gid].Extent()
+		return o.Glyphs[gid].Extent()
+	case *cff.OutlinesCFF2:
+		return toRect16(o.GlyphBBox(matrix.Identity, gid))
 	case *glyf.Outlines:
-		g := f.Glyphs[gid]
+		g := o.Glyphs[gid]
 		if g == nil {
 			return funit.Rect16{}
 		}
@@ -461,11 +524,13 @@ func (f *Font) GlyphBBox(gid glyph.ID) funit.Rect16 {
 }
 
 func (f *Font) glyphHeight(gid glyph.ID) funit.Int16 {
-	switch f := f.Outlines.(type) {
+	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		return f.Glyphs[gid].Extent().URy
+		return o.Glyphs[gid].Extent().URy
+	case *cff.OutlinesCFF2:
+		return funit.Int16(math.Round(o.GlyphBBox(matrix.Identity, gid).URy))
 	case *glyf.Outlines:
-		g := f.Glyphs[gid]
+		g := o.Glyphs[gid]
 		if g == nil {
 			return 0
 		}
@@ -478,14 +543,16 @@ func (f *Font) glyphHeight(gid glyph.ID) funit.Int16 {
 // GlyphName returns the name of a glyph.
 // If the name is not known, the empty string is returned.
 func (f *Font) GlyphName(gid glyph.ID) string {
-	switch f := f.Outlines.(type) {
+	switch o := f.Outlines.(type) {
 	case *cff.Outlines:
-		return f.Glyphs[gid].Name
+		return o.Glyphs[gid].Name
+	case *cff.OutlinesCFF2:
+		return "" // CFF2 glyphs carry no names
 	case *glyf.Outlines:
-		if f.Names == nil {
+		if o.Names == nil {
 			return ""
 		}
-		return f.Names[gid]
+		return o.Names[gid]
 	default:
 		panic("unexpected font type")
 	}

@@ -43,6 +43,8 @@ func (f *Font) EnsureGlyphNames() {
 			}
 			g.Name = glyphNames[gid]
 		}
+	case *cff.OutlinesCFF2:
+		// CFF2 glyphs carry no names; nothing to store
 	case *glyf.Outlines:
 		f.Names = glyphNames
 	default:
@@ -64,6 +66,8 @@ func (f *Font) MakeGlyphNames() []string {
 			}
 			glyphNames[gid] = g.Name
 		}
+	case *cff.OutlinesCFF2:
+		// CFF2 glyphs carry no names; leave them empty for inference below
 	case *glyf.Outlines:
 		if len(f.Names) == len(f.Glyphs) {
 			copy(glyphNames, f.Names)

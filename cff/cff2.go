@@ -17,6 +17,8 @@
 package cff
 
 import (
+	"math"
+
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
@@ -231,6 +233,20 @@ func (o *OutlinesCFF2) FDMatrix(fd int, top matrix.Matrix) matrix.Matrix {
 		return o.FontMatrices[fd].Mul(top)
 	}
 	return top
+}
+
+// GlyphAdvanceScale returns the scalar factor that converts a glyph's CFF2
+// design-unit advance width to text space units.  It accounts for any per-FD
+// font matrix as well as shear in the supplied top-level matrix.
+//
+// Multiply by 1000 to obtain PDF glyph space units.
+func (o *OutlinesCFF2) GlyphAdvanceScale(top matrix.Matrix, gid glyph.ID) float64 {
+	fm := o.GlyphMatrix(top, gid)
+	q := fm[0]
+	if math.Abs(fm[3]) > 1e-6 {
+		q -= fm[1] * fm[2] / fm[3]
+	}
+	return q
 }
 
 // Clone creates a new font, consisting of a shallow copy of the outlines with

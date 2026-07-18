@@ -92,13 +92,7 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		return nil, fmt.Errorf("sfnt header: %w", err)
 	}
 
-	if !(dir.Has("glyf", "loca") || dir.Has("CFF ")) {
-		if dir.Has("CFF2") {
-			return nil, &parser.NotSupportedError{
-				SubSystem: "sfnt",
-				Feature:   "CFF2-based fonts",
-			}
-		}
+	if !(dir.Has("glyf", "loca") || dir.Has("CFF ") || dir.Has("CFF2")) {
 		return nil, errors.New("sfnt: no TrueType/OpenType glyph data found")
 	}
 
@@ -223,8 +217,49 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 	// Read the glyph data.
 	var Outlines Outlines
 	var fontInfo *type1.FontInfo
-	switch dir.ScalerType {
-	case header.ScalerTypeCFF:
+	var cff2Font *cff.FontCFF2
+	var cff2UPM float64
+	switch {
+	case dir.Has("CFF2"):
+		// CFF2 outlines are preferred when present (the spec forbids a font
+		// from also carrying "CFF "/"glyf").  CFF2 appears under the OTTO
+		// scaler type, but we accept it under any scaler type.
+		cff2Fd, err := dir.TableReader(rr, "CFF2")
+		if err != nil {
+			return nil, err
+		}
+		cff2Font, err = cff.ReadCFF2(cff2Fd, budget)
+		if err != nil {
+			return nil, fmt.Errorf("CFF2 table: %w", err)
+		}
+		o := cff2Font.OutlinesCFF2
+		Outlines = o
+
+		// UnitsPerEm: the head table wins; otherwise derive it from the
+		// effective font matrix.
+		if headInfo != nil {
+			cff2UPM = float64(headInfo.UnitsPerEm)
+		} else if m := o.GlyphMatrix(cff2Font.FontMatrix, 0); m[0] != 0 {
+			cff2UPM = 1 / m[0]
+		} else {
+			cff2UPM = 1000
+		}
+
+		if numGlyphs != 0 && len(o.Glyphs) != numGlyphs {
+			return nil, errors.New("sfnt: cff2 glyph count mismatch")
+		} else if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
+			// hmtx widths are in UnitsPerEm.  Convert to CFF2 design units
+			// (which is what OutlinesCFF2.Widths holds) using each glyph's
+			// effective font matrix.
+			o.Widths = make([]float64, len(o.Glyphs))
+			for i, w := range hmtxInfo.Widths {
+				q := o.GlyphAdvanceScale(cff2Font.FontMatrix, glyph.ID(i))
+				if d := q * cff2UPM; d != 0 {
+					o.Widths[i] = float64(w) / d
+				}
+			}
+		}
+	case dir.ScalerType == header.ScalerTypeCFF:
 		var cffInfo *cff.Font
 		cffFd, err := dir.TableReader(rr, "CFF ")
 		if err != nil {
@@ -260,7 +295,7 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 				g.Width = 0
 			}
 		}
-	case header.ScalerTypeTrueType, header.ScalerTypeApple:
+	case dir.ScalerType == header.ScalerTypeTrueType, dir.ScalerType == header.ScalerTypeApple:
 		if headInfo == nil {
 			return nil, &header.ErrMissing{TableName: "head"}
 		}
@@ -372,12 +407,17 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		info.PermUse = os2Info.PermUse
 	}
 
-	info.UnitsPerEm = uint16(math.Round(deriveUnitsPerEm(Outlines, fontInfo, headInfo)))
-	if fontInfo != nil {
-		info.FontMatrix = fontInfo.FontMatrix
+	if cff2Font != nil {
+		info.UnitsPerEm = uint16(math.Round(cff2UPM))
+		info.FontMatrix = cff2Font.FontMatrix
 	} else {
-		q := 1 / float64(info.UnitsPerEm)
-		info.FontMatrix = [6]float64{q, 0, 0, q, 0, 0}
+		info.UnitsPerEm = uint16(math.Round(deriveUnitsPerEm(Outlines, fontInfo, headInfo)))
+		if fontInfo != nil {
+			info.FontMatrix = fontInfo.FontMatrix
+		} else {
+			q := 1 / float64(info.UnitsPerEm)
+			info.FontMatrix = [6]float64{q, 0, 0, q, 0, 0}
+		}
 	}
 
 	if os2Info != nil {
@@ -614,7 +654,9 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		// the file's stored IDs use a different numbering.
 		canonicalizeVariationNames(info.Fvar, info.Stat)
 
-		if dir.Has("gvar") {
+		// gvar applies only to glyf outlines
+		_, isGlyf := info.Outlines.(*glyf.Outlines)
+		if isGlyf && dir.Has("gvar") {
 			gvarData, err := dir.ReadTableBytes(rr, "gvar")
 			if err == nil {
 				info.Gvar, err = gvar.Decode(gvarData, budget)
