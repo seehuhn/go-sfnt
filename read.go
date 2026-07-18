@@ -609,6 +609,11 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			resolveStatNames(info.Stat, nameTable)
 		}
 
+		// canonicalize the NameID fields so they match what Write would
+		// assign; this keeps read-write-read round trips stable even when
+		// the file's stored IDs use a different numbering.
+		canonicalizeVariationNames(info.Fvar, info.Stat)
+
 		if dir.Has("gvar") {
 			gvarData, err := dir.ReadTableBytes(rr, "gvar")
 			if err == nil {

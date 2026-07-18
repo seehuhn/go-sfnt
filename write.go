@@ -22,7 +22,6 @@ import (
 	"io"
 	"maps"
 	"math"
-	"slices"
 	"time"
 
 	"seehuhn.de/go/postscript/funit"
@@ -123,16 +122,16 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 		}
 		tableData["gvar"] = gvarData
 	}
-	if f.Cvar != nil {
-		var cvtCount int
-		if o, ok := f.Outlines.(*glyf.Outlines); ok {
-			cvtCount = len(o.Tables["cvt "]) / 2
+	// cvar applies only to glyf fonts with a "cvt " table, mirroring the
+	// read gate.
+	if o, ok := f.Outlines.(*glyf.Outlines); ok && f.Cvar != nil {
+		if cvt, ok := o.Tables["cvt "]; ok {
+			cvarData, err := f.Cvar.Encode(len(cvt) / 2)
+			if err != nil {
+				return 0, err
+			}
+			tableData["cvar"] = cvarData
 		}
-		cvarData, err := f.Cvar.Encode(cvtCount)
-		if err != nil {
-			return 0, err
-		}
-		tableData["cvar"] = cvarData
 	}
 	if f.Hvar != nil {
 		tableData["HVAR"] = f.Hvar.Encode()
@@ -148,117 +147,22 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 	return header.Write(w, scalerType, tableData)
 }
 
-// assignVariationNameIDs clones the font's "fvar" and "STAT" tables and assigns
-// deterministic "name" table IDs (>= 256) to their name strings.  It returns
-// the clones together with the strings to register in the "name" table, keyed
-// by the allocated ID.  Identical strings share one ID.  A NameID field whose
-// resolved Name is empty keeps its existing numeric value and contributes no
-// string.  The caller's Font is never mutated.
+// assignVariationNameIDs clones the font's "fvar" and "STAT" tables and
+// assigns deterministic "name" table IDs (>= 256) to their name strings via
+// [canonicalizeVariationNames].  It returns the clones together with the
+// strings to register in the "name" table, keyed by the allocated ID.  The
+// caller's Font is never mutated.
 func (f *Font) assignVariationNameIDs() (*fvar.Table, *stat.Table, map[name.ID]string) {
-	extra := make(map[name.ID]string)
-	next := name.ID(256)
-	seen := make(map[string]name.ID)
-	alloc := func(s string) uint16 {
-		if id, ok := seen[s]; ok {
-			return uint16(id)
-		}
-		id := next
-		next++
-		seen[s] = id
-		extra[id] = s
-		return uint16(id)
-	}
-
 	var fv *fvar.Table
 	if f.Fvar != nil {
 		fv = cloneFvar(f.Fvar)
-		for i := range fv.Axes {
-			if fv.Axes[i].Name != "" {
-				fv.Axes[i].NameID = alloc(fv.Axes[i].Name)
-			}
-		}
-		for i := range fv.Instances {
-			inst := &fv.Instances[i]
-			if inst.Name != "" {
-				inst.NameID = alloc(inst.Name)
-			}
-			if inst.PostScriptName != "" {
-				inst.PostScriptNameID = alloc(inst.PostScriptName)
-			}
-		}
 	}
-
 	var st *stat.Table
 	if f.Stat != nil {
 		st = cloneStat(f.Stat)
-		for i := range st.DesignAxes {
-			if st.DesignAxes[i].Name != "" {
-				st.DesignAxes[i].NameID = alloc(st.DesignAxes[i].Name)
-			}
-		}
-		for i, av := range st.AxisValues {
-			st.AxisValues[i] = assignAxisValueName(av, alloc)
-		}
-		if st.ElidedFallbackName != "" {
-			st.ElidedFallbackNameID = alloc(st.ElidedFallbackName)
-		}
 	}
-
-	if len(extra) == 0 {
-		extra = nil
-	}
+	extra := canonicalizeVariationNames(fv, st)
 	return fv, st, extra
-}
-
-func cloneFvar(t *fvar.Table) *fvar.Table {
-	c := *t
-	c.Axes = slices.Clone(t.Axes)
-	c.Instances = slices.Clone(t.Instances)
-	for i := range c.Instances {
-		c.Instances[i].Coordinates = slices.Clone(t.Instances[i].Coordinates)
-	}
-	return &c
-}
-
-func cloneStat(t *stat.Table) *stat.Table {
-	c := *t
-	c.DesignAxes = slices.Clone(t.DesignAxes)
-	c.AxisValues = slices.Clone(t.AxisValues) // elements replaced by the caller
-	return &c
-}
-
-// assignAxisValueName returns a copy of av with its NameID reassigned when its
-// resolved Name is non-empty.
-func assignAxisValueName(av stat.AxisValue, alloc func(string) uint16) stat.AxisValue {
-	switch v := av.(type) {
-	case *stat.Format1:
-		c := *v
-		if c.Name != "" {
-			c.NameID = alloc(c.Name)
-		}
-		return &c
-	case *stat.Format2:
-		c := *v
-		if c.Name != "" {
-			c.NameID = alloc(c.Name)
-		}
-		return &c
-	case *stat.Format3:
-		c := *v
-		if c.Name != "" {
-			c.NameID = alloc(c.Name)
-		}
-		return &c
-	case *stat.Format4:
-		c := *v
-		c.Values = slices.Clone(v.Values)
-		if c.Name != "" {
-			c.NameID = alloc(c.Name)
-		}
-		return &c
-	default:
-		return av
-	}
 }
 
 // WriteTrueTypePDF writes the binary form of a TrueType font to the given

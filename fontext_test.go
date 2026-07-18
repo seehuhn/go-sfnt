@@ -30,11 +30,55 @@ import (
 
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/fvar"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/internal/debug"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/parser"
 )
+
+// swapFvarAxisNameIDs patches the "fvar" table's first two axes so their
+// stored NameIDs are swapped, in place, in an otherwise valid font produced
+// by [sfnt.Font.Write].  data must contain a "fvar" table with at least two
+// axes and canonical NameIDs (256, 257, ...) in axis order; the table
+// shrinks and grows by nothing, so no other offsets in data change.
+func swapFvarAxisNameIDs(tb testing.TB, data []byte) []byte {
+	tb.Helper()
+
+	data = bytes.Clone(data)
+	rr := bytes.NewReader(data)
+	dir, err := header.Read(rr)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	rec, ok := dir.Toc["fvar"]
+	if !ok {
+		tb.Fatal("font has no fvar table")
+	}
+	fd, err := dir.TableReader(rr, "fvar")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tab, err := fvar.Read(fd, parser.NewBudget(int64(rec.Length)))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	if len(tab.Axes) < 2 {
+		tb.Fatal("font has fewer than two fvar axes")
+	}
+	if tab.Axes[0].NameID != 256 || tab.Axes[1].NameID != 257 {
+		tb.Fatalf("fvar axes are not canonically numbered: %+v", tab.Axes[:2])
+	}
+	tab.Axes[0].NameID, tab.Axes[1].NameID = 257, 256
+
+	patched := tab.Encode()
+	if len(patched) != int(rec.Length) {
+		tb.Fatalf("patched fvar table changed size: %d vs %d", len(patched), rec.Length)
+	}
+	copy(data[rec.Offset:int(rec.Offset)+len(patched)], patched)
+	return data
+}
 
 func TestGetFontInfo(t *testing.T) {
 	font := debug.MakeSimpleFont()
@@ -136,6 +180,19 @@ func FuzzFont(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Add(buf.Bytes())
+
+	// a variable font whose stored fvar axis NameIDs are swapped relative to
+	// the canonical order Write assigns from axis position (256, 257
+	// becomes 257, 256); a Critical review of d6a89a7 found that Read kept
+	// the stored IDs verbatim while Write always reassigns canonically,
+	// breaking the read-write-read invariant for any font not already using
+	// canonical numbering.
+	buf.Reset()
+	_, err = debug.MakeVarFont().Write(buf)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(swapFvarAxisNameIDs(f, buf.Bytes()))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		font1, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
