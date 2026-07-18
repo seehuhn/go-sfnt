@@ -167,6 +167,30 @@ func FuzzGtab(f *testing.F) {
 	}
 	f.Add(info.Encode())
 
+	// version 1.1 seed with a modeled FeatureVariations table
+	info.Variations = []FeatureVariationRecord{
+		{
+			Conditions: []Condition{
+				{Format: 1, AxisIndex: 0, Min: -8192, Max: 16384},
+			},
+			Substitutions: []FeatureSubstitution{
+				{FeatureIndex: 0, Lookups: []LookupIndex{1, 2}},
+			},
+		},
+		{
+			Conditions: []Condition{
+				{Format: 1, AxisIndex: 0, Min: -16384, Max: 0},
+				{Format: 1, AxisIndex: 1, Min: 4096, Max: 12288},
+			},
+			Substitutions: []FeatureSubstitution{
+				{FeatureIndex: 1, Lookups: []LookupIndex{3}},
+				{FeatureIndex: 2, Lookups: nil},
+			},
+		},
+	}
+	f.Add(info.Encode())
+	info.Variations = nil
+
 	f.Fuzz(func(t *testing.T, data1 []byte) {
 		info1, err := readGtab(bytes.NewReader(data1), parser.NewBudget(int64(len(data1))), 0, readDummySubtable)
 		if err != nil {

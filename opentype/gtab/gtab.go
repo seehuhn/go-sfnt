@@ -37,6 +37,20 @@ type Info struct {
 	// The LookupList enumerates all the OpenType lookups used to implement
 	// the font features.
 	LookupList LookupList
+
+	// Variations, when non-nil, holds the GSUB/GPOS FeatureVariations data
+	// (a version 1.1 feature).  The records are consulted in order; the first
+	// record whose conditions all hold applies its feature substitutions.  See
+	// [FeatureVariationRecord].
+	//
+	// Variations is mutually exclusive with VariationsRaw.
+	Variations []FeatureVariationRecord
+
+	// VariationsRaw holds the verbatim FeatureVariations table bytes when the
+	// table uses a condition format that is not modeled.  Such tables cannot be
+	// interpreted but round-trip byte-for-byte.  When non-nil, Variations is
+	// nil.
+	VariationsRaw []byte
 }
 
 // Type chooses between "GSUB" and "GPOS" tables.
@@ -158,9 +172,15 @@ func readGtab(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type, sr subt
 		return nil, err
 	}
 
-	// TODO(voss): read the feature variations table (version 1.1).  Until
-	// then its data is dropped, so a variable font does not round-trip it.
-	_ = FeatureVariationsOffset
+	if FeatureVariationsOffset != 0 {
+		records, raw, err := readFeatureVariations(p, int64(FeatureVariationsOffset),
+			len(info.FeatureList), len(info.LookupList))
+		if err == nil {
+			// on error, drop the variations but keep the rest (permissive)
+			info.Variations = records
+			info.VariationsRaw = raw
+		}
+	}
 
 	return info, nil
 }
@@ -171,7 +191,49 @@ func (info *Info) Encode() []byte {
 	featureList := info.FeatureList.encode()
 	lookupList := info.LookupList.encode()
 
-	total := 10
+	var variations []byte
+	if info.VariationsRaw != nil {
+		variations = info.VariationsRaw
+	} else if info.Variations != nil {
+		variations = encodeFeatureVariations(info.Variations)
+	}
+
+	if variations == nil {
+		// version 1.0 header
+		total := 10
+		var scriptListOffset int
+		if scriptList != nil {
+			scriptListOffset = total
+			total += len(scriptList)
+		}
+		var featureListOffset int
+		if featureList != nil {
+			featureListOffset = total
+			total += len(featureList)
+		}
+		var lookupListOffset int
+		if lookupList != nil {
+			lookupListOffset = total
+			total += len(lookupList)
+		}
+
+		buf := make([]byte, total)
+		copy(buf, []byte{
+			0, 1, // major version
+			0, 0, // minor version
+			byte(scriptListOffset >> 8), byte(scriptListOffset),
+			byte(featureListOffset >> 8), byte(featureListOffset),
+			byte(lookupListOffset >> 8), byte(lookupListOffset),
+		})
+		copy(buf[scriptListOffset:], scriptList)
+		copy(buf[featureListOffset:], featureList)
+		copy(buf[lookupListOffset:], lookupList)
+
+		return buf
+	}
+
+	// version 1.1 header (adds a uint32 FeatureVariationsOffset)
+	total := 14
 	var scriptListOffset int
 	if scriptList != nil {
 		scriptListOffset = total
@@ -187,18 +249,23 @@ func (info *Info) Encode() []byte {
 		lookupListOffset = total
 		total += len(lookupList)
 	}
+	featureVariationsOffset := total
+	total += len(variations)
 
 	buf := make([]byte, total)
 	copy(buf, []byte{
 		0, 1, // major version
-		0, 0, // minor version
+		0, 1, // minor version
 		byte(scriptListOffset >> 8), byte(scriptListOffset),
 		byte(featureListOffset >> 8), byte(featureListOffset),
 		byte(lookupListOffset >> 8), byte(lookupListOffset),
+		byte(featureVariationsOffset >> 24), byte(featureVariationsOffset >> 16),
+		byte(featureVariationsOffset >> 8), byte(featureVariationsOffset),
 	})
 	copy(buf[scriptListOffset:], scriptList)
 	copy(buf[featureListOffset:], featureList)
 	copy(buf[lookupListOffset:], lookupList)
+	copy(buf[featureVariationsOffset:], variations)
 
 	return buf
 }
