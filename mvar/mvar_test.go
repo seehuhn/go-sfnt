@@ -18,6 +18,8 @@ package mvar
 
 import (
 	"bytes"
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -240,6 +242,44 @@ func TestEncodeDuplicateTagErrors(t *testing.T) {
 	}
 	if _, err := tab.Encode(); err == nil {
 		t.Error("expected error for duplicate tag")
+	}
+}
+
+func TestEncodeBadTagLengthErrors(t *testing.T) {
+	tab := &Table{
+		Records: []Record{
+			{Tag: "abc", OuterIndex: 0, InnerIndex: 0},
+		},
+	}
+	if _, err := tab.Encode(); err == nil {
+		t.Error("expected error for tag of wrong length")
+	}
+}
+
+func TestEncodeTooManyRecordsErrors(t *testing.T) {
+	// more records than fit in the uint16 record-count field; construction
+	// is cheap since no store is involved
+	records := make([]Record, math.MaxUint16+1)
+	for i := range records {
+		records[i] = Record{Tag: fmt.Sprintf("%04x", i)}
+	}
+	tab := &Table{Records: records}
+	if _, err := tab.Encode(); err == nil {
+		t.Error("expected error for too many records")
+	}
+}
+
+func TestEncodeStoreOffsetOverflowErrors(t *testing.T) {
+	// with a store present, the store offset equals headerSize plus the
+	// records; more than 8191 records pushes that offset past uint16 range
+	const n = 8200
+	records := make([]Record, n)
+	for i := range records {
+		records[i] = Record{Tag: fmt.Sprintf("%04x", i)}
+	}
+	tab := &Table{Store: goldenStore, Records: records}
+	if _, err := tab.Encode(); err == nil {
+		t.Error("expected error for store offset overflow")
 	}
 }
 

@@ -20,14 +20,16 @@
 //
 // Of the tags a font may list, this library applies deltas at instancing
 // time for: hasc (Ascent), hdsc (Descent), hlgp (LineGap), cpht (CapHeight),
-// xhgt (XHeight), undo (UnderlinePosition), unds (UnderlineThickness), and
-// ital (ItalicAngle). All other tags round-trip through [Table] but are not
-// applied, because the corresponding table values are regenerated from Font
-// fields on write.
+// xhgt (XHeight), undo (UnderlinePosition), and unds (UnderlineThickness).
+// All other tags round-trip through [Table] but are not applied, because the
+// corresponding table values are regenerated from Font fields on write.
+// Italic angle is not variable via MVAR: the registered value tags have no
+// 'ital' entry, and slant is instead conveyed by the 'slnt' variation axis.
 package mvar
 
 import (
 	"errors"
+	"math"
 	"sort"
 
 	"seehuhn.de/go/membudget"
@@ -47,6 +49,9 @@ var (
 	errUnsupportedVersion = errors.New("mvar: unsupported table version")
 	errRecordTooSmall     = errors.New("mvar: value record size too small")
 	errDuplicateTag       = errors.New("mvar: duplicate tag")
+	errTooManyRecords     = errors.New("mvar: too many records")
+	errTableTooLarge      = errors.New("mvar: table too large")
+	errBadTagLength       = errors.New("mvar: tag must be 4 bytes")
 )
 
 // Table represents the contents of an "MVAR" table.
@@ -151,7 +156,9 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 // Encode returns the binary form of the MVAR table. Records are sorted by
 // Tag; a table with zero records and no store encodes with a zero store
 // offset and a zero record count. Encode returns an error if two records
-// share a tag.
+// share a tag, if a Tag is not 4 bytes long, if there are more than 65535
+// records, or if the item variation store would not fit within the 16-bit
+// offset field.
 func (t *Table) Encode() ([]byte, error) {
 	records := append([]Record(nil), t.Records...)
 	sort.Slice(records, func(i, j int) bool { return records[i].Tag < records[j].Tag })
@@ -159,6 +166,14 @@ func (t *Table) Encode() ([]byte, error) {
 		if records[i].Tag == records[i-1].Tag {
 			return nil, errDuplicateTag
 		}
+	}
+	for i := range records {
+		if len(records[i].Tag) != 4 {
+			return nil, errBadTagLength
+		}
+	}
+	if len(records) > math.MaxUint16 {
+		return nil, errTooManyRecords
 	}
 
 	// the value records immediately follow the header; the item variation
@@ -169,6 +184,9 @@ func (t *Table) Encode() ([]byte, error) {
 	if t.Store != nil {
 		storeBytes = t.Store.Encode()
 		storeOffset = recordsEnd
+	}
+	if storeOffset > math.MaxUint16 {
+		return nil, errTableTooLarge
 	}
 
 	buf := make([]byte, 0, recordsEnd+len(storeBytes))
@@ -210,11 +228,8 @@ func appendU16(buf []byte, v uint16) []byte {
 	return append(buf, byte(v>>8), byte(v))
 }
 
-// appendTag appends a four-character tag, padding with spaces or
-// truncating as needed.
+// appendTag appends a four-character tag. Callers must ensure tag is
+// exactly 4 bytes long.
 func appendTag(buf []byte, tag string) []byte {
-	var b [4]byte
-	copy(b[:], "    ")
-	copy(b[:], tag)
-	return append(buf, b[:]...)
+	return append(buf, tag...)
 }
