@@ -176,6 +176,38 @@ func TestOutlinesCFF2Basics(t *testing.T) {
 	}
 }
 
+// TestOutlinesCFF2Empty verifies that an OutlinesCFF2 with no glyphs (e.g.
+// the zero value) does not panic and behaves as if every glyph were blank.
+func TestOutlinesCFF2Empty(t *testing.T) {
+	o := &OutlinesCFF2{}
+
+	if !o.IsBlank(5) {
+		t.Error("IsBlank on empty Glyphs should be true")
+	}
+	if steps := collectPath(o.Path(5)); len(steps) != 0 {
+		t.Errorf("Path on empty Glyphs: got %d steps, want 0", len(steps))
+	}
+	if bbox := o.GlyphBBox(matrix.Identity, 5); !bbox.IsZero() {
+		t.Errorf("GlyphBBox on empty Glyphs: got %v, want zero rect", bbox)
+	}
+}
+
+// TestGlyphMatrixNilFDSelect verifies that GlyphMatrix uses FontMatrices[0]
+// when FDSelect is nil, instead of discarding it.
+func TestGlyphMatrixNilFDSelect(t *testing.T) {
+	top := matrix.Matrix{0.002, 0, 0, 0.002, 0, 0}
+	fd0 := matrix.Matrix{2, 0, 0, 2, 0, 0} // non-identity
+	o := &OutlinesCFF2{
+		FDSelect:     nil,
+		FontMatrices: []matrix.Matrix{fd0},
+	}
+	got := o.GlyphMatrix(top, 0)
+	want := fd0.Mul(top)
+	if got != want {
+		t.Errorf("GlyphMatrix with nil FDSelect: got %v, want %v", got, want)
+	}
+}
+
 func TestNewPrivateCFF2Defaults(t *testing.T) {
 	p := newPrivateCFF2()
 	if p.BlueScale.Default != 0.039625 {

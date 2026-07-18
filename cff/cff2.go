@@ -114,6 +114,9 @@ func (o *OutlinesCFF2) NumGlyphs() int {
 // IsBlank returns true if the glyph with the given ID does not add marks to
 // the page.  An out-of-range ID is treated as the .notdef glyph.
 func (o *OutlinesCFF2) IsBlank(gid glyph.ID) bool {
+	if len(o.Glyphs) == 0 {
+		return true
+	}
 	if int(gid) >= len(o.Glyphs) {
 		gid = 0 // .notdef
 	}
@@ -122,8 +125,13 @@ func (o *OutlinesCFF2) IsBlank(gid glyph.ID) bool {
 
 // Path returns the glyph outline as a path.Path iterator, rendering the
 // default instance (using each argument's Default value only).  An
-// out-of-range ID is treated as the .notdef glyph.
+// out-of-range ID is treated as the .notdef glyph, per the model contract;
+// unlike CFF1's blank-path behaviour, this deliberately falls back to glyph
+// 0's outline rather than returning an empty path.
 func (o *OutlinesCFF2) Path(gid glyph.ID) path.Path {
+	if len(o.Glyphs) == 0 {
+		return func(yield func(path.Command, []vec.Vec2) bool) {}
+	}
 	if int(gid) >= len(o.Glyphs) {
 		gid = 0 // .notdef
 	}
@@ -208,10 +216,11 @@ func (o *OutlinesCFF2) GlyphBBoxPDF(M matrix.Matrix, gid glyph.ID) (bbox rect.Re
 // any per-FD matrix with the supplied top-level font matrix.  When the
 // selected FD has no per-FD matrix, the top matrix is returned unchanged.
 func (o *OutlinesCFF2) GlyphMatrix(top matrix.Matrix, gid glyph.ID) matrix.Matrix {
-	if o.FDSelect == nil {
-		return top
+	fd := 0
+	if o.FDSelect != nil {
+		fd = o.FDSelect(gid)
 	}
-	return o.FDMatrix(o.FDSelect(gid), top)
+	return o.FDMatrix(fd, top)
 }
 
 // FDMatrix returns the effective font matrix for FD index fd, composing the

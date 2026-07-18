@@ -219,6 +219,9 @@ func (o *Outlines) GlyphAdvanceScale(top matrix.Matrix, gid glyph.ID) float64 {
 }
 
 func (o *Outlines) IsBlank(gid glyph.ID) bool {
+	if len(o.Glyphs) == 0 {
+		return true
+	}
 	if int(gid) >= len(o.Glyphs) {
 		gid = 0 // .notdef
 	}
