@@ -110,6 +110,7 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 			panic("gvar: unexpected glyph type")
 		}
 	}
+	// phantom point 0 (lsb) is always at origin; phantom point 1 (advance) uses only deltas
 	nPoints := nBase + 4
 
 	// out-of-range gid means the table simply has no data for this glyph
@@ -278,6 +279,7 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 // spliceOffset adds (ddx, ddy) to a component's X/Y offset arguments in place,
 // preserving all trailing transform bytes and every flag except that it sets
 // ARG_1_AND_2_ARE_WORDS when a byte-encoded value no longer fits in an int8.
+// Widened arguments exceeding the int16 range are clamped.
 // It must be called only for components with ARGS_ARE_XY_VALUES set.
 func spliceOffset(comp *glyf.GlyphComponent, ddx, ddy int) {
 	words := comp.Flags&glyf.FlagArg1And2AreWords != 0
