@@ -162,6 +162,28 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	return &out, nil
 }
 
+// ConvertCFF2 returns a copy of the font with its CFF2 glyph outlines
+// converted to static CFF outlines.  For a variable font this pins all
+// axes at their default values (like Instantiate with no coordinates);
+// use Instantiate to select other coordinates.  ConvertCFF2 returns an
+// error if the font does not use CFF2 outlines.
+func (f *Font) ConvertCFF2() (*Font, error) {
+	o, ok := f.Outlines.(*cff.OutlinesCFF2)
+	if !ok {
+		return nil, errors.New("sfnt: font does not use CFF2 outlines")
+	}
+	if f.IsVariable() {
+		return f.Instantiate(nil)
+	}
+
+	// static font: no axes to pin, so metrics and naming stay untouched.
+	out := *f
+	if err := instanceCFF2(f, &out, o, nil); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // instanceGlyf resolves the TrueType glyph outlines, advance widths and cvt
 // values of out to the instance at norm (steps 4–6 of Instantiate).
 func instanceGlyf(f *Font, out *Font, outlines *glyf.Outlines, norm []variation.F2Dot14) error {

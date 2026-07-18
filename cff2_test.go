@@ -23,12 +23,16 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/geom/vec"
 
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/fvar"
+	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/hvar"
 	"seehuhn.de/go/sfnt/internal/testfonts"
@@ -534,4 +538,96 @@ func TestInstantiateCFF2AdobeVF(t *testing.T) {
 
 	t.Run("defaults", func(t *testing.T) { check(t, map[string]float64{}) })
 	t.Run("wght900", func(t *testing.T) { check(t, map[string]float64{"wght": 900}) })
+}
+
+// pathStep is a materialised path.Path step, for use with cmp.Diff.
+type pathStep struct {
+	Cmd path.Command
+	Pts []vec.Vec2
+}
+
+func collectPathSteps(p path.Path) []pathStep {
+	var steps []pathStep
+	for cmd, pts := range p {
+		steps = append(steps, pathStep{Cmd: cmd, Pts: append([]vec.Vec2(nil), pts...)})
+	}
+	return steps
+}
+
+// TestConvertCFF2Static checks the static (non-variable) arm of ConvertCFF2:
+// the outlines convert to CFF, the resulting paths match the CFF2 default
+// instance exactly (no blends to evaluate), and the result round-trips.
+func TestConvertCFF2Static(t *testing.T) {
+	f := makeCFF2Font()
+	orig := f.Outlines.(*cff.OutlinesCFF2)
+
+	out, err := f.ConvertCFF2()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.IsCFF() || out.AsCFF() == nil {
+		t.Fatal("converted font is not CFF")
+	}
+	if out.IsCFF2() {
+		t.Error("converted font still reports CFF2")
+	}
+	if got, want := out.PostScriptName(), f.PostScriptName(); got != want {
+		t.Errorf("PostScriptName = %q, want %q (no axes pinned)", got, want)
+	}
+
+	converted := out.AsCFF().Outlines
+	for gid := range orig.Glyphs {
+		want := collectPathSteps(orig.Path(glyph.ID(gid)))
+		got := collectPathSteps(converted.Path(glyph.ID(gid)))
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("gid %d path differs from the CFF2 default path (-want +got):\n%s", gid, diff)
+		}
+	}
+
+	var buf bytes.Buffer
+	if _, err := out.Write(&buf); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got2, err := sfnt.Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !got2.IsCFF() {
+		t.Error("round-tripped font is not CFF")
+	}
+
+	// the receiver is left unchanged
+	if !f.IsCFF2() {
+		t.Error("receiver no longer reports CFF2 outlines")
+	}
+}
+
+// TestConvertCFF2Variable checks that the variable arm of ConvertCFF2 is
+// exactly Instantiate(nil): all axes pinned at their default values.
+func TestConvertCFF2Variable(t *testing.T) {
+	f := makeVarCFF2Font()
+	nGlyphs := len(f.Outlines.(*cff.OutlinesCFF2).Glyphs)
+
+	got, err := f.ConvertCFF2()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := f.Instantiate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := append(cff2RoundTripOpts(nGlyphs), cmpopts.IgnoreUnexported(sfnt.Font{}))
+	if diff := cmp.Diff(want, got, opts...); diff != "" {
+		t.Errorf("ConvertCFF2() != Instantiate(nil) (-want +got):\n%s", diff)
+	}
+}
+
+// TestConvertCFF2NotCFF2 checks that ConvertCFF2 rejects fonts that do not
+// use CFF2 outlines.
+func TestConvertCFF2NotCFF2(t *testing.T) {
+	f := &sfnt.Font{Outlines: &glyf.Outlines{}}
+	if _, err := f.ConvertCFF2(); err == nil {
+		t.Error("expected an error for glyf outlines")
+	}
 }
