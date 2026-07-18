@@ -239,7 +239,7 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 	}
 
 	res := &ApplyResult{
-		Advance: clampUint16(math.Round(float64(aw) + dx[nBase+1] - dx[nBase])),
+		Advance: clampUint16(variation.OTRound(float64(aw) + dx[nBase+1] - dx[nBase])),
 	}
 
 	switch {
@@ -248,8 +248,8 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 		for ci := range simple.Contours {
 			for pi := range simple.Contours[ci] {
 				pt := &simple.Contours[ci][pi]
-				pt.X = clampInt16(math.Round(origX[p] + dx[p]))
-				pt.Y = clampInt16(math.Round(origY[p] + dy[p]))
+				pt.X = clampInt16(variation.OTRound(origX[p] + dx[p]))
+				pt.Y = clampInt16(variation.OTRound(origY[p] + dy[p]))
 				p++
 			}
 		}
@@ -260,8 +260,8 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 		newComps := make([]glyf.GlyphComponent, len(composite.Components))
 		for k, comp := range composite.Components {
 			nc := comp
-			ddx := int(math.Round(dx[k]))
-			ddy := int(math.Round(dy[k]))
+			ddx := int(variation.OTRound(dx[k]))
+			ddy := int(variation.OTRound(dy[k]))
 			if comp.Flags&glyf.FlagArgsAreXYValues != 0 && (ddx != 0 || ddy != 0) {
 				spliceOffset(&nc, ddx, ddy)
 			}

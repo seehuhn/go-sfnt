@@ -234,6 +234,27 @@ func TestApplyOddLengthCvt(t *testing.T) {
 	}
 }
 
+// TestApplyNegativeHalfTie checks that a delta landing on an exact negative
+// half-integer tie rounds with OpenType's otRound convention (toward +Inf),
+// not Go's math.Round (away from zero): a CVT value of 0 with an
+// accumulated delta of -3.5 must become -3, not -4.
+func TestApplyNegativeHalfTie(t *testing.T) {
+	tab := &Table{
+		AxisCount: 1,
+		Tuples: []variation.TupleVariation{
+			{Peak: []variation.F2Dot14{0x4000}, Deltas: []int32{-7}},
+		},
+	}
+	cvt := []byte{0x00, 0x00} // cvt[0] = 0
+
+	// at coords = [0.5]: scalar 0.5, delta = 0.5 * -7 = -3.5
+	got := tab.Apply(cvt, []variation.F2Dot14{0x2000})
+	want := []byte{0xFF, 0xFD} // -3, not -4 (math.Round would give 0xFFFC)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("apply at coords=[0.5] (-want +got):\n%s", diff)
+	}
+}
+
 func TestApplyDropsOutOfRangeIndices(t *testing.T) {
 	// tuple references a CVT index beyond the actual cvt table length
 	tab := &Table{

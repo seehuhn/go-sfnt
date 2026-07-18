@@ -196,7 +196,7 @@ func (t *Table) Apply(cvt []byte, coords []variation.F2Dot14) []byte {
 	out := make([]byte, len(cvt))
 	for i := range n {
 		orig := int16(u16(cvt, 2*i))
-		v := clampInt16(math.Round(float64(orig) + deltas[i]))
+		v := clampInt16(variation.OTRound(float64(orig) + deltas[i]))
 		out[2*i] = byte(uint16(v) >> 8)
 		out[2*i+1] = byte(uint16(v))
 	}

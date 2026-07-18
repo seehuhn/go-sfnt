@@ -257,6 +257,79 @@ func TestApplyEmptyGlyph(t *testing.T) {
 	}
 }
 
+// TestApplyNegativeHalfTie checks that accumulated deltas landing on an exact
+// negative half-integer tie round with OpenType's otRound convention (toward
+// +Inf), not Go's math.Round (away from zero): -3.5 must round to -3, and a
+// component offset delta of -0.5 must round to 0.
+func TestApplyNegativeHalfTie(t *testing.T) {
+	t.Run("outline point", func(t *testing.T) {
+		// square: p0=(0,0) p1=(100,0) p2=(100,100) p3=(0,100)
+		glyphs := glyf.Glyphs{makeSimple([]glyf.Point{
+			{X: 0, Y: 0, OnCurve: true},
+			{X: 100, Y: 0, OnCurve: true},
+			{X: 100, Y: 100, OnCurve: true},
+			{X: 0, Y: 100, OnCurve: true},
+		})}
+		widths := []funit.Uint16{200}
+
+		const nPoints = 8 // 4 outline + 4 phantom
+		tuples := []variation.TupleVariation{
+			{ // all points; at coord 0.5 (scalar 0.5) p0.x delta -7 gives dx=-3.5
+				Peak:   []variation.F2Dot14{0x4000},
+				Deltas: []int32{-7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			},
+		}
+		tbl := &Table{
+			AxisCount: 1,
+			PerGlyph:  []GlyphData{{Data: mustEncode(t, tuples, 1, nPoints)}},
+		}
+
+		res, err := tbl.Apply(glyphs, widths, 0, []variation.F2Dot14{0x2000}, testBudget(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := outlinePoints(t, res.Glyph)
+		if got[0].X != -3 {
+			t.Errorf("p0.X = %d, want -3 (otRound(-3.5)), math.Round would give -4", got[0].X)
+		}
+	})
+
+	t.Run("composite offset", func(t *testing.T) {
+		comp0 := glyf.GlyphComponent{
+			Flags:      glyf.FlagArgsAreXYValues,
+			GlyphIndex: 1,
+			Data:       []byte{b8(0), b8(0)},
+		}
+		composite := &glyf.Glyph{
+			Rect16: funit.Rect16{LLx: 0, LLy: 0, URx: 500, URy: 700},
+			Data:   glyf.CompositeGlyph{Components: []glyf.GlyphComponent{comp0}},
+		}
+		glyphs := glyf.Glyphs{composite}
+		widths := []funit.Uint16{300}
+
+		const nPoints = 5 // 1 component + 4 phantom
+		tuples := []variation.TupleVariation{
+			{ // at coord 0.5 (scalar 0.5) comp0.x delta -1 gives dx=-0.5
+				Peak:   []variation.F2Dot14{0x4000},
+				Deltas: []int32{-1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			},
+		}
+		tbl := &Table{
+			AxisCount: 1,
+			PerGlyph:  []GlyphData{{Data: mustEncode(t, tuples, 1, nPoints)}},
+		}
+
+		res, err := tbl.Apply(glyphs, widths, 0, []variation.F2Dot14{0x2000}, testBudget(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cg := res.Glyph.Data.(glyf.CompositeGlyph)
+		if diff := cmp.Diff([]byte{b8(0), b8(0)}, cg.Components[0].Data); diff != "" {
+			t.Errorf("comp0 data (-want +got), otRound(-0.5) should give offset 0:\n%s", diff)
+		}
+	})
+}
+
 // TestApplyWorkBudget checks that an exhausted work budget returns ErrWorkLimit.
 func TestApplyWorkBudget(t *testing.T) {
 	glyphs := glyf.Glyphs{makeSimple([]glyf.Point{

@@ -138,7 +138,7 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 				if gid < len(outlines.Widths) {
 					base = float64(outlines.Widths[gid])
 				}
-				newWidths[gid] = clampUint16(math.Round(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm)))
+				newWidths[gid] = clampUint16(variation.OTRound(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm)))
 			} else {
 				newWidths[gid] = phantomAdvances[gid]
 			}
@@ -174,7 +174,7 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 		if f.Gdef == nil || f.Gdef.ItemVarStore == nil {
 			return 0
 		}
-		return funit.Int16(math.Round(f.Gdef.ItemVarStore.Evaluate(outer, inner, norm)))
+		return funit.Int16(variation.OTRound(f.Gdef.ItemVarStore.Evaluate(outer, inner, norm)))
 	}
 	if f.Gsub != nil {
 		c := *f.Gsub
@@ -249,7 +249,7 @@ func applyMVAR(out *Font, mv *mvar.Table, norm []variation.F2Dot14) {
 	}
 	int16Field := func(field *funit.Int16, tag string) {
 		if d, ok := mv.Delta(tag, norm); ok {
-			*field = clampInt16(math.Round(float64(*field) + d))
+			*field = clampInt16(variation.OTRound(float64(*field) + d))
 		}
 	}
 	floatField := func(field *funit.Float64, tag string) {
