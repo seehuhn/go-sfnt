@@ -393,6 +393,83 @@ func TestInstantiateCFF2(t *testing.T) {
 	})
 }
 
+// makeVarCFF2FontNonUnitMatrix is a variant of makeVarCFF2Font whose font
+// matrix scale (0.002) is not 1/UnitsPerEm (1/1000 = 0.001), so design units
+// and hmtx/UnitsPerEm units diverge.  It carries a single glyph (the box) and
+// an HVAR delta of 100 raw hmtx units at the +1 end, used to check that
+// instanceCFF2 converts the HVAR delta into design units before adding it to
+// the design-unit base width, rather than assuming the two units coincide.
+func makeVarCFF2FontNonUnitMatrix() *sfnt.Font {
+	f2 := variation.F2Dot14FromFloat
+	peak := variation.Region{{Start: f2(0), Peak: f2(1), End: f2(1)}}
+
+	b := func(v float64) cff.Blend { return cff.Blend{Default: v} }
+	box := &cff.GlyphCFF2{Cmds: []cff.GlyphOpCFF2{
+		{Op: cff.OpMoveTo, Args: []cff.Blend{b(0), b(0)}},
+		{Op: cff.OpLineTo, Args: []cff.Blend{b(500), b(0)}},
+		{Op: cff.OpLineTo, Args: []cff.Blend{b(500), b(700)}},
+		{Op: cff.OpLineTo, Args: []cff.Blend{b(0), b(700)}},
+	}}
+
+	o := &cff.OutlinesCFF2{
+		Glyphs:   []*cff.GlyphCFF2{box},
+		Widths:   []float64{550}, // design units
+		Private:  []*cff.PrivateCFF2{{}},
+		FDSelect: func(glyph.ID) int { return 0 },
+	}
+
+	font := &sfnt.Font{
+		FamilyName: "CFF2VarNonUnit",
+		Width:      os2.WidthNormal,
+		Weight:     os2.WeightNormal,
+		UnitsPerEm: 1000,
+		Ascent:     700,
+		Descent:    -300,
+		// scale 0.002, not 1/UnitsPerEm (0.001): design units and
+		// hmtx/UnitsPerEm units are related by a factor of 2, not 1.
+		FontMatrix: matrix.Matrix{0.002, 0, 0, 0.002, 0, 0},
+		Outlines:   o,
+	}
+	font.Fvar = &fvar.Table{
+		Axes: []fvar.Axis{{Tag: "wght", Min: 100, Default: 400, Max: 900, Name: "Weight"}},
+	}
+	// HVAR delta at the +1 end: 100 raw hmtx/UnitsPerEm units.
+	font.Hvar = &hvar.Table{
+		Store: &variation.ItemVariationStore{
+			Regions: []variation.Region{peak},
+			Data: []*variation.ItemVariationData{
+				{RegionIndexes: []uint16{0}, Deltas: [][]int32{{100}}},
+			},
+		},
+	}
+	return font
+}
+
+// TestInstantiateCFF2HVARUnitConversion checks that instanceCFF2 converts the
+// HVAR advance delta into CFF2 design units before combining it with the
+// design-unit base width, for a font whose font matrix scale is not
+// 1/UnitsPerEm.
+//
+// Setup: UnitsPerEm = 1000, FontMatrix scale = 0.002 (so
+// GlyphAdvanceScale*UnitsPerEm = 0.002*1000 = 2, not 1).  Base width (design
+// units) = 550.  HVAR delta at wght=900 (norm 1.0, peaking the only region)
+// is 100 raw hmtx/UnitsPerEm units, i.e. 100/2 = 50 design units.  The
+// instanced width must therefore be 550 + 50 = 600 design units, not the
+// unit-mismatched 550 + 100 = 650 a direct addition would produce.
+func TestInstantiateCFF2HVARUnitConversion(t *testing.T) {
+	f := makeVarCFF2FontNonUnitMatrix()
+
+	inst, err := f.Instantiate(map[string]float64{"wght": 900})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outlines := inst.AsCFF().Outlines
+	const want = 600.0
+	if got := outlines.Glyphs[0].Width; math.Abs(got-want) > 1e-6 {
+		t.Errorf("box advance = %v, want %v (550 design units + 100/2 design units)", got, want)
+	}
+}
+
 // TestInstantiateCFF2AdobeVF instances the real Adobe variable CFF2 prototype
 // at the default and at wght=900, checking the result is a usable static CFF
 // font that round-trips.
