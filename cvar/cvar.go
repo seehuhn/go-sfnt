@@ -176,7 +176,7 @@ func (t *Table) Apply(cvt []byte, coords []variation.F2Dot14) []byte {
 		}
 		if tv.Points == nil {
 			m := min(n, len(tv.Deltas))
-			for p := 0; p < m; p++ {
+			for p := range m {
 				deltas[p] += s * float64(tv.Deltas[p])
 			}
 			continue
@@ -194,7 +194,7 @@ func (t *Table) Apply(cvt []byte, coords []variation.F2Dot14) []byte {
 	}
 
 	out := make([]byte, len(cvt))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		orig := int16(u16(cvt, 2*i))
 		v := clampInt16(math.Round(float64(orig) + deltas[i]))
 		out[2*i] = byte(uint16(v) >> 8)
