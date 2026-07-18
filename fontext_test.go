@@ -129,6 +129,14 @@ func FuzzFont(f *testing.F) {
 	}
 	f.Add(buf.Bytes())
 
+	// the hand-computable synthetic variable font from internal/debug
+	buf.Reset()
+	_, err = debug.MakeVarFont().Write(buf)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(buf.Bytes())
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		font1, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 		if err != nil {
