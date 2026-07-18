@@ -289,6 +289,9 @@ func readPrivateCFF2(p *parser.Parser, fontDict cffDict, regionCount func(int) (
 // getFontMatrixCFF2 reads the six FontMatrix operands from a CFF2 DICT,
 // resolving blended operands to their default values.  It returns def when the
 // operator is absent or malformed.
+//
+// This mirrors cffDict.getFontMatrix in dict.go; see that function's comment
+// for why the two are kept separate rather than sharing one implementation.
 func getFontMatrixCFF2(d cffDict, def matrix.Matrix) matrix.Matrix {
 	xx := d[opFontMatrix]
 	if len(xx) != 6 {

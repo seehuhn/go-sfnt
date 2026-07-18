@@ -379,6 +379,62 @@ func TestReadCFF2TwoFDs(t *testing.T) {
 	}
 }
 
+// vsIndexStore builds an item variation store with two IVD subtables of
+// different sizes (k=1 at index 0, k=2 at index 1), so that a charstring
+// blend resolving the wrong vsindex is observable: it would either fail (not
+// enough operands) or pick the wrong bases/deltas off the stack.
+func vsIndexStore() []byte {
+	f := variation.F2Dot14FromFloat
+	store := &variation.ItemVariationStore{
+		Regions: []variation.Region{
+			{{Start: f(-1), Peak: f(-1), End: f(0)}},
+			{{Start: f(0), Peak: f(1), End: f(1)}},
+		},
+		Data: []*variation.ItemVariationData{
+			{RegionIndexes: []uint16{0}, Deltas: [][]int32{}},    // index 0: k=1
+			{RegionIndexes: []uint16{0, 1}, Deltas: [][]int32{}}, // index 1: k=2
+		},
+	}
+	return store.Encode()
+}
+
+// TestReadCFF2PrivateVSIndex checks that a Private DICT's non-zero VSIndex
+// (op 22) becomes the default vsindex for the charstrings of its Font DICT:
+// a blend with no vsindex operator of its own must resolve against the IVD
+// subtable named by the Private DICT, not subtable 0.
+func TestReadCFF2PrivateVSIndex(t *testing.T) {
+	spec := &cff2Spec{
+		vstore: vsIndexStore(),
+		fds: []fdSpec{
+			{privateBody: append(dictNum(1), 22)}, // VSIndex = 1
+		},
+		charStrings: cffIndex{
+			// bases 100,200; deltas 10,20 / 30,40; n=2; blend; rmoveto
+			cs(100, 200, 10, 20, 30, 40, 2, t2blend, t2rmoveto),
+		},
+	}
+	font, err := readCFF2Bytes(t, buildCFF2(spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := font.Private[0].VSIndex; got != 1 {
+		t.Fatalf("Private[0].VSIndex = %d, want 1", got)
+	}
+
+	want := &GlyphCFF2{
+		VSIndex: 1,
+		Cmds: []GlyphOpCFF2{
+			{Op: OpMoveTo, Args: []Blend{
+				{Default: 100, Deltas: []float64{10, 20}},
+				{Default: 200, Deltas: []float64{30, 40}},
+			}},
+		},
+	}
+	if diff := cmp.Diff(want, font.Glyphs[0]); diff != "" {
+		t.Errorf("glyph mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestReadCFF2Malformed(t *testing.T) {
 	// major != 2
 	t.Run("wrong major", func(t *testing.T) {
@@ -409,6 +465,17 @@ func TestReadCFF2Malformed(t *testing.T) {
 		}
 		if _, err := readCFF2Bytes(t, buildCFF2(spec)); err == nil {
 			t.Error("expected error")
+		}
+	})
+
+	// blend operator in the top DICT: illegal per spec, and rejected before
+	// any other top DICT operator is inspected (rejectBlend fires as soon as
+	// applyDictBlend consults it, regardless of the rest of the DICT).
+	t.Run("blend in top DICT", func(t *testing.T) {
+		top := append(dictNum(1), byte(opBlend))
+		data := append([]byte{2, 0, 5, byte(len(top) >> 8), byte(len(top))}, top...)
+		if _, err := readCFF2Bytes(t, data); err != errTopBlend {
+			t.Errorf("err = %v, want errTopBlend", err)
 		}
 	})
 
