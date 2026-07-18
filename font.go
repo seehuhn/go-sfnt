@@ -145,6 +145,11 @@ type Font struct {
 	// VariationsPostScriptName is "name" table entry 25 (the variations
 	// PostScript name prefix), retained for instancing.
 	VariationsPostScriptName string
+
+	// postScriptName, when non-empty, overrides the name derived by
+	// [Font.PostScriptName].  It is set by [Font.Instantiate] to the pinned
+	// instance's PostScript name.
+	postScriptName string
 }
 
 // Clone makes a shallow copy of the font object.
@@ -241,6 +246,9 @@ func (f *Font) Subfamily() string {
 
 // PostScriptName returns the PostScript name of the font.
 func (f *Font) PostScriptName() string {
+	if f.postScriptName != "" {
+		return f.postScriptName
+	}
 	// TODO(voss): do a better job at preserving the original font name.
 	name := f.FamilyName + "-" + f.Subfamily()
 	re := regexp.MustCompile(`[^!-$&-'*-.0-;=?-Z\\^-z|~]+`)

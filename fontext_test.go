@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"golang.org/x/image/font/gofont/gobolditalic"
 	"golang.org/x/image/font/gofont/goregular"
 
@@ -240,7 +241,8 @@ func FuzzFont(f *testing.F) {
 			}
 			return toHmtx(g1.Width) == toHmtx(g2.Width)
 		})
-		if diff := cmp.Diff(font1, font2, cmpFDSelectFn, cmpFloat, cmpGlyphWidth); diff != "" {
+		cmpUnexported := cmpopts.IgnoreUnexported(sfnt.Font{})
+		if diff := cmp.Diff(font1, font2, cmpFDSelectFn, cmpFloat, cmpGlyphWidth, cmpUnexported); diff != "" {
 			t.Errorf("different (-old +new):\n%s", diff)
 		}
 	})
