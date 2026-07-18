@@ -122,7 +122,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 		return nil, err
 	}
 	for i := range t.Records {
-		rec, err := p.ReadBytes(recordSize)
+		rec, err := p.ReadBytes(valueRecordSize)
 		if err != nil {
 			return nil, err
 		}
@@ -130,6 +130,11 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 			Tag:        string(rec[0:4]),
 			OuterIndex: u16(rec, 4),
 			InnerIndex: u16(rec, 6),
+		}
+		if extra := recordSize - valueRecordSize; extra > 0 {
+			if err := p.Discard(extra); err != nil {
+				return nil, err
+			}
 		}
 	}
 

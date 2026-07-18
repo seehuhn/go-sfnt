@@ -127,6 +127,39 @@ func TestReadUnsortedOversizeRecords(t *testing.T) {
 	}
 }
 
+func TestReadRecordSizeExceedsParserBuffer(t *testing.T) {
+	// a crafted recordSize larger than the parser's internal 1024-byte
+	// buffer must be handled permissively, not panic
+	const hugeRecordSize = 2000
+	single := []Record{{Tag: "hasc", OuterIndex: 0, InnerIndex: 0}}
+
+	storeBytes := goldenStore.Encode()
+	storeOffset := headerSize + len(single)*hugeRecordSize
+
+	var data []byte
+	data = appendU16(data, 1) // majorVersion
+	data = appendU16(data, 0) // minorVersion
+	data = appendU16(data, 0) // reserved
+	data = appendU16(data, hugeRecordSize)
+	data = appendU16(data, uint16(len(single)))
+	data = appendU16(data, uint16(storeOffset))
+	for _, rec := range single {
+		data = appendTag(data, rec.Tag)
+		data = appendU16(data, rec.OuterIndex)
+		data = appendU16(data, rec.InnerIndex)
+		data = append(data, make([]byte, hugeRecordSize-valueRecordSize)...)
+	}
+	data = append(data, storeBytes...)
+
+	tab, err := Read(bytes.NewReader(data), testBudget())
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if diff := cmp.Diff(single, tab.Records); diff != "" {
+		t.Errorf("records mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestReadDropsDuplicateTags(t *testing.T) {
 	// a malformed table repeating a tag; Read must keep only the first
 	// occurrence so the result stays writable by Encode

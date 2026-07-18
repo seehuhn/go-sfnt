@@ -17,12 +17,18 @@
 package parser
 
 import (
+	"errors"
 	"io"
 
 	"seehuhn.de/go/membudget"
 )
 
 const bufferSize = 1024
+
+// errBlobTooLarge is returned by [Parser.ReadBytes] when n exceeds the
+// internal buffer size.  Callers needing a larger read should use
+// [Parser.ReadBlob] instead.
+var errBlobTooLarge = errors.New("parser: read size exceeds buffer, use ReadBlob")
 
 // Parser allows to read data from an sfnt file.
 type Parser struct {
@@ -199,13 +205,13 @@ func (p *Parser) ReadInt16Slice(n int) ([]int16, error) {
 // modified by the caller and are only valid until the next call to one of the
 // parser methods.
 //
-// The read size n must be <= 1024.
+// The read size n must be <= 1024; use [Parser.ReadBlob] for larger reads.
 func (p *Parser) ReadBytes(n int) ([]byte, error) {
 	p.lastRead = int(p.from + int64(p.pos))
 	if n < 0 {
 		n = 0
 	} else if n > bufferSize {
-		panic("buffer size exceeded")
+		return nil, errBlobTooLarge
 	}
 
 	for p.pos+n > p.used {
@@ -234,4 +240,20 @@ func (p *Parser) ReadBytes(n int) ([]byte, error) {
 	res := p.buf[p.pos : p.pos+n]
 	p.pos += n
 	return res, nil
+}
+
+// ReadBlob reads n bytes from the file, starting at the current position.
+// Unlike [Parser.ReadBytes], n may be arbitrarily large: the returned slice
+// is freshly allocated and charged against p.Budget, and the read proceeds
+// in bufferSize-sized chunks. Use this for file-controlled sizes that may
+// exceed the internal buffer.
+func (p *Parser) ReadBlob(n int) ([]byte, error) {
+	buf, err := membudget.AllocSlice[byte](p.Budget, n)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.Read(buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
 }

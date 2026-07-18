@@ -66,7 +66,7 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 	if err := p.SeekPos(int64(headerSize)); err != nil {
 		return nil, err
 	}
-	topDictBlob, err := readBlob(p, int(topDictLength))
+	topDictBlob, err := p.ReadBlob(int(topDictLength))
 	if err != nil {
 		return nil, err
 	}
@@ -215,20 +215,6 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 	}, nil
 }
 
-// readBlob reads n bytes into a freshly allocated, budget-charged slice.
-// Unlike parser.ReadBytes it has no fixed size cap, so it suits DICT blobs
-// that may exceed the parser's internal buffer.
-func readBlob(p *parser.Parser, n int) ([]byte, error) {
-	buf, err := membudget.AllocSlice[byte](p.Budget, n)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := p.Read(buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
 // readIndex32At seeks to pos and reads a CFF2 INDEX (uint32 count) from there.
 func readIndex32At(p *parser.Parser, pos int64, name string) (cffIndex, error) {
 	if pos < 4 || pos >= p.Size() {
@@ -251,7 +237,7 @@ func readPrivateCFF2(p *parser.Parser, fontDict cffDict, regionCount func(int) (
 	if err := p.SeekPos(int64(pdOffs)); err != nil {
 		return nil, nil, err
 	}
-	blob, err := readBlob(p, int(pdSize))
+	blob, err := p.ReadBlob(int(pdSize))
 	if err != nil {
 		return nil, nil, err
 	}
