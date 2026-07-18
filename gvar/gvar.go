@@ -47,6 +47,7 @@ var (
 	errTooManyShared      = errors.New("gvar: too many shared tuples")
 	errTooLarge           = errors.New("gvar: table too large")
 	errGIDOutOfRange      = errors.New("gvar: glyph index out of range")
+	errBadTupleSize       = errors.New("gvar: shared tuple has wrong axis count")
 )
 
 // Table represents the contents of a "gvar" table.
@@ -144,7 +145,7 @@ func Decode(data []byte, budget *membudget.Budget) (*Table, error) {
 
 	if sharedTupleCount > 0 {
 		need := sharedTupleCount * axisCount * 2
-		if sharedTuplesOffset < 0 || sharedTuplesOffset+need > len(data) {
+		if sharedTuplesOffset+need > len(data) {
 			return nil, errShortTable
 		}
 		t.SharedTuples, err = membudget.AllocSlice[[]variation.F2Dot14](budget, sharedTupleCount)
@@ -238,6 +239,13 @@ func (t *Table) Encode() ([]byte, error) {
 	sharedLen := len(t.SharedTuples) * t.AxisCount * 2
 	sharedTuplesOffset := headerSize + offsetArrayLen
 	dataArrayOffset := sharedTuplesOffset + sharedLen
+
+	// validate all shared tuples have the correct axis count
+	for _, tup := range t.SharedTuples {
+		if len(tup) != t.AxisCount {
+			return nil, errBadTupleSize
+		}
+	}
 
 	total := dataArrayOffset + dataLen
 	if int64(total) > 0xFFFFFFFF {

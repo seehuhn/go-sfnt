@@ -273,3 +273,20 @@ func TestDecodeErrors(t *testing.T) {
 		t.Error("expected error for unsupported version")
 	}
 }
+
+func TestEncodeWrongTupleSize(t *testing.T) {
+	tab := &Table{
+		AxisCount: 2,
+		SharedTuples: [][]variation.F2Dot14{
+			{0x4000}, // wrong: only 1 value, should be 2
+		},
+		PerGlyph: []GlyphData{
+			{Data: []byte{0x00, 0x00}},
+		},
+	}
+
+	_, err := tab.Encode()
+	if err == nil {
+		t.Error("expected error for wrong tuple size")
+	}
+}
