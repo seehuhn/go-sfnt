@@ -124,7 +124,11 @@ func FuzzFDSelect(f *testing.F) {
 		func(gid glyph.ID) int { return int(gid/5) % 5 },
 	}
 	for _, fd := range fds {
-		f.Add(fd.encode(nGlyphs))
+		seed, err := fd.encode(nGlyphs, nGlyphs)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, in []byte) {
 		p := parser.New(bytes.NewReader(in), parser.NewBudget(int64(len(in))))
@@ -133,7 +137,11 @@ func FuzzFDSelect(f *testing.F) {
 			return
 		}
 
-		in2 := fdSelect.encode(nGlyphs)
+		// readFDSelect rejects indices >= 10, so encoding cannot fail
+		in2, err := fdSelect.encode(nGlyphs, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(in2) > len(in) {
 			t.Error("inefficient encoding")
 		}

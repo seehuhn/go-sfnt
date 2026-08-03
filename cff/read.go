@@ -164,7 +164,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Font, error) {
 		fdArrayIndex, err := readIndexAt(p, int64(fdArrayOffs), "Font DICT")
 		if err != nil {
 			return nil, err
-		} else if len(fdArrayIndex) > 256 {
+		} else if len(fdArrayIndex) > maxFontDICTs {
 			return nil, invalidSince("too many Font DICTs")
 		} else if len(fdArrayIndex) == 0 {
 			return nil, invalidSince("no Font DICTs")

@@ -45,7 +45,7 @@ func (g *Glyph) String() string {
 	b := &strings.Builder{}
 	fmt.Fprintf(b, "Glyph %q (width %v):\n", g.Name, g.Width)
 	fmt.Fprintf(b, "  HStem: %v\n", g.HStem)
-	fmt.Fprintf(b, "  HStem: %v\n", g.VStem)
+	fmt.Fprintf(b, "  VStem: %v\n", g.VStem)
 	for i, cmd := range g.Cmds {
 		fmt.Fprintf(b, "  Cmds[%d]: %s\n", i, cmd)
 	}

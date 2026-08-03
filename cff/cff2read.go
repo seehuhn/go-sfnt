@@ -27,11 +27,6 @@ import (
 	"seehuhn.de/go/sfnt/variation"
 )
 
-// maxFontDICTs bounds the number of Font DICTs in a CFF2 FDArray.  The
-// FDSelect fd index is at most 16 bits, but the FDArray INDEX in practice
-// never exceeds a handful of entries.
-const maxFontDICTs = 256
-
 // ReadCFF2 reads a CFF2 font from r.  Allocations are charged against budget.
 func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, error) {
 	p := parser.New(r, budget)

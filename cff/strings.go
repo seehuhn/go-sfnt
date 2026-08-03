@@ -72,12 +72,30 @@ func (ss *cffStrings) lookup(s string) int32 {
 	return res
 }
 
-func (ss *cffStrings) encode() []byte {
+// maxSID is the largest string identifier a CFF font can use.  Larger values
+// are available for private use by the client reading the font, so they must
+// not appear in a font file.
+const maxSID = 64999
+
+// check reports an error if the collection has outgrown the SID range.
+func (ss *cffStrings) check() error {
+	// the largest SID in use is len(ss.data)-1+nStdString
+	if int32(len(ss.data))+nStdString > maxSID+1 {
+		return invalidSince("too many strings")
+	}
+	return nil
+}
+
+func (ss *cffStrings) encode() ([]byte, error) {
+	if err := ss.check(); err != nil {
+		return nil, err
+	}
+
 	stringIndex := make(cffIndex, 0, len(ss.data))
 	for _, s := range ss.data {
 		stringIndex = append(stringIndex, []byte(s))
 	}
-	return stringIndex.encode()
+	return stringIndex.encode(), nil
 }
 
 // from Appendix A of the CFF specification

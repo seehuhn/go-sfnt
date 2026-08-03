@@ -159,6 +159,19 @@ func (d cffDict) encode(ss *cffStrings) []byte {
 	return res.Bytes()
 }
 
+// registerStrings allocates a SID for every string operand of the dictionary,
+// so that the number of strings a font needs can be determined without
+// encoding it.
+func (d cffDict) registerStrings(ss *cffStrings) {
+	for _, args := range d {
+		for _, arg := range args {
+			if s, ok := arg.(string); ok {
+				ss.lookup(s)
+			}
+		}
+	}
+}
+
 // encodeDictNumber writes a single numeric DICT operand (int32 or float64).
 func encodeDictNumber(res *bytes.Buffer, arg any) {
 	switch a := arg.(type) {
@@ -446,6 +459,16 @@ func (d cffDict) setDeltaF16(op dictOp, val []funit.Int16) {
 	d[op] = res
 }
 
+// setNumber stores a numeric operand, using the more compact integer form
+// for integral values.
+func (d cffDict) setNumber(op dictOp, x float64) {
+	if x == math.Trunc(x) && x >= math.MinInt32 && x <= math.MaxInt32 {
+		d[op] = []any{int32(x)}
+	} else {
+		d[op] = []any{x}
+	}
+}
+
 func (d cffDict) setFontMatrix(op dictOp, fm matrix.Matrix, isCIDKeyed bool) {
 	needed := false
 	for i, xi := range fm {
@@ -518,10 +541,10 @@ func makeTopDict(info *type1.FontInfo) cffDict {
 		topDict[opItalicAngle] = []any{info.ItalicAngle}
 	}
 	if info.UnderlinePosition != defaultUnderlinePosition {
-		topDict[opUnderlinePosition] = []any{int32(info.UnderlinePosition)}
+		topDict.setNumber(opUnderlinePosition, float64(info.UnderlinePosition))
 	}
 	if info.UnderlineThickness != defaultUnderlineThickness {
-		topDict[opUnderlineThickness] = []any{int32(info.UnderlineThickness)}
+		topDict.setNumber(opUnderlineThickness, float64(info.UnderlineThickness))
 	}
 	// if info.IsOutlined {
 	// 	topDict[opPaintType] = []any{int32(2)} // per font

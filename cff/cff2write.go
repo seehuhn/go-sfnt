@@ -35,6 +35,9 @@ func (f *FontCFF2) Write(w io.Writer) error {
 	if len(o.Private) == 0 {
 		return invalidSince("cff2: no private dicts")
 	}
+	if len(o.Private) > maxFontDICTs {
+		return invalidSince("cff2: too many Font DICTs")
+	}
 
 	// encode the charstrings, each with its Font DICT's private dict for the
 	// default vsindex
@@ -45,11 +48,16 @@ func (f *FontCFF2) Write(w io.Writer) error {
 			fd = o.FDSelect(glyph.ID(gid))
 		}
 		if fd < 0 || fd >= len(o.Private) {
-			fd = 0
+			// the same indices are written to the FDSelect table below,
+			// so they cannot be silently replaced here
+			return invalidSince("cff2: FDSelect out of range")
 		}
 		code, err := encodeCharStringCFF2(g, o.Private[fd])
 		if err != nil {
 			return err
+		}
+		if len(code) > maxCharStringLen {
+			return invalidSince("cff2: charstring too long")
 		}
 		charStrings[gid] = code
 	}

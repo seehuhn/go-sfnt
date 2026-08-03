@@ -28,6 +28,12 @@ import (
 // FDSelectFn maps glyphID values to private dicts in Font.Info.Private.
 type FDSelectFn func(glyph.ID) int
 
+// maxFontDICTs is the largest number of Font DICTs a font can have.  The
+// FDSelect formats defined by CFF store the Font DICT index in a single byte.
+// CFF2 additionally allows a 16-bit index, but the same bound is used there
+// since real fonts need only a handful of Font DICTs.
+const maxFontDICTs = 256
+
 // readFDSelect reads an FDSelect table.  Format 4, which is CFF2-only, is
 // accepted only when allowFormat4 is set.
 func readFDSelect(p *parser.Parser, nGlyphs, nPrivate int, allowFormat4 bool) (FDSelectFn, error) {
@@ -153,7 +159,16 @@ func readFDSelect(p *parser.Parser, nGlyphs, nPrivate int, allowFormat4 bool) (F
 	}
 }
 
-func (fdSelect FDSelectFn) encode(nGlyphs int) []byte {
+// encode returns the binary form of the FDSelect map, choosing the smaller
+// of formats 0 and 3.  Font DICT indices outside the range [0, nFonts)
+// cannot be represented and cause an error.
+func (fdSelect FDSelectFn) encode(nGlyphs, nFonts int) ([]byte, error) {
+	for i := range nGlyphs {
+		if fd := fdSelect(glyph.ID(i)); fd < 0 || fd >= nFonts {
+			return nil, invalidSince("FDSelect out of range")
+		}
+	}
+
 	format0Length := nGlyphs + 1
 
 	buf := []byte{3, 0, 0}
@@ -174,14 +189,14 @@ func (fdSelect FDSelectFn) encode(nGlyphs int) []byte {
 	}
 	buf = append(buf, byte(nGlyphs>>8), byte(nGlyphs))
 	buf[1], buf[2] = byte(nSeg>>8), byte(nSeg)
-	return buf
+	return buf, nil
 
 useFormat0:
 	buf = make([]byte, nGlyphs+1)
 	for i := range nGlyphs {
 		buf[i+1] = byte(fdSelect(glyph.ID(i)))
 	}
-	return buf
+	return buf, nil
 }
 
 // encodeFormat4 encodes the FDSelect map as FDSelect format 4, which uses

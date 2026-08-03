@@ -30,7 +30,6 @@ import (
 
 	"golang.org/x/text/language"
 
-	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/postscript/afm"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
@@ -60,6 +59,7 @@ func main() {
 		fname = flag.Arg(0)
 	default:
 		fmt.Fprintf(os.Stderr, "usage: %s font.pf{a,b} [font.afm]\n", os.Args[0])
+		os.Exit(1)
 	}
 
 	outName := *outNameFlag
@@ -117,53 +117,28 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 		return nil, err
 	}
 
-	glyphNames := t1Info.GlyphList()
+	cffFont, err := cff.FromType1(t1Info)
+	if err != nil {
+		return nil, err
+	}
+	outlines := cffFont.Outlines
 
-	glyphs := make([]*cff.Glyph, 0, len(glyphNames))
-	name2gid := make(map[string]glyph.ID, len(glyphNames))
+	glyphs := outlines.Glyphs
+	glyphNames := make([]string, len(glyphs))
+	name2gid := make(map[string]glyph.ID, len(glyphs))
+	for gid, g := range glyphs {
+		glyphNames[gid] = g.Name
+		name2gid[g.Name] = glyph.ID(gid)
+	}
+
+	// CFF charstrings cannot express a vertical advance width, and
+	// cff.FromType1 discards it silently.  Refuse such fonts here rather than
+	// writing an OpenType font with wrong metrics.
 	for _, name := range glyphNames {
-		t1 := t1Info.Glyphs[name]
-		if t1.WidthY != 0 {
+		if g := t1Info.Glyphs[name]; g != nil && g.WidthY != 0 {
 			return nil, fmt.Errorf("unsupported WidthY=%g for glyph %q",
-				t1.WidthY, name)
+				g.WidthY, name)
 		}
-		g := cff.NewGlyph(name, t1.WidthX)
-		if t1.Outline != nil {
-			coordIdx := 0
-			for _, cmd := range t1.Outline.Cmds {
-				switch cmd {
-				case path.CmdMoveTo:
-					g.MoveTo(t1.Outline.Coords[coordIdx].X, t1.Outline.Coords[coordIdx].Y)
-					coordIdx++
-				case path.CmdLineTo:
-					g.LineTo(t1.Outline.Coords[coordIdx].X, t1.Outline.Coords[coordIdx].Y)
-					coordIdx++
-				case path.CmdCubeTo:
-					g.CurveTo(
-						t1.Outline.Coords[coordIdx].X, t1.Outline.Coords[coordIdx].Y,
-						t1.Outline.Coords[coordIdx+1].X, t1.Outline.Coords[coordIdx+1].Y,
-						t1.Outline.Coords[coordIdx+2].X, t1.Outline.Coords[coordIdx+2].Y,
-					)
-					coordIdx += 3
-				}
-			}
-		}
-		g.HStem = fixSlice(t1.HStem)
-		g.VStem = fixSlice(t1.VStem)
-		name2gid[name] = glyph.ID(len(glyphs))
-		glyphs = append(glyphs, g)
-	}
-
-	encoding := make([]glyph.ID, 256)
-	for i, name := range t1Info.Encoding {
-		encoding[i] = name2gid[name]
-	}
-
-	outlines := &cff.Outlines{
-		Glyphs:   glyphs,
-		Private:  []*type1.PrivateDict{t1Info.Private},
-		FDSelect: func(glyph.ID) int { return 0 },
-		Encoding: encoding,
 	}
 
 	width := os2.WidthNormal // TODO(voss)
@@ -278,14 +253,6 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 	otfInfo.CodePageRange.Set(os2.CP1252) // Latin 1
 
 	return &otfInfo, nil
-}
-
-func fixSlice(v []funit.Int16) []float64 {
-	res := make([]float64, len(v))
-	for i, x := range v {
-		res[i] = float64(x)
-	}
-	return res
 }
 
 func makeCmap(glyphNames []string) cmap.Subtable {

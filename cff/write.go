@@ -22,8 +22,26 @@ import (
 	"math"
 )
 
+// maxGlyphs is the largest number of glyphs a CFF font can contain, since
+// the CharStrings INDEX stores the glyph count in a 16-bit field.
+const maxGlyphs = 65535
+
+// maxCharStringLen is the largest charstring, in bytes, a Type 2 charstring
+// interpreter must support.  The limit applies to both CFF and CFF2.
+const maxCharStringLen = 65535
+
 // Write writes the binary form of a CFF font.
 func (f *Font) Write(w io.Writer) error {
+	if len(f.Glyphs) > maxGlyphs {
+		return invalidSince("too many glyphs")
+	}
+	if f.ROS == nil && len(f.Private) != 1 {
+		// the Top DICT holds a single Private entry
+		return invalidSince("wrong number of private dicts")
+	}
+	if len(f.Private) > maxFontDICTs {
+		return invalidSince("too many Font DICTs")
+	}
 	numGlyphs := uint16(len(f.Glyphs))
 
 	// TODO(voss): this should be done per private dict.
@@ -124,8 +142,12 @@ func (f *Font) Write(w io.Writer) error {
 	// section 7: FDSelect
 	secFDSelect := -1
 	if f.ROS != nil {
+		fdSelect, err := f.FDSelect.encode(int(numGlyphs), len(f.Private))
+		if err != nil {
+			return err
+		}
 		secFDSelect = len(blobs)
-		blobs = append(blobs, f.FDSelect.encode(int(numGlyphs)))
+		blobs = append(blobs, fdSelect)
 	}
 
 	// section 8: charstrings INDEX
@@ -211,7 +233,10 @@ func (f *Font) Write(w io.Writer) error {
 		topDictData := topDict.encode(strings)
 		blobs[secTopDictIndex] = cffIndex{topDictData}.encode()
 
-		blobs[secStringIndex] = strings.encode()
+		blobs[secStringIndex], err = strings.encode()
+		if err != nil {
+			return err
+		}
 
 		newOffs := cumsum()
 		done := true
@@ -279,6 +304,11 @@ func (f *Font) selectWidths() (float64, float64) {
 			maxWidth = w
 		}
 	}
+	if math.IsInf(minWidth, +1) {
+		// every glyph uses the default width, so nominalWidth is never
+		// referenced and the clamping below would produce infinities
+		return defaultWidth, defaultWidth
+	}
 	nominalWidth := math.Round(sum / float64(numGlyphs))
 	if nominalWidth < minWidth+107 {
 		nominalWidth = minWidth + 107
@@ -320,6 +350,9 @@ func (f *Font) encodeCharStrings() (cffIndex, float64, float64, error) {
 		code, err := glyph.encodeCharString(defaultWidth, nominalWidth)
 		if err != nil {
 			return nil, 0, 0, err
+		}
+		if len(code) > maxCharStringLen {
+			return nil, 0, 0, invalidSince("charstring too long")
 		}
 		cc[i] = code
 	}
