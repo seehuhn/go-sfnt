@@ -388,10 +388,14 @@ func instanceName(f *Font, userValues []float64) string {
 		}
 	}
 
-	// generated name: prefix + one "_<value><tag>" group per axis in fvar order
-	prefix := f.VariationsPostScriptName
+	// generated name: prefix + one "_<value><tag>" group per axis in fvar order.
+	// The prefix is filtered here rather than only as part of the assembled
+	// name, because the length fallback below slices it on its own: a raw
+	// prefix would put the removed characters back, and could be cut in the
+	// middle of a multi-byte rune.
+	prefix := psNameForbidden.ReplaceAllString(f.VariationsPostScriptName, "")
 	if prefix == "" {
-		prefix = sanitizePSName(f.FamilyName)
+		prefix = psNameAlnum(f.FamilyName)
 	}
 	var b strings.Builder
 	b.WriteString(prefix)
@@ -400,24 +404,27 @@ func instanceName(f *Font, userValues []float64) string {
 		b.WriteString(renderFixed(userValues[i]))
 		b.WriteString(ax.Tag)
 	}
-	name := b.String()
+	// axis tags are four arbitrary bytes from the "fvar" table and may contain
+	// characters a PostScript name cannot hold
+	name := psNameForbidden.ReplaceAllString(b.String(), "")
 
-	// keep PostScript names within 127 characters; over the limit we fall back
-	// to a deterministic hash, which TN #5902 permits as an
+	// keep PostScript names within the length limit; over the limit we fall
+	// back to a deterministic hash, which TN #5902 permits as an
 	// implementation-defined last resort.
-	if len(name) > 127 {
+	if len(name) > psNameMaxLen {
 		sum := sha256.Sum256([]byte(name))
 		suffix := "-" + hex.EncodeToString(sum[:])[:8]
-		keep := min(127-len(suffix), len(prefix))
+		keep := min(psNameMaxLen-len(suffix), len(prefix))
 		keep = max(keep, 0)
 		name = prefix[:keep] + suffix
 	}
 	return name
 }
 
-// sanitizePSName strips a family name down to the characters allowed at the
-// start of a generated PostScript instance name.
-func sanitizePSName(s string) string {
+// psNameAlnum strips a family name down to the characters allowed at the start
+// of a generated PostScript instance name.  This is deliberately stricter than
+// sanitizePSName, which keeps everything a PostScript name may contain.
+func psNameAlnum(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {

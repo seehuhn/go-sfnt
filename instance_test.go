@@ -22,6 +22,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -298,6 +299,22 @@ func TestInstantiateNaming(t *testing.T) {
 		}
 	})
 
+	// an instance which matches the coordinates but carries no PostScript name
+	// of its own cannot supply one, so the generated name is used
+	t.Run("nameless-instance", func(t *testing.T) {
+		f := debug.MakeVarFont()
+		for i := range f.Fvar.Instances {
+			f.Fvar.Instances[i].PostScriptName = ""
+		}
+		inst, err := f.Instantiate(map[string]float64{"wght": 700, "wdth": 75})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := inst.PostScriptName(); got != "QuireVar-_700wght_75wdth" {
+			t.Errorf("PostScriptName = %q, want QuireVar-_700wght_75wdth", got)
+		}
+	})
+
 	t.Run("fractional", func(t *testing.T) {
 		f := debug.MakeVarFont()
 		inst, err := f.Instantiate(map[string]float64{"wdth": 87.5})
@@ -323,6 +340,44 @@ func TestInstantiateNaming(t *testing.T) {
 		}
 		if len(got) < 9 || got[len(got)-9] != '-' {
 			t.Errorf("PostScriptName = %q, want an 8-hex-char hash suffix", got)
+		}
+	})
+
+	// The hash fallback slices the prefix on its own, so the prefix must
+	// already be filtered: a raw one would reinstate the characters the
+	// filter removed, and the cut could land inside a multi-byte rune.
+	t.Run("long-prefix-fallback", func(t *testing.T) {
+		f := debug.MakeVarFont()
+		f.Fvar.Instances = nil
+		// long enough to trigger the fallback, with a multi-byte tail
+		// straddling the point where the prefix is cut
+		f.VariationsPostScriptName = strings.Repeat("x", 117) + strings.Repeat("ü", 10)
+
+		inst, err := f.Instantiate(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := inst.PostScriptName()
+		if !utf8.ValidString(got) {
+			t.Errorf("PostScriptName = %q, want valid UTF-8", got)
+		}
+		if _, err := inst.Write(&bytes.Buffer{}); err != nil {
+			t.Errorf("instance is not writable: %v", err)
+		}
+	})
+
+	// A prefix the caller supplied may hold anything.
+	t.Run("invalid-prefix", func(t *testing.T) {
+		f := debug.MakeVarFont()
+		f.Fvar.Instances = nil
+		f.VariationsPostScriptName = "Quire Var (draft)"
+
+		inst, err := f.Instantiate(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := inst.PostScriptName(); got != "QuireVardraft_400wght_100wdth" {
+			t.Errorf("PostScriptName = %q, want QuireVardraft_400wght_100wdth", got)
 		}
 	})
 }

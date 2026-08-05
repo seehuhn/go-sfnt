@@ -19,6 +19,7 @@ package sfnt_test
 import (
 	"bytes"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -35,9 +36,20 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/internal/debug"
+	"seehuhn.de/go/sfnt/name"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/parser"
 )
+
+// readBack reads a font file the test has just written.
+func readBack(t *testing.T, data []byte) *sfnt.Font {
+	t.Helper()
+	font, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return font
+}
 
 // swapFvarAxisNameIDs patches the "fvar" table's first two axes so their
 // stored NameIDs are swapped, in place, in an otherwise valid font produced
@@ -253,5 +265,134 @@ func FuzzFont(f *testing.F) {
 		if diff := cmp.Diff(font1, font2, cmpFDSelectFn, cmpFloat, cmpGlyphWidth, cmpUnexported); diff != "" {
 			t.Errorf("different (-old +new):\n%s", diff)
 		}
+		// the PostScript name lives in an unexported field, which the diff
+		// above ignores
+		if name1, name2 := font1.PostScriptName(), font2.PostScriptName(); name1 != name2 {
+			t.Errorf("PostScript name %q -> %q", name1, name2)
+		}
 	})
+}
+
+// The PostScript name must survive embedding in a PDF file: the TrueType
+// writer records it in a minimal "name" table, the CFF writer in the CFF
+// header.  Without this, a font read back out of a PDF file has lost its name.
+func TestPostScriptNamePDFRoundTrip(t *testing.T) {
+	const psName = "ABCDEF+Quire-Regular"
+
+	t.Run("glyf", func(t *testing.T) {
+		font := debug.MakeVarFont()
+		font.SetPostScriptName(psName)
+
+		buf := &bytes.Buffer{}
+		if _, err := font.WriteTrueTypePDF(buf); err != nil {
+			t.Fatal(err)
+		}
+		font2 := readBack(t, buf.Bytes())
+		if got := font2.PostScriptName(); got != psName {
+			t.Errorf("PostScript name = %q, want %q", got, psName)
+		}
+	})
+
+	t.Run("cff", func(t *testing.T) {
+		font := debug.MakeSimpleFont()
+		font.SetPostScriptName(psName)
+
+		buf := &bytes.Buffer{}
+		if err := font.WriteOpenTypeCFFPDF(buf); err != nil {
+			t.Fatal(err)
+		}
+		font2 := readBack(t, buf.Bytes())
+		if got := font2.PostScriptName(); got != psName {
+			t.Errorf("PostScript name = %q, want %q", got, psName)
+		}
+	})
+}
+
+// Reading is permissive: a "name" table holding a name no PostScript name may
+// contain is repaired rather than rejected, and the repaired font can be
+// written again.
+func TestPostScriptNameSanitizedOnRead(t *testing.T) {
+	nameTable := &name.Table{PostScriptName: "Quire Regular (draft)\x00"}
+	nameData := (&name.Info{
+		Windows: name.Tables{"en-US": nameTable},
+	}).Encode(1)
+
+	font := debug.MakeVarFont()
+	font.SetPostScriptName("ABCDEF+Quire-Regular")
+
+	buf := &bytes.Buffer{}
+	if _, err := font.WriteTrueTypePDF(buf, "name", nameData); err != nil {
+		t.Fatal(err)
+	}
+
+	font2 := readBack(t, buf.Bytes())
+	if got := font2.PostScriptName(); got != "QuireRegulardraft" {
+		t.Errorf("PostScript name = %q, want %q", got, "QuireRegulardraft")
+	}
+	if _, err := font2.Write(&bytes.Buffer{}); err != nil {
+		t.Errorf("repaired font is not writable: %v", err)
+	}
+}
+
+// Writing is strict: an invalid name installed through the API is rejected by
+// every writer rather than being silently corrected.
+func TestPostScriptNameWriteRejected(t *testing.T) {
+	bad := []string{
+		"Quire Regular",
+		"Quire(Regular)",
+		"Quire/Regular",
+		strings.Repeat("x", 128), // one over the length limit
+	}
+	for _, psName := range bad {
+		glyfFont := debug.MakeVarFont()
+		glyfFont.SetPostScriptName(psName)
+		if _, err := glyfFont.Write(&bytes.Buffer{}); err == nil {
+			t.Errorf("Write(%q) = nil, want error", psName)
+		}
+		if _, err := glyfFont.WriteTrueTypePDF(&bytes.Buffer{}); err == nil {
+			t.Errorf("WriteTrueTypePDF(%q) = nil, want error", psName)
+		}
+
+		cffFont := debug.MakeSimpleFont()
+		cffFont.SetPostScriptName(psName)
+		if err := cffFont.WriteOpenTypeCFFPDF(&bytes.Buffer{}); err == nil {
+			t.Errorf("WriteOpenTypeCFFPDF(%q) = nil, want error", psName)
+		}
+	}
+}
+
+// The names generated for a variable-font instance are built from the "fvar"
+// axis tags, which are four arbitrary bytes read from the font file.
+func TestInstanceNameSanitized(t *testing.T) {
+	font := debug.MakeVarFont()
+	font.FamilyName = "Quire Var"
+	font.VariationsPostScriptName = ""
+	for i := range font.Fvar.Axes {
+		font.Fvar.Axes[i].Tag = "a b\x00"
+	}
+	font.Fvar.Instances = nil
+
+	inst, err := font.Instantiate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inst.Write(&bytes.Buffer{}); err != nil {
+		t.Errorf("instance is not writable: %v", err)
+	}
+}
+
+// A complete font file also carries the variations name prefix and the
+// PostScript names of the named instances; those must be valid too.
+func TestWriteRejectsInvalidInstanceNames(t *testing.T) {
+	font := debug.MakeVarFont()
+	font.VariationsPostScriptName = "Quire Var"
+	if _, err := font.Write(&bytes.Buffer{}); err == nil {
+		t.Error("Write with invalid variations name prefix = nil, want error")
+	}
+
+	font = debug.MakeVarFont()
+	font.Fvar.Instances[0].PostScriptName = "Quire (Regular)"
+	if _, err := font.Write(&bytes.Buffer{}); err == nil {
+		t.Error("Write with invalid instance name = nil, want error")
+	}
 }

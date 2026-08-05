@@ -43,6 +43,10 @@ import (
 
 // Write writes the binary form of the font to the given writer.
 func (f *Font) Write(w io.Writer) (int64, error) {
+	if err := f.checkPSNames(); err != nil {
+		return 0, err
+	}
+
 	tableData := make(map[string][]byte)
 
 	// name-ID coordination for the variation tables must precede makeName so
@@ -177,10 +181,10 @@ func (f *Font) assignVariationNameIDs() (*fvar.Table, *stat.Table, map[name.ID]s
 // WriteTrueTypePDF writes the binary form of a TrueType font to the given
 // writer.  The output contains the tables required by PDF (head, hhea, hmtx,
 // loca, maxp, glyf, and cmap when present), any tables in
-// outlines.Tables (typically cvt, fpgm, prep, gasp), and a "post" table
-// when outlines.Names is non-nil.  The "name", "OS/2", "GSUB", "GPOS",
-// "GDEF", and "kern" tables are omitted, as they are not required for
-// PDF embedding.
+// outlines.Tables (typically cvt, fpgm, prep, gasp), a "post" table
+// when outlines.Names is non-nil, and a minimal "name" table holding the
+// font's PostScript name.  The "OS/2", "GSUB", "GPOS", "GDEF", and "kern"
+// tables are omitted, as they are not required for PDF embedding.
 //
 // If the font does not use TrueType outlines, the function returns an error.
 //
@@ -192,6 +196,9 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 	outlines, ok := f.Outlines.(*glyf.Outlines)
 	if !ok {
 		return 0, errors.New("sfnt: WriteTrueTypePDF requires TrueType outlines")
+	}
+	if err := checkPSName(f.PostScriptName()); err != nil {
+		return 0, err
 	}
 
 	tableData := make(map[string][]byte)
@@ -221,6 +228,10 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 		tableData["post"] = postData
 	}
 
+	if nameData := f.makeMinimalName(); nameData != nil {
+		tableData["name"] = nameData
+	}
+
 	for i := 0; i+1 < len(extraTables); i += 2 {
 		tableData[extraTables[i].(string)] = extraTables[i+1].([]byte)
 	}
@@ -237,6 +248,9 @@ func (f *Font) WriteOpenTypeCFFPDF(w io.Writer) error {
 	outlines, ok := f.Outlines.(*cff.Outlines)
 	if !ok {
 		return errors.New("sfnt: WriteOpenTypeCFFPDF requires CFF outlines")
+	}
+	if err := checkPSName(f.PostScriptName()); err != nil {
+		return err
 	}
 
 	tableData := make(map[string][]byte)
@@ -484,4 +498,26 @@ func (f *Font) InstallCMap(s cmap.Subtable) {
 		{PlatformID: 0, EncodingID: uniEncoding}: cmapSubtable,
 		{PlatformID: 3, EncodingID: winEncoding}: cmapSubtable,
 	}
+}
+
+// makeMinimalName builds a "name" table holding the font's PostScript name and
+// nothing else, or nil if the font has no name.
+//
+// PDF does not need the "name" table and does not require it to be present,
+// but without it a font program read back out of a PDF file has lost its name:
+// nothing else in the file records what the font calls itself.  Of the entries
+// the table can hold, a PDF processor consults only the PostScript name, so
+// only that one is written; the copyright, licence and version strings a full
+// table carries would cost far more than the rest of the subset.
+func (f *Font) makeMinimalName() []byte {
+	psName := f.PostScriptName()
+	if psName == "" {
+		return nil
+	}
+	info := &name.Info{
+		Windows: name.Tables{
+			"en-US": &name.Table{PostScriptName: psName},
+		},
+	}
+	return info.Encode(1)
 }

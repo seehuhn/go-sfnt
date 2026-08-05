@@ -364,9 +364,16 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 
 	if nameTable != nil {
 		info.FamilyName = nameTable.Family
+		info.postScriptName = sanitizePSName(nameTable.PostScriptName)
 	}
 	if info.FamilyName == "" && fontInfo != nil {
 		info.FamilyName = fontInfo.FamilyName
+	}
+	// A CFF font program carries its own name, which is the PostScript name of
+	// the font.  It is the only record of the name in an OpenType/CFF font
+	// embedded in a PDF file, where the "name" table need not be present.
+	if info.postScriptName == "" && fontInfo != nil {
+		info.postScriptName = sanitizePSName(fontInfo.FontName)
 	}
 	if os2Info != nil {
 		info.Width = os2Info.WidthClass
@@ -615,10 +622,10 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 				inst := &info.Fvar.Instances[i]
 				inst.Name = nameTable.Get(name.ID(inst.NameID))
 				if inst.PostScriptNameID != 0xFFFF {
-					inst.PostScriptName = nameTable.Get(name.ID(inst.PostScriptNameID))
+					inst.PostScriptName = sanitizePSName(nameTable.Get(name.ID(inst.PostScriptNameID)))
 				}
 			}
-			info.VariationsPostScriptName = nameTable.VariationsPostScriptName
+			info.VariationsPostScriptName = sanitizePSName(nameTable.VariationsPostScriptName)
 		}
 
 		if dir.Has("avar") {

@@ -17,6 +17,8 @@
 package sfnt
 
 import (
+	"errors"
+	"fmt"
 	"math"
 	"regexp"
 	"strings"
@@ -147,8 +149,9 @@ type Font struct {
 	VariationsPostScriptName string
 
 	// postScriptName, when non-empty, overrides the name derived by
-	// [Font.PostScriptName].  It is set by [Font.Instantiate] to the pinned
-	// instance's PostScript name.
+	// [Font.PostScriptName].  It holds the name read from the font file, the
+	// name of the pinned instance after [Font.Instantiate], or the name
+	// installed by [Font.SetPostScriptName].
 	postScriptName string
 }
 
@@ -263,15 +266,100 @@ func (f *Font) Subfamily() string {
 	return strings.Join(words, " ")
 }
 
+// psNameForbidden matches the characters which may not appear in a PostScript
+// name.
+var psNameForbidden = regexp.MustCompile(`[^!-$&-'*-.0-;=?-Z\\^-z|~]+`)
+
+// psNameMaxLen is the longest PostScript font name a font file may carry.
+const psNameMaxLen = 127
+
+// sanitizePSName makes a PostScript name read from a font file usable, by
+// removing the characters which may not appear in such a name.  A name which
+// is still too long afterwards is dropped rather than truncated, since a
+// truncated name would stand for a different font.
+func sanitizePSName(s string) string {
+	s = psNameForbidden.ReplaceAllString(s, "")
+	if len(s) > psNameMaxLen {
+		return ""
+	}
+	return s
+}
+
+// checkPSName returns an error if s cannot be written as a PostScript font
+// name.  The empty string is allowed; callers which require a name check for
+// this separately.
+func checkPSName(s string) error {
+	if len(s) > psNameMaxLen {
+		return fmt.Errorf("sfnt: PostScript name too long (%d bytes)", len(s))
+	}
+	if psNameForbidden.MatchString(s) {
+		return errors.New("sfnt: invalid character in PostScript name")
+	}
+	return nil
+}
+
+// checkPSNames verifies every PostScript name the font would write to a
+// complete font file.  Names read from a font file are repaired on read, so a
+// failure here means the caller supplied an invalid name.
+func (f *Font) checkPSNames() error {
+	if err := checkPSName(f.PostScriptName()); err != nil {
+		return err
+	}
+	if err := checkPSName(f.VariationsPostScriptName); err != nil {
+		return err
+	}
+	if f.Fvar != nil {
+		for _, inst := range f.Fvar.Instances {
+			if err := checkPSName(inst.PostScriptName); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // PostScriptName returns the PostScript name of the font.
+//
+// If the font has no name of its own, one is derived from the family and
+// subfamily names.  A font which has neither, as happens for a font program
+// read back from a PDF file where the "name" table is optional, has no
+// PostScript name and the empty string is returned.
+//
+// Names read from a font file have their invalid characters removed, so the
+// result is a valid PostScript name unless one was installed with
+// [Font.SetPostScriptName].
 func (f *Font) PostScriptName() string {
 	if f.postScriptName != "" {
 		return f.postScriptName
 	}
+	if f.FamilyName == "" {
+		// Without a family name there is nothing to derive a name from.
+		// Returning "-Regular" or similar would invent one.
+		return ""
+	}
 	// TODO(voss): do a better job at preserving the original font name.
 	name := f.FamilyName + "-" + f.Subfamily()
-	re := regexp.MustCompile(`[^!-$&-'*-.0-;=?-Z\\^-z|~]+`)
-	return re.ReplaceAllString(name, "")
+	name = psNameForbidden.ReplaceAllString(name, "")
+	if len(name) > psNameMaxLen {
+		// The family name is not length-limited, so a derived name can exceed
+		// the limit.  Truncation is safe here because the name is synthetic
+		// anyway, and the filtered name is pure ASCII.
+		name = name[:psNameMaxLen]
+	}
+	return name
+}
+
+// SetPostScriptName sets the PostScript name of the font, overriding the name
+// which would otherwise be derived from the family and subfamily names.
+//
+// PDF embedding uses this to give a font subset the tagged name by which the
+// PDF file refers to it.
+//
+// The name must be a valid PostScript name: at most 127 characters, none of
+// them white space or one of the delimiters "%", "(", ")", "<", ">", "[", "]",
+// "{", "}" and "/".  Writing a font with an invalid name fails.
+func (f *Font) SetPostScriptName(name string) {
+	f.postScriptName = name
 }
 
 // FontBBox returns the bounding box of the font.
