@@ -18,6 +18,7 @@ package cff
 
 import (
 	"math"
+	"slices"
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
@@ -249,24 +250,27 @@ func (o *OutlinesCFF2) GlyphAdvanceScale(top matrix.Matrix, gid glyph.ID) float6
 	return q
 }
 
-// Clone creates a new font, consisting of a shallow copy of the outlines with
-// freshly copied top-level slices.
+// Clone returns a copy of the font which can be modified without changing the
+// original.  The font matrix is copied and the outlines are cloned; see
+// [OutlinesCFF2.Clone] for what the copy shares with the font it was made
+// from.
 func (f *FontCFF2) Clone() *FontCFF2 {
-	outlines := f.OutlinesCFF2.clone()
 	return &FontCFF2{
 		FontMatrix:   f.FontMatrix,
-		OutlinesCFF2: outlines,
+		OutlinesCFF2: f.OutlinesCFF2.Clone(),
 	}
 }
 
-// clone returns a shallow copy with freshly copied top-level slices.  The
-// glyph, private-dict and variation-store elements are shared with the
-// original.
-func (o *OutlinesCFF2) clone() *OutlinesCFF2 {
-	res := *o
-	res.Glyphs = append([]*GlyphCFF2(nil), o.Glyphs...)
-	res.Widths = append([]float64(nil), o.Widths...)
-	res.Private = append([]*PrivateCFF2(nil), o.Private...)
-	res.FontMatrices = append([]matrix.Matrix(nil), o.FontMatrices...)
-	return &res
+// Clone returns a copy of the outlines which can be re-encoded without
+// changing the original.
+//
+// The slices are copied, but the glyphs and private dictionaries they point to
+// are shared, as is the item variation store.
+func (o *OutlinesCFF2) Clone() *OutlinesCFF2 {
+	other := *o
+	other.Glyphs = slices.Clone(o.Glyphs)
+	other.Widths = slices.Clone(o.Widths)
+	other.Private = slices.Clone(o.Private)
+	other.FontMatrices = slices.Clone(o.FontMatrices)
+	return &other
 }

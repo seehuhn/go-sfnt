@@ -43,15 +43,15 @@ func (o *Outlines) MakeSimple(glyphText map[glyph.ID]string) {
 // If glyphText is not nil, it is used to generate names for glyphs that do not
 // have a name yet.
 func (o *Outlines) makeNames(glyphText map[glyph.ID]string) {
-	o.Glyphs[0].Name = ".notdef"
+	o.SetGlyphName(0, ".notdef")
 
 	// keep existing names, unless they are invalid or duplicate
 	glyphNameUsed := make(map[string]bool)
-	for _, g := range o.Glyphs {
+	for gid, g := range o.Glyphs {
 		glyphName := g.Name
 
 		if !names.IsValid(glyphName) || glyphNameUsed[glyphName] {
-			g.Name = ""
+			o.SetGlyphName(glyph.ID(gid), "")
 			continue
 		}
 		glyphNameUsed[glyphName] = true
@@ -59,8 +59,8 @@ func (o *Outlines) makeNames(glyphText map[glyph.ID]string) {
 
 	// try to fill missing names based on text content
 	if glyphText != nil {
-		for gid, g := range o.Glyphs {
-			if g.Name != "" {
+		for gid := range o.Glyphs {
+			if o.Glyphs[gid].Name != "" {
 				continue
 			}
 
@@ -86,7 +86,7 @@ func (o *Outlines) makeNames(glyphText map[glyph.ID]string) {
 					break
 				}
 				if !glyphNameUsed[glyphName] {
-					g.Name = glyphName
+					o.SetGlyphName(glyph.ID(gid), glyphName)
 					glyphNameUsed[glyphName] = true
 					break
 				}
@@ -96,8 +96,8 @@ func (o *Outlines) makeNames(glyphText map[glyph.ID]string) {
 
 	// allocate generic names for the remaining glyphs
 	ornIdx := 1
-	for _, g := range o.Glyphs {
-		if g.Name != "" {
+	for gid := range o.Glyphs {
+		if o.Glyphs[gid].Name != "" {
 			continue
 		}
 
@@ -106,7 +106,7 @@ func (o *Outlines) makeNames(glyphText map[glyph.ID]string) {
 			ornIdx++
 
 			if !glyphNameUsed[glyphName] {
-				g.Name = glyphName
+				o.SetGlyphName(glyph.ID(gid), glyphName)
 				glyphNameUsed[glyphName] = true
 				break
 			}
@@ -121,14 +121,8 @@ func (o *Outlines) makeNames(glyphText map[glyph.ID]string) {
 //   - The CID SystemInfo is replaced with the given ros.
 func (o *Outlines) MakeCIDKeyed(ros *cid.SystemInfo, gidToCID []cid.CID) {
 	// remove information only relevant for simple fonts
-	for i, g := range o.Glyphs {
-		if g.Name == "" {
-			continue
-		}
-
-		g = clone(g)
-		g.Name = ""
-		o.Glyphs[i] = g
+	for gid := range o.Glyphs {
+		o.SetGlyphName(glyph.ID(gid), "")
 	}
 	o.Encoding = nil
 

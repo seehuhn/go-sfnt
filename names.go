@@ -25,6 +25,7 @@ import (
 
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/glyf"
+	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 )
 
@@ -41,7 +42,7 @@ func (f *Font) EnsureGlyphNames() {
 			if g == nil {
 				continue
 			}
-			g.Name = glyphNames[gid]
+			f.SetGlyphName(glyph.ID(gid), glyphNames[gid])
 		}
 	case *cff.OutlinesCFF2:
 		// CFF2 glyphs carry no names; nothing to store

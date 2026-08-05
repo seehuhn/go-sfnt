@@ -31,14 +31,14 @@ type Font struct {
 	*Outlines
 }
 
-// Clone creates a new font, consisting of shallow copies of the
-// FontInfo and Outlines fields.
+// Clone returns a copy of the font which can be modified without changing the
+// original.  The FontInfo is copied and the Outlines are cloned; see
+// [Outlines.Clone] for what the copy shares with the font it was made from.
 func (f *Font) Clone() *Font {
 	fontInfo := *f.FontInfo
-	outlines := *f.Outlines
 	return &Font{
 		FontInfo: &fontInfo,
-		Outlines: &outlines,
+		Outlines: f.Outlines.Clone(),
 	}
 }
 

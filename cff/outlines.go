@@ -18,6 +18,7 @@ package cff
 
 import (
 	"math"
+	"slices"
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
@@ -77,6 +78,22 @@ type Outlines struct {
 	FontMatrices []matrix.Matrix
 }
 
+// Clone returns a copy of the outlines which can be converted, subsetted or
+// re-encoded without changing the original.
+//
+// The slices are copied, but the glyphs and private dictionaries they point to
+// are shared: a caller which needs a glyph to differ replaces it, the way
+// [Outlines.SetGlyphName] does.
+func (o *Outlines) Clone() *Outlines {
+	other := *o
+	other.Glyphs = slices.Clone(o.Glyphs)
+	other.Private = slices.Clone(o.Private)
+	other.Encoding = slices.Clone(o.Encoding)
+	other.GIDToCID = slices.Clone(o.GIDToCID)
+	other.FontMatrices = slices.Clone(o.FontMatrices)
+	return &other
+}
+
 // IsCIDKeyed returns true if the font is a CID-keyed font.
 func (o *Outlines) IsCIDKeyed() bool {
 	return o.ROS != nil
@@ -103,6 +120,20 @@ func (o *Outlines) BuiltinEncoding() []string {
 // NumGlyphs returns the number of glyphs in the font.
 func (o *Outlines) NumGlyphs() int {
 	return len(o.Glyphs)
+}
+
+// SetGlyphName gives the glyph the given name.
+//
+// The glyph is replaced rather than written to: glyphs are commonly shared
+// between fonts, for example between a font and a subset of it, and a name
+// written in place would reach every font which has the glyph.
+func (o *Outlines) SetGlyphName(gid glyph.ID, name string) {
+	if o.Glyphs[gid].Name == name {
+		return
+	}
+	g := clone(o.Glyphs[gid])
+	g.Name = name
+	o.Glyphs[gid] = g
 }
 
 // Path returns the glyph outline as a path.Path iterator.
