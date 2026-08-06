@@ -21,9 +21,9 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"golang.org/x/image/font/gofont/gobolditalic"
 	"golang.org/x/image/font/gofont/goregular"
 
@@ -261,14 +261,8 @@ func FuzzFont(f *testing.F) {
 			}
 			return toHmtx(g1.Width) == toHmtx(g2.Width)
 		})
-		cmpUnexported := cmpopts.IgnoreUnexported(sfnt.Font{})
-		if diff := cmp.Diff(font1, font2, cmpFDSelectFn, cmpFloat, cmpGlyphWidth, cmpUnexported); diff != "" {
+		if diff := cmp.Diff(font1, font2, cmpFDSelectFn, cmpFloat, cmpGlyphWidth); diff != "" {
 			t.Errorf("different (-old +new):\n%s", diff)
-		}
-		// the PostScript name lives in an unexported field, which the diff
-		// above ignores
-		if name1, name2 := font1.PostScriptName(), font2.PostScriptName(); name1 != name2 {
-			t.Errorf("PostScript name %q -> %q", name1, name2)
 		}
 	})
 }
@@ -281,31 +275,157 @@ func TestPostScriptNamePDFRoundTrip(t *testing.T) {
 
 	t.Run("glyf", func(t *testing.T) {
 		font := debug.MakeVarFont()
-		font.SetPostScriptName(psName)
+		font.FontName = psName
 
 		buf := &bytes.Buffer{}
 		if _, err := font.WriteTrueTypePDF(buf); err != nil {
 			t.Fatal(err)
 		}
 		font2 := readBack(t, buf.Bytes())
-		if got := font2.PostScriptName(); got != psName {
+		if got := font2.FontName; got != psName {
 			t.Errorf("PostScript name = %q, want %q", got, psName)
 		}
 	})
 
 	t.Run("cff", func(t *testing.T) {
 		font := debug.MakeSimpleFont()
-		font.SetPostScriptName(psName)
+		font.FontName = psName
 
 		buf := &bytes.Buffer{}
 		if err := font.WriteOpenTypeCFFPDF(buf); err != nil {
 			t.Fatal(err)
 		}
 		font2 := readBack(t, buf.Bytes())
-		if got := font2.PostScriptName(); got != psName {
+		if got := font2.FontName; got != psName {
 			t.Errorf("PostScript name = %q, want %q", got, psName)
 		}
 	})
+}
+
+// A font file can carry a PostScript name the "name" table entry is not
+// allowed to hold: a Windows record is UTF-16 and takes any string, and other
+// tools write such names.  Reading such a file, writing it out and reading it
+// again must give the same name back.  Where the font cannot carry the name,
+// the second read would otherwise answer with the derived name, which stands
+// for a different font.
+func TestPostScriptNameRoundTrip(t *testing.T) {
+	psNames := []string{
+		"Quire-Regular",
+		"ABCDEF+Quire-Regular",
+
+		// the "name" table cannot hold these
+		"Grüße-Regular",
+		"宋体-Regular",
+	}
+	for _, tc := range []struct {
+		label string
+		// makeFile writes a font file naming the font psName, using whichever
+		// place that kind of font keeps its name in
+		makeFile func(t *testing.T, psName string) []byte
+		// whether that place can hold a name the "name" table cannot
+		carries bool
+	}{
+		{
+			// A "name" table is the only place a TrueType font can name
+			// itself, and this library will not write a name entry 6 may not
+			// hold; other tools do, so the entry is installed directly.
+			label: "glyf",
+			makeFile: func(t *testing.T, psName string) []byte {
+				return fontWithPostScriptName(t, debug.MakeVarFont(), psName)
+			},
+			carries: false,
+		},
+		{
+			// A CFF Name INDEX takes any PostScript font name, so the writer
+			// can produce this file itself.
+			label: "cff",
+			makeFile: func(t *testing.T, psName string) []byte {
+				font := debug.MakeSimpleFont()
+				font.FontName = psName
+				buf := &bytes.Buffer{}
+				if _, err := font.Write(buf); err != nil {
+					t.Fatal(err)
+				}
+				return buf.Bytes()
+			},
+			carries: true,
+		},
+	} {
+		for _, psName := range psNames {
+			t.Run(tc.label+"/"+psName, func(t *testing.T) {
+				font1 := readBack(t, tc.makeFile(t, psName))
+
+				buf := &bytes.Buffer{}
+				if _, err := font1.Write(buf); err != nil {
+					t.Fatal(err)
+				}
+				font2 := readBack(t, buf.Bytes())
+
+				if got, want := font2.FontName, font1.FontName; got != want {
+					t.Errorf("the two reads disagree: %q and %q", want, got)
+				}
+
+				want := psName
+				if !tc.carries && !isASCII(psName) {
+					// the name cannot be carried, so it is dropped rather than
+					// cut down to the characters which fit
+					want = ""
+				}
+				if got := font1.FontName; got != want {
+					t.Errorf("PostScript name = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+}
+
+// isASCII reports whether s consists of ASCII characters only.
+func isASCII(s string) bool {
+	for _, r := range s {
+		if r > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+// fontWithPostScriptName writes font to a font file whose "name" table gives
+// psName as the PostScript name.  The name goes into the Windows record, which
+// is UTF-16 and takes any string; this library will not write a name the entry
+// is not allowed to hold, but other tools do.
+func fontWithPostScriptName(t *testing.T, font *sfnt.Font, psName string) []byte {
+	t.Helper()
+
+	buf := &bytes.Buffer{}
+	if _, err := font.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	r := bytes.NewReader(buf.Bytes())
+	hdr, err := header.Read(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables := make(map[string][]byte, len(hdr.Toc))
+	for tag := range hdr.Toc {
+		data, err := hdr.ReadTableBytes(r, tag)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tables[tag] = data
+	}
+
+	nameInfo, err := name.Decode(tables["name"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	nameInfo.Windows["en-US"].PostScriptName = psName
+	tables["name"] = nameInfo.Encode(1)
+
+	out := &bytes.Buffer{}
+	if _, err := header.Write(out, hdr.ScalerType, tables); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
 }
 
 // Reading is permissive: a "name" table holding a name no PostScript name may
@@ -318,7 +438,7 @@ func TestPostScriptNameSanitizedOnRead(t *testing.T) {
 	}).Encode(1)
 
 	font := debug.MakeVarFont()
-	font.SetPostScriptName("ABCDEF+Quire-Regular")
+	font.FontName = "ABCDEF+Quire-Regular"
 
 	buf := &bytes.Buffer{}
 	if _, err := font.WriteTrueTypePDF(buf, "name", nameData); err != nil {
@@ -326,7 +446,7 @@ func TestPostScriptNameSanitizedOnRead(t *testing.T) {
 	}
 
 	font2 := readBack(t, buf.Bytes())
-	if got := font2.PostScriptName(); got != "QuireRegulardraft" {
+	if got := font2.FontName; got != "QuireRegulardraft" {
 		t.Errorf("PostScript name = %q, want %q", got, "QuireRegulardraft")
 	}
 	if _, err := font2.Write(&bytes.Buffer{}); err != nil {
@@ -345,7 +465,7 @@ func TestPostScriptNameWriteRejected(t *testing.T) {
 	}
 	for _, psName := range bad {
 		glyfFont := debug.MakeVarFont()
-		glyfFont.SetPostScriptName(psName)
+		glyfFont.FontName = psName
 		if _, err := glyfFont.Write(&bytes.Buffer{}); err == nil {
 			t.Errorf("Write(%q) = nil, want error", psName)
 		}
@@ -354,7 +474,7 @@ func TestPostScriptNameWriteRejected(t *testing.T) {
 		}
 
 		cffFont := debug.MakeSimpleFont()
-		cffFont.SetPostScriptName(psName)
+		cffFont.FontName = psName
 		if err := cffFont.WriteOpenTypeCFFPDF(&bytes.Buffer{}); err == nil {
 			t.Errorf("WriteOpenTypeCFFPDF(%q) = nil, want error", psName)
 		}
@@ -362,14 +482,17 @@ func TestPostScriptNameWriteRejected(t *testing.T) {
 }
 
 // The names generated for a variable-font instance are built from the "fvar"
-// axis tags, which are four arbitrary bytes read from the font file.
+// axis tags, which are four arbitrary bytes read from the font file.  A tag
+// which is not already a plain identifier is replaced rather than filtered:
+// removing the offending bytes can map two tags onto the same string, and the
+// name would then no longer tell the axes apart.
 func TestInstanceNameSanitized(t *testing.T) {
 	font := debug.MakeVarFont()
 	font.FamilyName = "Quire Var"
 	font.VariationsPostScriptName = ""
-	for i := range font.Fvar.Axes {
-		font.Fvar.Axes[i].Tag = "a b\x00"
-	}
+	// two tags which filtering would reduce to the same string
+	font.Fvar.Axes[0].Tag = "a b\x00"
+	font.Fvar.Axes[1].Tag = "ab\x00 "
 	font.Fvar.Instances = nil
 
 	inst, err := font.Instantiate(nil)
@@ -378,6 +501,109 @@ func TestInstanceNameSanitized(t *testing.T) {
 	}
 	if _, err := inst.Write(&bytes.Buffer{}); err != nil {
 		t.Errorf("instance is not writable: %v", err)
+	}
+	if got, want := inst.FontName, "QuireVar_400X0_100X1"; got != want {
+		t.Errorf("instance name = %q, want %q", got, want)
+	}
+}
+
+// A substitute for an unusable axis tag must not collide with a tag the font
+// already uses, or the generated name would again fail to tell the axes apart.
+func TestInstanceNameTagClash(t *testing.T) {
+	font := debug.MakeVarFont()
+	font.FamilyName = "Quire Var"
+	font.VariationsPostScriptName = ""
+	font.Fvar.Axes[0].Tag = "a b\x00" // needs a substitute, would be "X0"
+	font.Fvar.Axes[1].Tag = "X0"      // already uses that name
+	font.Fvar.Instances = nil
+
+	inst, err := font.Instantiate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := inst.FontName, "QuireVar_400XX0_100X0"; got != want {
+		t.Errorf("instance name = %q, want %q", got, want)
+	}
+}
+
+// A CFF Name INDEX and "name" table entry 6 are separate strings which a font
+// may give different values: one CFF font program may be shared between
+// several fonts, so its name belongs to only one of them.  Entry 6 names this
+// font, so reading prefers it.
+func TestFontNamePrefersNameTableEntry6(t *testing.T) {
+	font := debug.MakeSimpleFont()
+	font.FontName = "Shared-Regular"
+
+	font2 := readBack(t, fontWithPostScriptName(t, font, "Quire-Regular"))
+
+	if got, want := font2.FontName, "Quire-Regular"; got != want {
+		t.Errorf("PostScript name = %q, want %q", got, want)
+	}
+}
+
+// Entry 6 cannot hold every PostScript name, and a font whose name it cannot
+// hold has no entry 6 at all.  The CFF Name INDEX is then the only record of
+// the name, as it is in an OpenType/CFF font embedded in a PDF file, where the
+// "name" table need not be present.
+func TestFontNameFallsBackToCFFNameIndex(t *testing.T) {
+	font := debug.MakeSimpleFont()
+	font.FontName = "宋体-Regular"
+
+	buf := &bytes.Buffer{}
+	if _, err := font.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := readBack(t, buf.Bytes()).FontName, "宋体-Regular"; got != want {
+		t.Errorf("PostScript name = %q, want %q", got, want)
+	}
+}
+
+// Where entry 6 holds a name it is not allowed to hold, the CFF Name INDEX is
+// the better record: reading is permissive, so the file is accepted, but the
+// entry is not taken at face value.
+func TestFontNameSkipsMalformedEntry6(t *testing.T) {
+	font := debug.MakeSimpleFont()
+	font.FontName = "Quire-Regular"
+
+	font2 := readBack(t, fontWithPostScriptName(t, font, "Quire Regular (draft)"))
+
+	if got, want := font2.FontName, "Quire-Regular"; got != want {
+		t.Errorf("PostScript name = %q, want %q", got, want)
+	}
+}
+
+// Entry 6 of the "name" table may hold at most 63 characters.  A longer name
+// is dropped rather than truncated, since a truncated name stands for a
+// different font.
+func TestFontNameTooLongForNameTable(t *testing.T) {
+	long := strings.Repeat("x", 100)
+
+	glyf := readBack(t, fontWithPostScriptName(t, debug.MakeVarFont(), long))
+	if got := glyf.FontName; got != "" {
+		t.Errorf("glyf: PostScript name = %q, want %q", got, "")
+	}
+
+	// a CFF Name INDEX has room for it
+	cffFont := debug.MakeSimpleFont()
+	cffFont.FontName = long
+	buf := &bytes.Buffer{}
+	if _, err := cffFont.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	if got := readBack(t, buf.Bytes()).FontName; got != long {
+		t.Errorf("cff: PostScript name = %q, want %d x's", got, len(long))
+	}
+}
+
+// The variations name prefix belongs to a variable font.  Writing it to a font
+// with no variations would lose it, since reading only looks for it there.
+func TestVariationsNameNeedsVariations(t *testing.T) {
+	font := debug.MakeSimpleFont()
+	font.VariationsPostScriptName = "Quire"
+
+	if _, err := font.Write(&bytes.Buffer{}); err == nil {
+		t.Error("Write with a variations name on a static font = nil, want error")
 	}
 }
 

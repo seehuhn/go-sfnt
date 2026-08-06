@@ -27,13 +27,6 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// TODO(voss):
-//
-// https://learn.microsoft.com/en-us/typography/opentype/spec/name#nid6
-// the name string must be no longer than 63 characters and restricted to the
-// printable ASCII subset, codes 33 to 126, except for the 10 characters '[',
-// ']', '(', ')', '{', '}', '<', '>', '/', '%'.
-
 // Info contains information from the "name" table.
 type Info struct {
 	Mac     Tables
@@ -163,6 +156,13 @@ func (info *Info) Encode(windowsEncodingID uint16) []byte {
 		}
 		for _, nameID := range t.keys() {
 			val := t.get(nameID)
+			// A Macintosh record is written in MacRoman, which covers the
+			// Latin scripts only.  Where the string needs more than that, the
+			// record is left out rather than written with the characters
+			// replaced: a reader would take the replacements for the name.
+			if !mac.CanEncode(val) {
+				continue
+			}
 			offset, length := b.Add(mac.Encode(val))
 			rec := &recInfo{
 				PlatformID: 1, // Macintosh

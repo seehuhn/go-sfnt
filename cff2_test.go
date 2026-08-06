@@ -571,7 +571,7 @@ func TestConvertCFF2Static(t *testing.T) {
 	if out.IsCFF2() {
 		t.Error("converted font still reports CFF2")
 	}
-	if got, want := out.PostScriptName(), f.PostScriptName(); got != want {
+	if got, want := out.FontName, f.FontName; got != want {
 		t.Errorf("PostScriptName = %q, want %q (no axes pinned)", got, want)
 	}
 

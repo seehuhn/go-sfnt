@@ -167,6 +167,9 @@ func MakeSimpleFont() *sfnt.Font {
 	now := time.Now()
 	res := &sfnt.Font{
 		FamilyName: "Debug",
+		Subfamily:  "Regular",
+		FullName:   "Debug Regular",
+		FontName:   "Debug-Regular",
 		Width:      info.Width,
 		Weight:     info.Weight,
 		IsRegular:  true,

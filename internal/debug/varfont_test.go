@@ -88,7 +88,7 @@ func TestMakeVarFontRoundTrip(t *testing.T) {
 	if inst[0].Coordinates["wght"] != 700 || inst[0].Coordinates["wdth"] != 75 {
 		t.Errorf("instance coordinates: %+v", inst[0].Coordinates)
 	}
-	if f2.VariationsPostScriptName != "QuireVar-" {
+	if f2.VariationsPostScriptName != "QuireVar" {
 		t.Errorf("VariationsPostScriptName = %q", f2.VariationsPostScriptName)
 	}
 	if f2.Stat.DesignAxes[0].Name != "Weight" ||

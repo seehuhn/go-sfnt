@@ -17,10 +17,7 @@
 package sfnt
 
 import (
-	"errors"
-	"fmt"
 	"math"
-	"regexp"
 	"strings"
 	"time"
 
@@ -77,15 +74,48 @@ type Outlines interface {
 //
 // TODO(voss): document which fields are mandatory/optional.
 type Font struct {
+	// FontName (optional) is the PostScript name of the font.
+	//
+	// The rules for the name depend on the kind of glyph outlines the font
+	// uses:
+	//
+	//   - For a font with CFF outlines, the name may be at most 127 bytes of
+	//     UTF-8, and may hold neither white space, nor a character which
+	//     cannot be shown, nor any of "%", "(", ")", "<", ">", "[", "]",
+	//     "{", "}" and "/".
+	//   - For a font with glyf or CFF2 outlines, the name may be at most 63
+	//     characters, taken from the ASCII codes 33 to 126 with the same ten
+	//     characters left out.
+	//
+	// [Font.CheckFontName] reports whether a name obeys these rules, and
+	// [Font.MaxFontNameLen] gives the length limit.
+	//
+	// A font with CFF outlines can carry a name the "name" table cannot hold,
+	// since its Name INDEX records the name instead; such a font is written
+	// without a PostScript name entry in the "name" table.
+	FontName string
+
+	// FamilyName (optional) is the name of the family the font belongs to,
+	// for example "MyFont 72".
 	FamilyName string
-	Width      os2.Width
-	Weight     os2.Weight
-	IsRegular  bool // glyphs are in the standard weight/style for the font
-	IsBold     bool // glyphs are emboldened
-	IsItalic   bool // font contains italic or oblique glyphs
-	IsOblique  bool // font contains oblique glyphs
-	IsSerif    bool // glyph shapes have serifs
-	IsScript   bool // glyphs resemble cursive handwriting
+
+	// Subfamily (optional) is the style name of the font within its family,
+	// for example "Bold Italic".
+	Subfamily string
+
+	// FullName (optional) is the human-readable name of the font,
+	// for example "MyFont 72 Smallcaps Book".
+	FullName string
+
+	Width  os2.Width
+	Weight os2.Weight
+
+	IsRegular bool // glyphs are in the standard weight/style for the font
+	IsBold    bool // glyphs are emboldened
+	IsItalic  bool // font contains italic or oblique glyphs
+	IsOblique bool // font contains oblique glyphs
+	IsSerif   bool // glyph shapes have serifs
+	IsScript  bool // glyphs resemble cursive handwriting
 
 	// CodePageRange records which code pages the font declares coverage for,
 	// as reported by the OS/2 table.  These bits are an advisory hint set by
@@ -144,15 +174,10 @@ type Font struct {
 	Hvar *hvar.Table
 	Mvar *mvar.Table
 
-	// VariationsPostScriptName is "name" table entry 25 (the variations
-	// PostScript name prefix), retained for instancing.
+	// VariationsPostScriptName (optional) is the prefix from which
+	// the PostScript name of a variable font instance is built.  It may hold
+	// ASCII letters and digits only, and must be empty for non-variable fonts.
 	VariationsPostScriptName string
-
-	// postScriptName, when non-empty, overrides the name derived by
-	// [Font.PostScriptName].  It holds the name read from the font file, the
-	// name of the pinned instance after [Font.Instantiate], or the name
-	// installed by [Font.SetPostScriptName].
-	postScriptName string
 }
 
 // Clone makes a shallow copy of the font object.
@@ -165,8 +190,8 @@ func (f *Font) Clone() *Font {
 // The result is a newly allocated structure and is not shared with the font.
 func (f *Font) GetFontInfo() *type1.FontInfo {
 	fontInfo := &type1.FontInfo{
-		FontName:   f.PostScriptName(),
-		FullName:   f.FullName(),
+		FontName:   f.FontName,
+		FullName:   f.FullName,
 		FamilyName: f.FamilyName,
 		Weight:     f.Weight.String(),
 		Version:    f.Version.String(),
@@ -227,139 +252,6 @@ func (f *Font) AsCFF2() *cff.FontCFF2 {
 		FontMatrix:   f.FontMatrix,
 		OutlinesCFF2: outlines,
 	}
-}
-
-// FullName returns the full name of the font.
-func (f *Font) FullName() string {
-	return f.FamilyName + " " + f.Subfamily()
-}
-
-// Subfamily returns the subfamily name of the font.
-func (f *Font) Subfamily() string {
-	var words []string
-	if f.Width != 0 && f.Width != os2.WidthNormal {
-		words = append(words, f.Width.String())
-	}
-	if f.Weight != 0 && f.Weight != os2.WeightNormal {
-		tag := f.Weight.SimpleString()
-		seen := strings.Contains(f.FamilyName, tag)
-		for _, w := range words {
-			if strings.Contains(w, tag) {
-				seen = true
-				break
-			}
-		}
-		if !seen {
-			words = append(words, tag)
-		}
-	} else if f.IsBold {
-		words = append(words, "Bold")
-	}
-	if f.IsOblique {
-		words = append(words, "Oblique")
-	} else if f.IsItalic {
-		words = append(words, "Italic")
-	}
-	if len(words) == 0 {
-		return "Regular"
-	}
-	return strings.Join(words, " ")
-}
-
-// psNameForbidden matches the characters which may not appear in a PostScript
-// name.
-var psNameForbidden = regexp.MustCompile(`[^!-$&-'*-.0-;=?-Z\\^-z|~]+`)
-
-// psNameMaxLen is the longest PostScript font name a font file may carry.
-const psNameMaxLen = 127
-
-// sanitizePSName makes a PostScript name read from a font file usable, by
-// removing the characters which may not appear in such a name.  A name which
-// is still too long afterwards is dropped rather than truncated, since a
-// truncated name would stand for a different font.
-func sanitizePSName(s string) string {
-	s = psNameForbidden.ReplaceAllString(s, "")
-	if len(s) > psNameMaxLen {
-		return ""
-	}
-	return s
-}
-
-// checkPSName returns an error if s cannot be written as a PostScript font
-// name.  The empty string is allowed; callers which require a name check for
-// this separately.
-func checkPSName(s string) error {
-	if len(s) > psNameMaxLen {
-		return fmt.Errorf("sfnt: PostScript name too long (%d bytes)", len(s))
-	}
-	if psNameForbidden.MatchString(s) {
-		return errors.New("sfnt: invalid character in PostScript name")
-	}
-	return nil
-}
-
-// checkPSNames verifies every PostScript name the font would write to a
-// complete font file.  Names read from a font file are repaired on read, so a
-// failure here means the caller supplied an invalid name.
-func (f *Font) checkPSNames() error {
-	if err := checkPSName(f.PostScriptName()); err != nil {
-		return err
-	}
-	if err := checkPSName(f.VariationsPostScriptName); err != nil {
-		return err
-	}
-	if f.Fvar != nil {
-		for _, inst := range f.Fvar.Instances {
-			if err := checkPSName(inst.PostScriptName); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// PostScriptName returns the PostScript name of the font.
-//
-// If the font has no name of its own, one is derived from the family and
-// subfamily names.  A font which has neither, as happens for a font program
-// read back from a PDF file where the "name" table is optional, has no
-// PostScript name and the empty string is returned.
-//
-// Names read from a font file have their invalid characters removed, so the
-// result is a valid PostScript name unless one was installed with
-// [Font.SetPostScriptName].
-func (f *Font) PostScriptName() string {
-	if f.postScriptName != "" {
-		return f.postScriptName
-	}
-	if f.FamilyName == "" {
-		// Without a family name there is nothing to derive a name from.
-		// Returning "-Regular" or similar would invent one.
-		return ""
-	}
-	// TODO(voss): do a better job at preserving the original font name.
-	name := f.FamilyName + "-" + f.Subfamily()
-	name = psNameForbidden.ReplaceAllString(name, "")
-	if len(name) > psNameMaxLen {
-		// The family name is not length-limited, so a derived name can exceed
-		// the limit.  Truncation is safe here because the name is synthetic
-		// anyway, and the filtered name is pure ASCII.
-		name = name[:psNameMaxLen]
-	}
-	return name
-}
-
-// SetPostScriptName sets the PostScript name of the font, overriding the name
-// which would otherwise be derived from the family and subfamily names.
-//
-// PDF embedding uses this to give a font subset the tagged name by which the
-// PDF file refers to it.
-//
-// The name must be a valid PostScript name: at most 127 characters, none of
-// them white space or one of the delimiters "%", "(", ")", "<", ">", "[", "]",
-// "{", "}" and "/".  Writing a font with an invalid name fails.
-func (f *Font) SetPostScriptName(name string) {
-	f.postScriptName = name
 }
 
 // FontBBox returns the bounding box of the font.

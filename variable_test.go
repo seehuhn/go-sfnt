@@ -175,7 +175,7 @@ func makeVariableFont(t testing.TB) *sfnt.Font {
 		},
 	}
 
-	f.VariationsPostScriptName = "Test-"
+	f.VariationsPostScriptName = "Test"
 
 	// GDEF item variation store (GDEF 1.3).
 	if f.Gdef == nil {
@@ -250,7 +250,7 @@ func TestVariableFontRoundTrip(t *testing.T) {
 	if inst[0].Coordinates["wght"] != 700 || inst[0].Coordinates["wdth"] != 100 {
 		t.Errorf("instance coordinates: %+v", inst[0].Coordinates)
 	}
-	if f2.VariationsPostScriptName != "Test-" {
+	if f2.VariationsPostScriptName != "Test" {
 		t.Errorf("VariationsPostScriptName = %q", f2.VariationsPostScriptName)
 	}
 	if f2.Stat.DesignAxes[0].Name != "Weight" || f2.Stat.AxisValues[0].(*stat.Format1).Name != "Regular" {

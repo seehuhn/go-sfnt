@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+
+	"seehuhn.de/go/postscript/type1"
 )
 
 // maxGlyphs is the largest number of glyphs a CFF font can contain, since
@@ -32,6 +34,9 @@ const maxCharStringLen = 65535
 
 // Write writes the binary form of a CFF font.
 func (f *Font) Write(w io.Writer) error {
+	if err := type1.CheckFontName(f.FontInfo.FontName); err != nil {
+		return err
+	}
 	if len(f.Glyphs) > maxGlyphs {
 		return invalidSince("too many glyphs")
 	}

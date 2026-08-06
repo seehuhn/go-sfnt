@@ -47,8 +47,25 @@ func DecodeOne(c byte) rune {
 	return dec[c-128]
 }
 
+// CanEncode reports whether every character of s can be represented in the
+// MacRoman encoding.  A caller which must not lose characters uses this to
+// decide whether to write the string at all, since [Encode] replaces the
+// characters it cannot represent rather than failing.
+func CanEncode(s string) bool {
+	for _, r := range s {
+		if r < 128 {
+			continue
+		}
+		if _, ok := enc[r]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // Encode encodes a string of Unicode runes.  Runes which cannot be represented
-// in the MacRoman encoding are replaced by question marks.
+// in the MacRoman encoding are replaced by question marks.  Use [CanEncode] to
+// find out whether this loses anything.
 func Encode(s string) []byte {
 	rr := []rune(s)
 	res := make([]byte, len(rr))

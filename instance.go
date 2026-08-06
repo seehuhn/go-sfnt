@@ -30,6 +30,7 @@ import (
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/fvar"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/mvar"
@@ -155,9 +156,19 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	out.Hvar = nil
 	out.Mvar = nil
 
-	// step 12: PostScript name (Adobe TN #5902)
-	out.postScriptName = instanceName(f, userValues)
+	// step 12: the names of the pinned instance.  A named instance supplies
+	// both its PostScript name (Adobe TN #5902) and its style name; anywhere
+	// else in the design space the font has no name for its style, and the
+	// names of the variable font it came from do not describe it.
+	inst := namedInstance(f, userValues)
+	out.FontName = instanceName(f, inst, userValues, out.MaxFontNameLen())
 	out.VariationsPostScriptName = ""
+	out.Subfamily = ""
+	out.FullName = ""
+	if inst != nil {
+		out.Subfamily = inst.Name
+		out.FullName = fullName(f.FamilyName, inst.Name)
+	}
 
 	return &out, nil
 }
@@ -368,70 +379,118 @@ func widthClass(pct float64) os2.Width {
 	return best
 }
 
-// instanceName derives the PostScript name of the instance following Adobe
-// Technical Note #5902.
-func instanceName(f *Font, userValues []float64) string {
-	// a named instance whose coordinates match exactly wins
-	for _, inst := range f.Fvar.Instances {
-		if inst.PostScriptName == "" || len(inst.Coordinates) != len(userValues) {
+// namedInstance returns the named instance sitting at the given user
+// coordinates, or nil if the font has none there.
+func namedInstance(f *Font, userValues []float64) *fvar.Instance {
+	for i := range f.Fvar.Instances {
+		inst := &f.Fvar.Instances[i]
+		if len(inst.Coordinates) != len(userValues) {
 			continue
 		}
 		match := true
-		for i, c := range inst.Coordinates {
-			if math.Abs(c-userValues[i]) > 1.0/65536 {
+		for j, c := range inst.Coordinates {
+			if math.Abs(c-userValues[j]) > 1.0/65536 {
 				match = false
 				break
 			}
 		}
 		if match {
-			return inst.PostScriptName
+			return inst
 		}
+	}
+	return nil
+}
+
+// instanceName derives the PostScript name of the instance following Adobe
+// Technical Note #5902.  inst is the named instance at these coordinates, or
+// nil if there is none, and maxLen is the greatest number of bytes the
+// instanced font can carry.
+//
+// Every part of a generated name is confined to the characters the "name"
+// table allows, so the result is always a name the instanced font can be
+// written with.
+func instanceName(f *Font, inst *fvar.Instance, userValues []float64, maxLen int) string {
+	// a named instance whose coordinates match exactly wins
+	if inst != nil && inst.PostScriptName != "" {
+		return inst.PostScriptName
 	}
 
 	// generated name: prefix + one "_<value><tag>" group per axis in fvar order.
 	// The prefix is filtered here rather than only as part of the assembled
-	// name, because the length fallback below slices it on its own: a raw
-	// prefix would put the removed characters back, and could be cut in the
-	// middle of a multi-byte rune.
-	prefix := psNameForbidden.ReplaceAllString(f.VariationsPostScriptName, "")
+	// name, because the length fallback below slices it on its own and a raw
+	// prefix would put the removed characters back.
+	prefix := repairVariationsName(f.VariationsPostScriptName)
 	if prefix == "" {
-		prefix = psNameAlnum(f.FamilyName)
+		// no prefix of its own: fall back to the family name, stripped down to
+		// the same character set
+		prefix = keepAlnum(f.FamilyName)
 	}
+	tags := axisTagNames(f.Fvar.Axes)
 	var b strings.Builder
 	b.WriteString(prefix)
-	for i, ax := range f.Fvar.Axes {
+	for i := range f.Fvar.Axes {
 		b.WriteByte('_')
 		b.WriteString(renderFixed(userValues[i]))
-		b.WriteString(ax.Tag)
+		b.WriteString(tags[i])
 	}
-	// axis tags are four arbitrary bytes from the "fvar" table and may contain
-	// characters a PostScript name cannot hold
-	name := psNameForbidden.ReplaceAllString(b.String(), "")
+	name := b.String()
 
 	// keep PostScript names within the length limit; over the limit we fall
 	// back to a deterministic hash, which TN #5902 permits as an
 	// implementation-defined last resort.
-	if len(name) > psNameMaxLen {
+	if len(name) > maxLen {
 		sum := sha256.Sum256([]byte(name))
 		suffix := "-" + hex.EncodeToString(sum[:])[:8]
-		keep := min(psNameMaxLen-len(suffix), len(prefix))
-		keep = max(keep, 0)
+		// the prefix is ASCII letters and digits, so a byte is a character
+		keep := min(max(maxLen-len(suffix), 0), len(prefix))
 		name = prefix[:keep] + suffix
 	}
 	return name
 }
 
-// psNameAlnum strips a family name down to the characters allowed at the start
-// of a generated PostScript instance name.  This is deliberately stricter than
-// sanitizePSName, which keeps everything a PostScript name may contain.
-func psNameAlnum(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
+// axisTagNames returns the strings standing for the axis tags in a generated
+// instance name.
+//
+// A tag is used as it stands only where it already consists of ASCII letters
+// and digits.  Removing the offending characters from the others would not do,
+// because two different tags can reduce to the same string and the name would
+// then no longer tell the axes apart; a substitute built from the position of
+// the axis is used instead.  A substitute which clashes with a tag the font
+// already uses is lengthened until it does not.
+func axisTagNames(axes []fvar.Axis) []string {
+	names := make([]string, len(axes))
+	used := make(map[string]bool)
+	for i, ax := range axes {
+		if isAlnum(ax.Tag) {
+			names[i] = ax.Tag
+			used[ax.Tag] = true
 		}
 	}
-	return b.String()
+	for i := range axes {
+		if names[i] != "" {
+			continue
+		}
+		name := "X" + strconv.Itoa(i)
+		for used[name] {
+			name = "X" + name
+		}
+		names[i] = name
+		used[name] = true
+	}
+	return names
+}
+
+// fullName builds the full name of a font from its family and style names.  A
+// style of "Regular" tells the reader nothing the family name does not already
+// say, so it is left out.
+func fullName(family, subfamily string) string {
+	if family == "" {
+		return subfamily
+	}
+	if subfamily == "" || subfamily == "Regular" {
+		return family
+	}
+	return family + " " + subfamily
 }
 
 // renderFixed renders a user-scale axis value as a minimal decimal, rounding to

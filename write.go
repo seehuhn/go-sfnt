@@ -197,7 +197,7 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 	if !ok {
 		return 0, errors.New("sfnt: WriteTrueTypePDF requires TrueType outlines")
 	}
-	if err := checkPSName(f.PostScriptName()); err != nil {
+	if err := f.CheckFontName(f.FontName); err != nil {
 		return 0, err
 	}
 
@@ -249,7 +249,7 @@ func (f *Font) WriteOpenTypeCFFPDF(w io.Writer) error {
 	if !ok {
 		return errors.New("sfnt: WriteOpenTypeCFFPDF requires CFF outlines")
 	}
-	if err := checkPSName(f.PostScriptName()); err != nil {
+	if err := f.CheckFontName(f.FontName); err != nil {
 		return err
 	}
 
@@ -279,7 +279,7 @@ func (f *Font) makeHead(locaFormat int16) []byte {
 		Modified:      f.ModificationTime,
 		FontBBox:      f.FontBBox(),
 		IsBold:        f.IsBold,
-		IsItalic:      f.ItalicAngle != 0,
+		IsItalic:      f.IsItalic,
 		LowestRecPPEM: 7, // TODO(voss)
 		LocaFormat:    locaFormat,
 	}
@@ -368,7 +368,7 @@ func (f *Font) makeOS2() []byte {
 		WidthClass:  f.Width,
 
 		IsBold:    f.IsBold,
-		IsItalic:  f.ItalicAngle != 0,
+		IsItalic:  f.IsItalic,
 		IsRegular: f.IsRegular,
 		IsOblique: f.IsOblique,
 
@@ -407,19 +407,25 @@ func (f *Font) makeName(extra map[name.ID]string) []byte {
 	}
 	dayString := day.Format("2006-01-02")
 
-	fullName := f.FullName()
+	// the unique identifier names the font, so it is left out when the font
+	// carries no name to put in it
+	var identifier string
+	if unique := f.FullName; unique != "" {
+		identifier = unique + "; " + f.Version.String() + "; " + dayString
+	}
+
 	nameTable := &name.Table{
 		Family:         f.FamilyName,
-		Subfamily:      f.Subfamily(),
+		Subfamily:      f.Subfamily,
 		Description:    f.Description,
 		Copyright:      f.Copyright,
 		Trademark:      f.Trademark,
 		License:        f.License,
 		LicenseURL:     f.LicenseURL,
-		Identifier:     fullName + "; " + f.Version.String() + "; " + dayString,
-		FullName:       fullName,
+		Identifier:     identifier,
+		FullName:       f.FullName,
 		Version:        "Version " + f.Version.String(),
-		PostScriptName: f.PostScriptName(),
+		PostScriptName: nameID6(f),
 		SampleText:     f.SampleText,
 
 		VariationsPostScriptName: f.VariationsPostScriptName,
@@ -510,7 +516,7 @@ func (f *Font) InstallCMap(s cmap.Subtable) {
 // only that one is written; the copyright, licence and version strings a full
 // table carries would cost far more than the rest of the subset.
 func (f *Font) makeMinimalName() []byte {
-	psName := f.PostScriptName()
+	psName := nameID6(f)
 	if psName == "" {
 		return nil
 	}
@@ -520,4 +526,20 @@ func (f *Font) makeMinimalName() []byte {
 		},
 	}
 	return info.Encode(1)
+}
+
+// nameID6 returns the PostScript name to write to the "name" table, or the
+// empty string where the font's name cannot be written there.
+//
+// The entry is optional, so omitting it leaves a conforming font, whereas a
+// name outside the restricted set the entry allows would not be one; see
+// [nameID6Forbidden].  This only happens for a font with CFF outlines, whose
+// Name INDEX carries the name instead; anywhere else [Font.CheckFontName] has
+// already refused the name.
+func nameID6(f *Font) string {
+	psName := f.FontName
+	if !canBeNameID6(psName) {
+		return ""
+	}
+	return psName
 }

@@ -36,6 +36,8 @@ func main() {
 	now := time.Now()
 	info := &sfnt.Font{
 		FamilyName: "Test",
+		Subfamily:  "Regular",
+		FullName:   "Test Regular",
 		Weight:     os2.WeightNormal,
 		Width:      os2.WidthNormal,
 

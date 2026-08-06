@@ -161,6 +161,19 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 	isSerif := false  // TODO(voss)
 	isScript := false // TODO(voss)
 
+	// A Type 1 font has no subfamily name, so one is made up from the style.
+	var subfamily string
+	switch {
+	case isBold && isItalic:
+		subfamily = "Bold Italic"
+	case isBold:
+		subfamily = "Bold"
+	case isItalic:
+		subfamily = "Italic"
+	default:
+		subfamily = "Regular"
+	}
+
 	cmap := makeCmap(glyphNames)
 
 	unitsPerEm := math.Round(1 / t1Info.FontMatrix[0])
@@ -222,6 +235,8 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 
 	otfInfo := sfnt.Font{
 		FamilyName:         t1Info.FontInfo.FamilyName,
+		Subfamily:          subfamily,
+		FullName:           t1Info.FontInfo.FullName,
 		Width:              width,
 		Weight:             weight,
 		IsItalic:           isItalic,

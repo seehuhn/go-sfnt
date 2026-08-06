@@ -22,7 +22,6 @@ import (
 	"math"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -283,8 +282,36 @@ func TestInstantiateNaming(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := inst.PostScriptName(); got != "QuireVar-BoldNarrow" {
+		if got := inst.FontName; got != "QuireVar-BoldNarrow" {
 			t.Errorf("PostScriptName = %q, want QuireVar-BoldNarrow", got)
+		}
+		// the instance names the style it pins, and the full name follows from
+		// the family and that style
+		if got := inst.Subfamily; got != "Bold Narrow" {
+			t.Errorf("Subfamily = %q, want %q", got, "Bold Narrow")
+		}
+		if got := inst.FullName; got != "QuireVar Bold Narrow" {
+			t.Errorf("FullName = %q, want %q", got, "QuireVar Bold Narrow")
+		}
+	})
+
+	// A style of "Regular" adds nothing to the family name, so the full name is
+	// the family name on its own.
+	t.Run("regular-instance", func(t *testing.T) {
+		f := debug.MakeVarFont()
+		f.Fvar.Instances[0].Name = "Regular"
+		inst, err := f.Instantiate(map[string]float64{
+			"wght": f.Fvar.Instances[0].Coordinates[0],
+			"wdth": f.Fvar.Instances[0].Coordinates[1],
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := inst.Subfamily; got != "Regular" {
+			t.Errorf("Subfamily = %q, want %q", got, "Regular")
+		}
+		if got := inst.FullName; got != "QuireVar" {
+			t.Errorf("FullName = %q, want %q", got, "QuireVar")
 		}
 	})
 
@@ -294,8 +321,16 @@ func TestInstantiateNaming(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := inst.PostScriptName(); got != "QuireVar-_650wght_100wdth" {
-			t.Errorf("PostScriptName = %q, want QuireVar-_650wght_100wdth", got)
+		if got := inst.FontName; got != "QuireVar_650wght_100wdth" {
+			t.Errorf("PostScriptName = %q, want QuireVar_650wght_100wdth", got)
+		}
+		// nowhere near a named instance, so the variable font's own style names
+		// must not carry over
+		if got := inst.Subfamily; got != "" {
+			t.Errorf("Subfamily = %q, want %q", got, "")
+		}
+		if got := inst.FullName; got != "" {
+			t.Errorf("FullName = %q, want %q", got, "")
 		}
 	})
 
@@ -310,8 +345,8 @@ func TestInstantiateNaming(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := inst.PostScriptName(); got != "QuireVar-_700wght_75wdth" {
-			t.Errorf("PostScriptName = %q, want QuireVar-_700wght_75wdth", got)
+		if got := inst.FontName; got != "QuireVar_700wght_75wdth" {
+			t.Errorf("PostScriptName = %q, want QuireVar_700wght_75wdth", got)
 		}
 	})
 
@@ -321,8 +356,8 @@ func TestInstantiateNaming(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := inst.PostScriptName(); got != "QuireVar-_400wght_87.5wdth" {
-			t.Errorf("PostScriptName = %q, want QuireVar-_400wght_87.5wdth", got)
+		if got := inst.FontName; got != "QuireVar_400wght_87.5wdth" {
+			t.Errorf("PostScriptName = %q, want QuireVar_400wght_87.5wdth", got)
 		}
 	})
 
@@ -334,7 +369,7 @@ func TestInstantiateNaming(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := inst.PostScriptName()
+		got := inst.FontName
 		if len(got) > 127 {
 			t.Errorf("PostScriptName length = %d, want <= 127", len(got))
 		}
@@ -343,26 +378,40 @@ func TestInstantiateNaming(t *testing.T) {
 		}
 	})
 
-	// The hash fallback slices the prefix on its own, so the prefix must
-	// already be filtered: a raw one would reinstate the characters the
-	// filter removed, and the cut could land inside a multi-byte rune.
+	// The hash fallback slices the prefix on its own, so the result must
+	// still be a name the instance can be written with.
 	t.Run("long-prefix-fallback", func(t *testing.T) {
 		f := debug.MakeVarFont()
 		f.Fvar.Instances = nil
-		// long enough to trigger the fallback, with a multi-byte tail
-		// straddling the point where the prefix is cut
-		f.VariationsPostScriptName = strings.Repeat("x", 117) + strings.Repeat("ü", 10)
+		f.VariationsPostScriptName = strings.Repeat("x", 140)
 
 		inst, err := f.Instantiate(nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := inst.PostScriptName()
-		if !utf8.ValidString(got) {
-			t.Errorf("PostScriptName = %q, want valid UTF-8", got)
+		got := inst.FontName
+		if len(got) < 9 || got[len(got)-9] != '-' {
+			t.Errorf("PostScriptName = %q, want an 8-hex-char hash suffix", got)
 		}
 		if _, err := inst.Write(&bytes.Buffer{}); err != nil {
 			t.Errorf("instance is not writable: %v", err)
+		}
+	})
+
+	// A prefix outside the ASCII letters and digits cannot be reduced to one
+	// without standing for a different family, so the family name is used.
+	t.Run("non-ascii-prefix", func(t *testing.T) {
+		f := debug.MakeVarFont()
+		f.Fvar.Instances = nil
+		f.FamilyName = "Quire Var"
+		f.VariationsPostScriptName = "宋体"
+
+		inst, err := f.Instantiate(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := inst.FontName; got != "QuireVar_400wght_100wdth" {
+			t.Errorf("PostScriptName = %q, want QuireVar_400wght_100wdth", got)
 		}
 	})
 
@@ -376,7 +425,7 @@ func TestInstantiateNaming(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := inst.PostScriptName(); got != "QuireVardraft_400wght_100wdth" {
+		if got := inst.FontName; got != "QuireVardraft_400wght_100wdth" {
 			t.Errorf("PostScriptName = %q, want QuireVardraft_400wght_100wdth", got)
 		}
 	})

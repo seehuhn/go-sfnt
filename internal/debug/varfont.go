@@ -127,6 +127,9 @@ func MakeVarFont() *sfnt.Font {
 
 	f := &sfnt.Font{
 		FamilyName:         "QuireVar",
+		Subfamily:          "Regular",
+		FullName:           "QuireVar Regular",
+		FontName:           "QuireVar-Regular",
 		Width:              os2.WidthNormal,
 		Weight:             os2.WeightNormal,
 		IsRegular:          true,
@@ -253,7 +256,7 @@ func MakeVarFont() *sfnt.Font {
 		},
 	}
 
-	f.VariationsPostScriptName = "QuireVar-"
+	f.VariationsPostScriptName = "QuireVar"
 
 	// GDEF item variation store, referenced by the GPOS VariationIndex.
 	f.Gdef = &gdef.Table{

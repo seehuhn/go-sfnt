@@ -83,3 +83,54 @@ func FuzzNames(f *testing.F) {
 		}
 	})
 }
+
+// A Macintosh record is written in MacRoman, which covers the Latin scripts
+// only, and [mac.Encode] substitutes for what it cannot represent rather than
+// failing.  Such a string is left out of the Macintosh record, since a reader
+// would otherwise take the substitutions for the name.  This also keeps the
+// Macintosh and Windows records of name ID 6 saying the same thing, which the
+// OpenType specification requires of them.
+func TestEncodeOmitsUnrepresentableMacRecords(t *testing.T) {
+	for _, tc := range []struct {
+		label  string
+		psName string
+		wantIn bool // is the Macintosh record expected?
+	}{
+		{"ASCII", "Foo-Regular", true},
+		{"Latin-1, which MacRoman covers", "Grüße-Regular", true},
+		{"outside MacRoman", "宋体-Regular", false},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			tbl := &Table{PostScriptName: tc.psName}
+			info := &Info{
+				Mac:     Tables{"en": tbl},
+				Windows: Tables{"en-US": tbl},
+			}
+
+			back, err := Decode(info.Encode(1))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var macName string
+			if got := back.Mac["en"]; got != nil {
+				macName = got.PostScriptName
+			}
+			if tc.wantIn {
+				if macName != tc.psName {
+					t.Errorf("the Macintosh record says %q, want %q", macName, tc.psName)
+				}
+			} else if macName != "" {
+				t.Errorf("the Macintosh record says %q, want no record", macName)
+			}
+
+			winName := back.Windows["en-US"].PostScriptName
+			if winName != tc.psName {
+				t.Errorf("the Windows record says %q, want %q", winName, tc.psName)
+			}
+			if macName != "" && macName != winName {
+				t.Errorf("the records disagree: %q and %q", macName, winName)
+			}
+		})
+	}
+}

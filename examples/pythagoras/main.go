@@ -60,6 +60,8 @@ func main() {
 	now := time.Now()
 	info := &sfnt.Font{
 		FamilyName: "Pythagoras",
+		Subfamily:  "Regular",
+		FullName:   "Pythagoras Regular",
 		Weight:     os2.WeightNormal,
 		Width:      os2.WidthNormal,
 		IsRegular:  true,

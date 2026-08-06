@@ -364,16 +364,30 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 
 	if nameTable != nil {
 		info.FamilyName = nameTable.Family
-		info.postScriptName = sanitizePSName(nameTable.PostScriptName)
+		info.Subfamily = nameTable.Subfamily
+		info.FullName = nameTable.FullName
 	}
 	if info.FamilyName == "" && fontInfo != nil {
 		info.FamilyName = fontInfo.FamilyName
 	}
-	// A CFF font program carries its own name, which is the PostScript name of
-	// the font.  It is the only record of the name in an OpenType/CFF font
-	// embedded in a PDF file, where the "name" table need not be present.
-	if info.postScriptName == "" && fontInfo != nil {
-		info.postScriptName = sanitizePSName(fontInfo.FontName)
+	if info.FullName == "" && fontInfo != nil {
+		info.FullName = fontInfo.FullName
+	}
+	// Entry 6 of the "name" table is the PostScript name of the font, so a
+	// well-formed entry wins.  A CFF font program names itself as well, and the
+	// two need not agree: one CFF font program may be shared between several
+	// fonts, in which case its name belongs to only one of them.  The CFF name
+	// is used where entry 6 is missing, as in an OpenType/CFF font embedded in a
+	// PDF file, where the "name" table need not be present, and where entry 6
+	// holds something it is not allowed to hold.
+	if nameTable != nil && canBeNameID6(nameTable.PostScriptName) {
+		info.FontName = nameTable.PostScriptName
+	}
+	if info.FontName == "" && fontInfo != nil {
+		info.FontName = info.repairFontName(fontInfo.FontName)
+	}
+	if info.FontName == "" && nameTable != nil {
+		info.FontName = info.repairFontName(nameTable.PostScriptName)
 	}
 	if os2Info != nil {
 		info.Width = os2Info.WidthClass
@@ -622,10 +636,10 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 				inst := &info.Fvar.Instances[i]
 				inst.Name = nameTable.Get(name.ID(inst.NameID))
 				if inst.PostScriptNameID != 0xFFFF {
-					inst.PostScriptName = sanitizePSName(nameTable.Get(name.ID(inst.PostScriptNameID)))
+					inst.PostScriptName = repairNameID6(nameTable.Get(name.ID(inst.PostScriptNameID)))
 				}
 			}
-			info.VariationsPostScriptName = sanitizePSName(nameTable.VariationsPostScriptName)
+			info.VariationsPostScriptName = repairVariationsName(nameTable.VariationsPostScriptName)
 		}
 
 		if dir.Has("avar") {
