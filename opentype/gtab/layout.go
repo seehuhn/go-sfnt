@@ -155,8 +155,8 @@ func (ctx *Context) applyForward() {
 // never push nested actions onto ctx.stack, so applying at each position and
 // decrementing by one is correct without consulting the return value.
 func (ctx *Context) applyReverse() {
-	for pos := len(ctx.seq) - 1; pos >= 0; pos-- {
-		if !ctx.keep.Keep(ctx.seq[pos].GID) {
+	for pos, v := range slices.Backward(ctx.seq) {
+		if !ctx.keep.Keep(v.GID) {
 			continue
 		}
 		ctx.applyAt(ctx.lookup.Subtables, pos, len(ctx.seq))
