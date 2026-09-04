@@ -455,16 +455,10 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		info.XHeight = os2Info.XHeight
 	}
 	if info.CapHeight == 0 && cmapBest != nil {
-		gid := cmapBest.Lookup('H')
-		if gid != 0 && int(gid) < info.NumGlyphs() {
-			info.CapHeight = info.glyphHeight(gid)
-		}
+		info.CapHeight = info.measureHeight(cmapBest, type1.CapHeightChars)
 	}
 	if info.XHeight == 0 && cmapBest != nil {
-		gid := cmapBest.Lookup('x')
-		if gid != 0 && int(gid) < info.NumGlyphs() {
-			info.XHeight = info.glyphHeight(gid)
-		}
+		info.XHeight = info.measureHeight(cmapBest, type1.XHeightChars)
 	}
 
 	if postInfo != nil {

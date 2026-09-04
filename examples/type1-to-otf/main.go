@@ -204,22 +204,10 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 				break
 			}
 		}
-		for _, name := range []string{"H", "I", "K", "L", "T"} {
-			if gid, exists := name2gid[name]; exists {
-				g := glyphs[gid]
-				bb := g.Extent()
-				capHeight = float64(bb.URy)
-				break
-			}
-		}
-		for _, name := range []string{"x", "u", "v", "w", "z"} {
-			if gid, exists := name2gid[name]; exists {
-				g := glyphs[gid]
-				bb := g.Extent()
-				xHeight = float64(bb.URy)
-				break
-			}
-		}
+		// convert from PDF glyph space units to font design units
+		q := unitsPerEm / 1000
+		capHeight = t1Info.CapHeightPDF() * q
+		xHeight = t1Info.XHeightPDF() * q
 	}
 
 	minBaseLineSkip := math.Ceil(1.2 * unitsPerEm)

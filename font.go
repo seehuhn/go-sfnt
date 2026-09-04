@@ -464,6 +464,23 @@ func (f *Font) glyphHeight(gid glyph.ID) funit.Int16 {
 	return clampInt16(h)
 }
 
+// measureHeight returns the height of the first of the given characters the
+// font has a non-blank glyph for, in font design units.  It is used to derive
+// a cap height or x-height for fonts which report none; see
+// [type1.CapHeightChars].
+func (f *Font) measureHeight(subtable cmap.Subtable, chars string) funit.Int16 {
+	for _, r := range chars {
+		gid := subtable.Lookup(r)
+		if gid == 0 || int(gid) >= f.NumGlyphs() {
+			continue
+		}
+		if h := f.glyphHeight(gid); h > 0 {
+			return h
+		}
+	}
+	return 0
+}
+
 // GlyphName returns the name of a glyph.
 // If the name is not known, the empty string is returned.
 func (f *Font) GlyphName(gid glyph.ID) string {
