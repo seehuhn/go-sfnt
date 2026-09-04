@@ -62,8 +62,8 @@ func MakeSimpleFont() *sfnt.Font {
 		panic(err)
 	}
 
-	var topMin, topMax funit.Int16
-	var bottomMin, bottomMax funit.Int16
+	var topMin, topMax float64
+	var bottomMin, bottomMax float64
 	for c := 'A'; c <= 'Z'; c++ {
 		gid := fontCMap.Lookup(c)
 		cmap[uint16(c)] = glyph.ID(len(includeGid))
@@ -96,7 +96,10 @@ func MakeSimpleFont() *sfnt.Font {
 		Private: []*type1.PrivateDict{
 			{
 				BlueValues: []funit.Int16{
-					bottomMin, bottomMax, topMin, topMax,
+					funit.Int16(math.Round(bottomMin)),
+					funit.Int16(math.Round(bottomMax)),
+					funit.Int16(math.Round(topMin)),
+					funit.Int16(math.Round(topMax)),
 				},
 				BlueScale: 0.039625,
 				BlueShift: 7,
@@ -133,11 +136,11 @@ func MakeSimpleFont() *sfnt.Font {
 	}
 
 	ext := info.GlyphBBox(fontCMap.Lookup('M'))
-	xMid := math.Round(float64(ext.URx+ext.LLx) / 2)
-	yMid := math.Round(float64(ext.URy+ext.LLy) / 2)
+	xMid := math.Round((ext.URx + ext.LLx) / 2)
+	yMid := math.Round((ext.URy + ext.LLy) / 2)
 	a := math.Round(math.Min(xMid, yMid) * 0.8)
 
-	cffGlyph := cff.NewGlyph("marker.left", float64(ext.URx))
+	cffGlyph := cff.NewGlyph("marker.left", ext.URx)
 	cffGlyph.MoveTo(xMid, yMid)
 	cffGlyph.LineTo(xMid-a, yMid-a)
 	cffGlyph.LineTo(xMid-a, yMid+a)
@@ -145,7 +148,7 @@ func MakeSimpleFont() *sfnt.Font {
 	cmap[uint16('>')] = glyph.ID(len(newOutlines.Glyphs))
 	newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 
-	cffGlyph = cff.NewGlyph("marker.right", float64(ext.URx))
+	cffGlyph = cff.NewGlyph("marker.right", ext.URx)
 	cffGlyph.MoveTo(xMid, yMid)
 	cffGlyph.LineTo(xMid+a, yMid+a)
 	cffGlyph.LineTo(xMid+a, yMid-a)
@@ -153,7 +156,7 @@ func MakeSimpleFont() *sfnt.Font {
 	cmap[uint16('<')] = glyph.ID(len(newOutlines.Glyphs))
 	newOutlines.Glyphs = append(newOutlines.Glyphs, cffGlyph)
 
-	cffGlyph = cff.NewGlyph("marker", float64(ext.URx))
+	cffGlyph = cff.NewGlyph("marker", ext.URx)
 	cffGlyph.MoveTo(xMid, yMid)
 	cffGlyph.LineTo(xMid-a, yMid-a)
 	cffGlyph.LineTo(xMid-a, yMid+a)

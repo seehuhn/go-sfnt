@@ -198,7 +198,8 @@ func (g *GlyphCFF2) Path() path.Path {
 }
 
 // GlyphBBox computes the bounding box of the default-instance glyph, after the
-// matrix M has been applied to the glyph outline.
+// matrix M has been applied to the glyph outline.  M must already include the
+// per-FD font matrix; use [OutlinesCFF2.GlyphMatrix] to compose it.
 //
 // If the glyph is blank, the zero rectangle is returned.
 func (o *OutlinesCFF2) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {

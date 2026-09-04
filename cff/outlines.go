@@ -197,7 +197,8 @@ func (g *Glyph) Path() path.Path {
 }
 
 // GlyphBBox computes the bounding box of a glyph, after the matrix M has been
-// applied to the glyph outline.
+// applied to the glyph outline.  For a CID-keyed font, M must already include
+// the per-FD font matrix; use [Outlines.GlyphMatrix] to compose it.
 //
 // If the glyph is blank, the zero rectangle is returned.
 func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {

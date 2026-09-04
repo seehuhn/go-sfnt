@@ -65,6 +65,13 @@ func (o *Outlines) IsBlank(gid glyph.ID) bool {
 	return g == nil
 }
 
+// GlyphMatrix returns the effective font matrix for the given glyph.  Glyf
+// outlines are always drawn on the design grid, so the top-level font matrix
+// is returned unchanged.
+func (o *Outlines) GlyphMatrix(top matrix.Matrix, gid glyph.ID) matrix.Matrix {
+	return top
+}
+
 // GlyphBBoxPDF computes the bounding box of a glyph in PDF glyph space units
 // (1/1000th of a font unit).
 // The font matrix fm is applied to the glyph bounding box from the font data.

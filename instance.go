@@ -612,6 +612,9 @@ func clampInt(v, lo, hi int) int {
 }
 
 func clampInt16(v float64) funit.Int16 {
+	if math.IsNaN(v) {
+		return 0
+	}
 	if v > math.MaxInt16 {
 		return math.MaxInt16
 	}

@@ -55,8 +55,14 @@ type Outlines interface {
 	// IsBlank returns true if the glyph with the given ID does not add marks to the page.
 	IsBlank(gid glyph.ID) bool
 
-	// GlyphBBox returns the bounding box of the glyph with the given ID
-	// in font design units.
+	// GlyphMatrix returns the effective font matrix for the given glyph.
+	// For CID-keyed CFF fonts this composes the per-FD font matrix with the
+	// top-level matrix; otherwise the top-level matrix is returned unchanged.
+	GlyphMatrix(top matrix.Matrix, gid glyph.ID) matrix.Matrix
+
+	// GlyphBBox returns the bounding box of the glyph with the given ID,
+	// after the matrix m has been applied to the glyph outline.  The matrix
+	// must already account for any per-glyph matrix, see GlyphMatrix.
 	GlyphBBox(m matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
 
 	// GlyphBBoxPDF returns the bounding box of the glyph with the given ID
@@ -254,43 +260,35 @@ func (f *Font) AsCFF2() *cff.FontCFF2 {
 	}
 }
 
-// FontBBox returns the bounding box of the font.
-func (f *Font) FontBBox() (bbox funit.Rect16) {
-	first := true
-	for i := range f.NumGlyphs() {
-		glyphBBox := f.GlyphBBox(glyph.ID(i))
-		if glyphBBox.IsZero() {
-			continue
-		}
-
-		if first {
-			bbox = glyphBBox
-			first = false
-		} else {
-			bbox.Extend(glyphBBox)
-		}
-	}
-	return
+// FontBBox returns the bounding box of the font, in font design units.
+// This is the smallest rectangle enclosing all individual glyph bounding
+// boxes.
+func (f *Font) FontBBox() rect.Rect {
+	return f.fontBBox(float64(f.UnitsPerEm))
 }
 
 // FontBBoxPDF returns the font bounding box in PDF glyph space units.
 // This is the smallest rectangle enclosing all individual glyphs bounding boxes.
-func (f *Font) FontBBoxPDF() (fontBBox rect.Rect) {
-	first := true
-	for i := range f.NumGlyphs() {
-		glyphBBox := f.Outlines.GlyphBBoxPDF(f.FontMatrix, glyph.ID(i))
-		if glyphBBox.IsZero() {
-			continue
-		}
+func (f *Font) FontBBoxPDF() rect.Rect {
+	return f.fontBBox(1000)
+}
 
-		if first {
-			fontBBox = glyphBBox
-			first = false
-		} else {
-			fontBBox.Extend(glyphBBox)
-		}
+// fontBBox returns the smallest rectangle enclosing all glyph bounding boxes,
+// with the outlines scaled so that one em spans unitsPerEm units.
+func (f *Font) fontBBox(unitsPerEm float64) (bbox rect.Rect) {
+	for i := range f.NumGlyphs() {
+		bbox.Extend(f.glyphBBox(unitsPerEm, glyph.ID(i)))
 	}
-	return
+	return bbox
+}
+
+// glyphBBox returns the bounding box of a single glyph, with the outline
+// scaled so that one em spans unitsPerEm units.  The scale is composed into
+// the font matrix rather than applied afterwards, so that outlines already
+// drawn on the target grid are reproduced exactly.
+func (f *Font) glyphBBox(unitsPerEm float64, gid glyph.ID) rect.Rect {
+	M := f.Outlines.GlyphMatrix(f.FontMatrix, gid)
+	return f.Outlines.GlyphBBox(M.Mul(matrix.Scale(unitsPerEm, unitsPerEm)), gid)
 }
 
 // NumGlyphs returns the number of glyphs in the font.
@@ -388,42 +386,6 @@ func (f *Font) WidthsMapPDF() map[string]float64 {
 	return widths
 }
 
-// GlyphBBoxes returns the glyph bounding boxes for the font.
-func (f *Font) GlyphBBoxes() []funit.Rect16 {
-	extents := make([]funit.Rect16, f.NumGlyphs())
-	switch o := f.Outlines.(type) {
-	case *cff.Outlines:
-		for i, g := range o.Glyphs {
-			extents[i] = g.Extent()
-		}
-	case *cff.OutlinesCFF2:
-		for i := range o.Glyphs {
-			extents[i] = toRect16(o.GlyphBBox(matrix.Identity, glyph.ID(i)))
-		}
-	case *glyf.Outlines:
-		for i, g := range o.Glyphs {
-			if g == nil {
-				continue
-			}
-			extents[i] = g.Rect16
-		}
-	default:
-		panic("unexpected font type")
-	}
-	return extents
-}
-
-// toRect16 rounds a design-unit rectangle to the integer funit.Rect16 used by
-// the metrics tables.
-func toRect16(b rect.Rect) funit.Rect16 {
-	return funit.Rect16{
-		LLx: funit.Int16(math.Round(b.LLx)),
-		LLy: funit.Int16(math.Round(b.LLy)),
-		URx: funit.Int16(math.Round(b.URx)),
-		URy: funit.Int16(math.Round(b.URy)),
-	}
-}
-
 // GlyphBBoxesPDF returns per-glyph bounding boxes in PDF glyph space units
 // (1/1000 of a text space unit).
 //
@@ -433,7 +395,7 @@ func (f *Font) GlyphBBoxesPDF() []rect.Rect {
 	n := f.NumGlyphs()
 	extents := make([]rect.Rect, n)
 	for i := range n {
-		extents[i] = f.Outlines.GlyphBBoxPDF(f.FontMatrix, glyph.ID(i))
+		extents[i] = f.glyphBBox(1000, glyph.ID(i))
 	}
 	return extents
 }
@@ -486,38 +448,20 @@ func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 
 // GlyphBBox returns the glyph bounding box for one glyph in font design
 // units.
-func (f *Font) GlyphBBox(gid glyph.ID) funit.Rect16 {
-	switch o := f.Outlines.(type) {
-	case *cff.Outlines:
-		return o.Glyphs[gid].Extent()
-	case *cff.OutlinesCFF2:
-		return toRect16(o.GlyphBBox(matrix.Identity, gid))
-	case *glyf.Outlines:
-		g := o.Glyphs[gid]
-		if g == nil {
-			return funit.Rect16{}
-		}
-		return g.Rect16
-	default:
-		panic("unexpected font type")
-	}
+func (f *Font) GlyphBBox(gid glyph.ID) rect.Rect {
+	return f.glyphBBox(float64(f.UnitsPerEm), gid)
 }
 
+// glyphHeight returns the height of the glyph's ink, in font design units.
+//
+// A malformed font matrix can push the result out of range; such heights are
+// clamped, and a height which is not a positive number is reported as zero.
 func (f *Font) glyphHeight(gid glyph.ID) funit.Int16 {
-	switch o := f.Outlines.(type) {
-	case *cff.Outlines:
-		return o.Glyphs[gid].Extent().URy
-	case *cff.OutlinesCFF2:
-		return funit.Int16(math.Round(o.GlyphBBox(matrix.Identity, gid).URy))
-	case *glyf.Outlines:
-		g := o.Glyphs[gid]
-		if g == nil {
-			return 0
-		}
-		return g.Rect16.URy
-	default:
-		panic("unexpected font type")
+	h := math.Round(f.GlyphBBox(gid).URy)
+	if !(h > 0) { // the negated test also rejects NaN
+		return 0
 	}
+	return clampInt16(h)
 }
 
 // GlyphName returns the name of a glyph.
