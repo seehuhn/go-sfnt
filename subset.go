@@ -65,7 +65,7 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 	if f.CMapTable != nil {
 		res.CMapTable = make(cmap.Table, len(f.CMapTable))
 		for key := range f.CMapTable {
-			c, err := res.CMapTable.Get(key)
+			c, err := f.CMapTable.Get(key)
 			if err != nil {
 				continue
 			}
