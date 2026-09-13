@@ -121,13 +121,13 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// This is normally used for ligatures.
 
 	{ // harfbuzz: AXAX, Mac: AXAX
-		Name: "1_10",
+		Name: "1_09",
 		Desc: `GSUB4: "BC" -> X`,
 		In:   "ABCABC",
 		Out:  "AXAX",
 	},
 	{ // harfbuzz: BCXD, Mac: BCXD
-		Name: "1_11",
+		Name: "1_10",
 		Desc: `GSUB4: "AAA" -> "B", "AA" -> "C", "A" -> "D"`,
 		In:   "AAAAAXA",
 		Out:  "BCXD",
@@ -135,14 +135,14 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// Any ignored glyphs embedded inside the match are moved after the
 	// replacement:
 	{ // harfbuzz: XM, Mac: XM
-		Name: "1_12",
+		Name: "1_11",
 		Desc: `GSUB4: -marks "AA" -> "X"`,
 		In:   "AMA",
 		Out:  "XM",
 		Text: "AAM",
 	},
 	{ // harfbuzz: XLMN, Mac: XLMN
-		Name: "1_13",
+		Name: "1_12",
 		Desc: `GSUB4: -marks -ligs "AB" -> "X"`,
 		In:   "ALMNB",
 		Out:  "XLMN",
@@ -150,7 +150,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	},
 	// Sequences explicitly including ignored glyphs are not replaced:
 	{ // harfbuzz: AMA, Mac: AMA
-		Name: "1_14",
+		Name: "1_13",
 		Desc: `GSUB4: -marks "AMA" -> "X"`,
 		In:   "AMA",
 		Out:  "AMA",
@@ -160,7 +160,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// ligLoop past j == 0 with both skipPos and matchPos appended to in
 	// the matching attempt.
 	{ // harfbuzz: YMM, Mac: YMM
-		Name: "1_15",
+		Name: "1_14",
 		Desc: `GSUB4: -marks "AAAA" -> "X", "AA" -> "Y"`,
 		In:   "AMMA",
 		Out:  "YMM",
@@ -1298,7 +1298,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// These rules must be applied right-to-left across the glyph string.
 
 	// Context-free GSUB8 behaves like GSUB1 and is direction-insensitive.
-	{
+	{ // harfbuzz: BBB, Mac: BBB
 		Name: "6_01",
 		Desc: `GSUB8: | A -> B |`,
 		In:   "AAA",
@@ -1307,7 +1307,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// Backtrack [A]: at each A, substitute if preceded by A.  Reverse
 	// processing sees the original glyph at position p-1 (not yet rewritten),
 	// so AAA -> ABB.  Left-to-right would give ABA.
-	{
+	{ // harfbuzz: ABB, Mac: ABB
 		Name: "6_02",
 		Desc: `GSUB8: [A] | A -> B |`,
 		In:   "AAA",
@@ -1317,7 +1317,7 @@ var Gsub = []*GsubTestCase{ // START OF TEST CASES
 	// processing rewrites position p+1 before reaching p, so the second A
 	// becomes B and the lookahead at position 0 sees B instead of A.
 	// Result: ABA.  Left-to-right would give BBA.
-	{
+	{ // harfbuzz: ABA, Mac: ABA
 		Name: "6_03",
 		Desc: `GSUB8: | A -> B | [A]`,
 		In:   "AAA",
