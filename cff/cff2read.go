@@ -269,6 +269,7 @@ func readPrivateCFF2(p *parser.Parser, fontDict cffDict, regionCount func(int) (
 	}
 	priv.LanguageGroup = pd.getInt(opLanguageGroup, 0)
 	priv.VSIndex = int(pd.getInt(opVSIndex, 0))
+	sanitizePrivateCFF2(priv)
 
 	var subrs cffIndex
 	if subrsOffs := pd.getInt(opSubrs, 0); subrsOffs > 0 {

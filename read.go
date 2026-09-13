@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/text/language"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
@@ -234,15 +235,7 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		o := cff2Font.OutlinesCFF2
 		Outlines = o
 
-		// UnitsPerEm: the head table wins; otherwise derive it from the
-		// effective font matrix.
-		if headInfo != nil {
-			cff2UPM = float64(headInfo.UnitsPerEm)
-		} else if m := o.GlyphMatrix(cff2Font.FontMatrix, 0); m[0] != 0 {
-			cff2UPM = 1 / m[0]
-		} else {
-			cff2UPM = 1000
-		}
+		cff2UPM = unitsPerEmFrom(headInfo, o.GlyphMatrix(cff2Font.FontMatrix, 0))
 
 		if numGlyphs != 0 && len(o.Glyphs) != numGlyphs {
 			return nil, errors.New("sfnt: cff2 glyph count mismatch")
@@ -783,23 +776,31 @@ func getCFFVersion(fontInfo *type1.FontInfo) (head.Version, bool) {
 	return v, true
 }
 
-// deriveUnitsPerEm picks the best available source for UnitsPerEm.  The head
-// table wins when present; otherwise we derive it from the CFF FontMatrix.
-// For CID-keyed CFF the top FontMatrix is typically the identity, so we
-// compose with FD 0's per-FD matrix to recover a sensible scale.  Fallback
-// is the conventional 1000.
-func deriveUnitsPerEm(outlines Outlines, fontInfo *type1.FontInfo, headInfo *head.Info) float64 {
-	if headInfo != nil {
+// unitsPerEmFrom picks the best available source for UnitsPerEm.  The head
+// table wins when present; otherwise the value is derived from the effective
+// glyph matrix m, a zero matrix standing for "no matrix available".  A value a
+// font file cannot store is skipped, since every glyph metric is measured in
+// these units.  Fallback is the conventional 1000.
+func unitsPerEmFrom(headInfo *head.Info, m matrix.Matrix) float64 {
+	if headInfo != nil && validUnitsPerEm(float64(headInfo.UnitsPerEm)) {
 		return float64(headInfo.UnitsPerEm)
 	}
+	if m[0] != 0 && validUnitsPerEm(1/m[0]) {
+		return 1 / m[0]
+	}
+	return 1000
+}
+
+// deriveUnitsPerEm is unitsPerEmFrom for a font whose matrix comes from a CFF
+// table.  For CID-keyed CFF the top FontMatrix is typically the identity, so
+// it is composed with FD 0's per-FD matrix to recover a sensible scale.
+func deriveUnitsPerEm(outlines Outlines, fontInfo *type1.FontInfo, headInfo *head.Info) float64 {
+	var fm matrix.Matrix
 	if fontInfo != nil {
-		fm := fontInfo.FontMatrix
+		fm = fontInfo.FontMatrix
 		if cffOutlines, ok := outlines.(*cff.Outlines); ok {
 			fm = cffOutlines.GlyphMatrix(fm, 0)
 		}
-		if fm[0] != 0 {
-			return 1 / fm[0]
-		}
 	}
-	return 1000
+	return unitsPerEmFrom(headInfo, fm)
 }

@@ -21,11 +21,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 
 	"seehuhn.de/go/geom/matrix"
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/parser"
@@ -258,93 +258,143 @@ func decodeFloat(buf []byte) ([]byte, float64, error) {
 	}
 }
 
+// The range of real operands a font can carry.  The reader gives back zero
+// below minReal and the bound above maxReal, so a value outside cannot be
+// written and read again unchanged.
+const (
+	minReal = 1e-300
+	maxReal = 1e300
+)
+
+// usableReal reports whether x can be written as a real operand and read back
+// unchanged.  Writing the test in the positive also rejects a NaN or an
+// infinity supplied through the API, neither of which the format can spell.
+func usableReal(x float64) bool {
+	if x == 0 {
+		return true
+	}
+	a := math.Abs(x)
+	return a >= minReal && a <= maxReal
+}
+
+// checkReals reports an error for an operand a font cannot carry.  Values off
+// a file are inside the range already, since the reader bounds them, so one
+// reaching here came from the caller.
+func (d cffDict) checkReals() error {
+	for op, args := range d {
+		for _, arg := range args {
+			if err := checkRealOperand(op, arg); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func checkRealOperand(op dictOp, arg any) error {
+	switch arg := arg.(type) {
+	case float64:
+		if !usableReal(arg) {
+			return fmt.Errorf("cff: %s operand %v is out of range", op, arg)
+		}
+	case dictBlendValue:
+		if err := checkRealOperand(op, arg.Default); err != nil {
+			return err
+		}
+		for _, d := range arg.Deltas {
+			if err := checkRealOperand(op, d); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// encodeFloat encodes x in the nibble form the format uses for real operands.
+//
+// The shortest digit string which parses back to x is written, so that a value
+// read from a font is written out again unchanged, positioned either by a
+// decimal point or by an exponent, whichever needs fewer nibbles.
 func encodeFloat(x float64) []byte {
-	if x == 0 || math.IsNaN(x) || math.IsInf(x, 0) {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
 		return []byte{0x0f}
 	}
 
-	var head []byte
-	if x < 0 {
-		x = -x
-		head = append(head, 0xe)
+	digits, k, neg := shortestDigits(x)
+
+	nibbles := positionalNibbles(digits, k)
+	if alt := exponentNibbles(digits, k); len(alt) < len(nibbles) {
+		nibbles = alt
+	}
+	if neg {
+		nibbles = append([]byte{0xe}, nibbles...)
 	}
 
-	const numDigits = 9
-
-	l := int(math.Floor(math.Log10(x))) + 1
-	i := int(math.Round(x / math.Pow10(l-numDigits)))
-	if i < 100_000_000 {
-		l--
-		i *= 10
-	} else if i > 999_999_999 {
-		l++
-		i /= 10
+	nibbles = append(nibbles, 0x0f)
+	if len(nibbles)%2 != 0 {
+		nibbles = append(nibbles, 0x0f)
 	}
-	// now i contains all the digits
-
-	// remove trailing zeros
-	for i%10 == 0 {
-		i /= 10
+	out := make([]byte, len(nibbles)/2)
+	for i := range out {
+		out[i] = nibbles[2*i]<<4 | nibbles[2*i+1]
 	}
-
-	// the decimal point is l positions to the right, from the start of i
-	digits := itoaBinary(i)
-	m := len(digits)
-	switch {
-	case l > m+2:
-		digits = append(digits, 0xb)
-		digits = append(digits, itoaBinary(l-m)...)
-	case l == m+2:
-		digits = append(digits, 0, 0)
-	case l == m+1:
-		digits = append(digits, 0)
-	case l == m:
-		// pass
-	case l > 0:
-		head = append(head, digits[:l]...)
-		head = append(head, 0xa)
-		digits = digits[l:]
-	case l == 0:
-		head = append(head, 0xa)
-	case l == -1:
-		head = append(head, 0xa, 0)
-	default:
-		digits = append(digits, 0xc)
-		digits = append(digits, itoaBinary(-l+m)...)
-	}
-
-	var out []byte
-	first := true
-	var half byte
-	for _, buf := range [][]byte{head, digits} {
-		for _, b := range buf {
-			if first {
-				half = b << 4
-			} else {
-				out = append(out, half+b)
-			}
-			first = !first
-		}
-	}
-	if first {
-		out = append(out, 0xff)
-	} else {
-		out = append(out, half+0xf)
-	}
-
 	return out
 }
 
-func itoaBinary(x int) []byte {
-	var digits []byte
-	for x > 0 {
-		digits = append(digits, byte(x%10))
-		x /= 10
+// shortestDigits splits x into the shortest run of decimal digits which parses
+// back to it, the power of ten the run is multiplied by, and the sign.
+func shortestDigits(x float64) (digits []byte, k int, neg bool) {
+	s := strconv.AppendFloat(nil, x, 'e', -1, 64)
+	if s[0] == '-' {
+		neg = true
+		s = s[1:]
 	}
-	for i, j := 0, len(digits)-1; i < j; i, j = i+1, j-1 {
-		digits[i], digits[j] = digits[j], digits[i]
+	e := bytes.IndexByte(s, 'e')
+	if s[1] == '.' {
+		digits = append(digits, s[0])
+		digits = append(digits, s[2:e]...)
+	} else {
+		digits = append(digits, s[:e]...)
 	}
-	return digits
+	exp, _ := strconv.Atoi(string(s[e+1:]))
+
+	for i, c := range digits {
+		digits[i] = c - '0'
+	}
+	return digits, exp - (len(digits) - 1), neg
+}
+
+// positionalNibbles writes the digits with a decimal point, without an
+// exponent.
+func positionalNibbles(digits []byte, k int) []byte {
+	switch {
+	case k >= 0:
+		return append(slices.Clone(digits), make([]byte, k)...)
+	case -k < len(digits):
+		res := slices.Clone(digits[:len(digits)+k])
+		res = append(res, 0xa)
+		return append(res, digits[len(digits)+k:]...)
+	default:
+		res := append([]byte{0xa}, make([]byte, -k-len(digits))...)
+		return append(res, digits...)
+	}
+}
+
+// exponentNibbles writes the digits as a whole number followed by the power of
+// ten it is multiplied by.
+func exponentNibbles(digits []byte, k int) []byte {
+	if k == 0 {
+		return digits
+	}
+	marker := byte(0xb)
+	if k < 0 {
+		marker, k = 0xc, -k
+	}
+	res := append(slices.Clone(digits), marker)
+	for _, c := range strconv.Itoa(k) {
+		res = append(res, byte(c)-'0')
+	}
+	return res
 }
 
 func (d cffDict) getInt(op dictOp, defVal int32) int32 {
@@ -381,20 +431,36 @@ func (d cffDict) getString(op dictOp) string {
 	return x
 }
 
-func (d cffDict) getDeltaF16(op dictOp) []funit.Int16 {
+// getDelta reads a delta operand, a list of differences whose running sum
+// gives the values.  The format declares these as numbers, so an operand may
+// be real.  An operand of another kind ends the list, keeping the values ahead
+// of it.
+func (d cffDict) getDelta(op dictOp) []float64 {
 	values := d[op]
 	if len(values) == 0 {
 		return nil
 	}
-	res := make([]funit.Int16, len(values))
-	var prev funit.Int16
-	for i, v := range values {
-		x, ok := v.(int32)
-		if !ok {
-			return nil
+	res := make([]float64, 0, len(values))
+	var sum float64
+	for _, v := range values {
+		switch v := v.(type) {
+		case int32:
+			sum += float64(v)
+		case float64:
+			sum += v
+		default:
+			return trimmedDelta(res)
 		}
-		res[i] = funit.Int16(x) + prev
-		prev = res[i]
+		res = append(res, sum)
+	}
+	return trimmedDelta(res)
+}
+
+// trimmedDelta reports an empty delta list as nil, which is the shape an
+// absent operand gives.
+func trimmedDelta(res []float64) []float64 {
+	if len(res) == 0 {
+		return nil
 	}
 	return res
 }
@@ -445,28 +511,35 @@ func (d cffDict) getFontMatrix(op dictOp, isCIDKeyed bool) (res matrix.Matrix) {
 	return res
 }
 
-func (d cffDict) setDeltaF16(op dictOp, val []funit.Int16) {
+// setDelta stores a delta operand, using the more compact integer form for
+// each difference which is integral.
+func (d cffDict) setDelta(op dictOp, val []float64) {
 	if len(val) == 0 {
 		delete(d, op)
 		return
 	}
 	res := make([]any, len(val))
-	var prev funit.Int16
+	var prev float64
 	for i, x := range val {
-		res[i] = int32(x - prev)
+		res[i] = numberOperand(x - prev)
 		prev = x
 	}
 	d[op] = res
 }
 
+// numberOperand returns x as a DICT operand, in the integer form where the
+// value allows it.
+func numberOperand(x float64) any {
+	if x == math.Trunc(x) && x >= math.MinInt32 && x <= math.MaxInt32 {
+		return int32(x)
+	}
+	return x
+}
+
 // setNumber stores a numeric operand, using the more compact integer form
 // for integral values.
 func (d cffDict) setNumber(op dictOp, x float64) {
-	if x == math.Trunc(x) && x >= math.MinInt32 && x <= math.MaxInt32 {
-		d[op] = []any{int32(x)}
-	} else {
-		d[op] = []any{x}
-	}
+	d[op] = []any{numberOperand(x)}
 }
 
 func (d cffDict) setFontMatrix(op dictOp, fm matrix.Matrix, isCIDKeyed bool) {
@@ -478,7 +551,9 @@ func (d cffDict) setFontMatrix(op dictOp, fm matrix.Matrix, isCIDKeyed bool) {
 		} else {
 			def = defaultFontMatrix[i]
 		}
-		if math.Abs(xi-def) > 1e-5 {
+		// the negated comparison also counts a NaN as needing the entry,
+		// so that the writer refuses it rather than omitting the matrix
+		if !(math.Abs(xi-def) <= 1e-5) {
 			needed = true
 			break
 		}
@@ -587,18 +662,16 @@ func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInf
 	// TODO(voss): StemSnapH, StemSnapV
 
 	private := &type1.PrivateDict{
-		BlueValues: privateDict.getDeltaF16(opBlueValues),
-		OtherBlues: privateDict.getDeltaF16(opOtherBlues),
-		BlueScale:  privateDict.getFloat(opBlueScale, defaultBlueScale),
-		BlueShift:  privateDict.getInt(opBlueShift, 7),
-		BlueFuzz:   privateDict.getInt(opBlueFuzz, 1),
+		BlueValues: privateDict.getDelta(opBlueValues),
+		OtherBlues: privateDict.getDelta(opOtherBlues),
+		BlueScale:  privateDict.getFloat(opBlueScale, type1.DefaultBlueScale),
+		BlueShift:  privateDict.getFloat(opBlueShift, type1.DefaultBlueShift),
+		BlueFuzz:   privateDict.getFloat(opBlueFuzz, type1.DefaultBlueFuzz),
 		StdHW:      privateDict.getFloat(opStdHW, 0),
 		StdVW:      privateDict.getFloat(opStdVW, 0),
 		ForceBold:  privateDict.getInt(opForceBold, 0) != 0,
 	}
-	private.BlueScale = clamp(private.BlueScale, 0, 1)
-	private.StdHW = clamp(private.StdHW, 0, 10000)
-	private.StdVW = clamp(private.StdVW, 0, 10000)
+	private.Repair()
 
 	var subrs cffIndex
 	subrsIndexOffs := privateDict.getInt(opSubrs, 0)
@@ -617,15 +690,6 @@ func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInf
 	}
 
 	return info, nil
-}
-
-func clamp(x, min, max float64) float64 {
-	if x < min {
-		return min
-	} else if x > max {
-		return max
-	}
-	return x
 }
 
 var defaultFontMatrix = matrix.Matrix{0.001, 0, 0, 0.001, 0, 0}
@@ -802,9 +866,7 @@ func (d dictOp) isString() bool {
 const (
 	defaultUnderlinePosition  = -100
 	defaultUnderlineThickness = 50
-	defaultBlueScale          = 0.039625
-	defaultBlueShift          = 7
-	defaultBlueFuzz           = 1
+	defaultExpansionFactor    = 0.06
 )
 
 var errCorruptDict = invalidSince("corrupt dict")

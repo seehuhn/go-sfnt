@@ -27,7 +27,6 @@ import (
 	"golang.org/x/image/font/gofont/gobolditalic"
 	"golang.org/x/image/font/gofont/goregular"
 
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt"
@@ -162,7 +161,7 @@ func FuzzFont(f *testing.F) {
 			Glyphs: gg,
 			Private: []*type1.PrivateDict{
 				{
-					BlueValues: []funit.Int16{-10, 0, 700, 800},
+					BlueValues: []float64{-10, 0, 700, 800},
 					StdHW:      70,
 					StdVW:      70,
 				},
@@ -202,6 +201,16 @@ func FuzzFont(f *testing.F) {
 	}
 	f.Add(buf.Bytes())
 
+	// its CFF2 counterpart: two item variation data subtables of different
+	// width, an intermediate region, two Font DICTs, stem hints behind a
+	// hintmask and cubic curves
+	buf.Reset()
+	_, err = debug.MakeVarCFF2Font().Write(buf)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(buf.Bytes())
+
 	// a variable font whose stored fvar axis NameIDs are swapped relative to
 	// the canonical order Write assigns from axis position (256, 257
 	// becomes 257, 256); a Critical review of d6a89a7 found that Read kept
@@ -233,38 +242,46 @@ func FuzzFont(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		cmpFDSelectFn := cmp.Comparer(func(fn1, fn2 cff.FDSelectFn) bool {
-			for gid := 0; gid < font1.NumGlyphs(); gid++ {
-				if fn1(glyph.ID(gid)) != fn2(glyph.ID(gid)) {
-					return false
-				}
-			}
-			return true
-		})
-		cmpFloat := cmp.Comparer(func(x1, x2 float64) bool {
-			d := math.Max(math.Abs(x1), math.Abs(x2)) * 1e-8
-			return math.Abs(x2-x1) <= d
-		})
-		// CFF glyph widths are constrained to the hmtx table's precision, which
-		// stores advance widths as integers in font design units (UnitsPerEm).
-		// At UnitsPerEm != 1000 a CFF-glyph-space width therefore round-trips to
-		// the nearest representable value, so compare the quantised hmtx widths
-		// rather than the raw glyph-space widths.
-		upm := float64(font1.UnitsPerEm)
-		toHmtx := func(w float64) int {
-			// mirror makeHmtx: quantise and clamp to the UFWORD range
-			return int(max(0, min(math.Round(w*upm/1000), 0xFFFF)))
-		}
-		cmpGlyphWidth := cmp.Comparer(func(g1, g2 *cff.Glyph) bool {
-			if g1.Name != g2.Name {
-				return false
-			}
-			return toHmtx(g1.Width) == toHmtx(g2.Width)
-		})
-		if diff := cmp.Diff(font1, font2, cmpFDSelectFn, cmpFloat, cmpGlyphWidth); diff != "" {
+		if diff := cmp.Diff(font1, font2, fontCmpOptions(font1)...); diff != "" {
 			t.Errorf("different (-old +new):\n%s", diff)
 		}
 	})
+}
+
+// fontCmpOptions returns the options for comparing two fonts read from either
+// end of a write-read cycle.  ref supplies the glyph count and units per em
+// the comparison is measured against; the two fonts agree on both, or the
+// comparison reports that first.
+func fontCmpOptions(ref *sfnt.Font) cmp.Options {
+	cmpFDSelectFn := cmp.Comparer(func(fn1, fn2 cff.FDSelectFn) bool {
+		for gid := range ref.NumGlyphs() {
+			if fn1(glyph.ID(gid)) != fn2(glyph.ID(gid)) {
+				return false
+			}
+		}
+		return true
+	})
+	cmpFloat := cmp.Comparer(func(x1, x2 float64) bool {
+		d := math.Max(math.Abs(x1), math.Abs(x2)) * 1e-8
+		return math.Abs(x2-x1) <= d
+	})
+	// CFF glyph widths are constrained to the hmtx table's precision, which
+	// stores advance widths as integers in font design units (UnitsPerEm).
+	// At UnitsPerEm != 1000 a CFF-glyph-space width therefore round-trips to
+	// the nearest representable value, so compare the quantised hmtx widths
+	// rather than the raw glyph-space widths.
+	upm := float64(ref.UnitsPerEm)
+	toHmtx := func(w float64) int {
+		// mirror makeHmtx: quantise and clamp to the UFWORD range
+		return int(max(0, min(math.Round(w*upm/1000), 0xFFFF)))
+	}
+	cmpGlyphWidth := cmp.Comparer(func(g1, g2 *cff.Glyph) bool {
+		if g1.Name != g2.Name {
+			return false
+		}
+		return toHmtx(g1.Width) == toHmtx(g2.Width)
+	})
+	return cmp.Options{cmpFDSelectFn, cmpFloat, cmpGlyphWidth}
 }
 
 // The PostScript name must survive embedding in a PDF file: the TrueType

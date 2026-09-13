@@ -21,6 +21,7 @@ import (
 	"math"
 
 	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
 )
@@ -65,7 +66,14 @@ func (f *FontCFF2) Write(w io.Writer) error {
 	// private dicts have fixed content (no local subrs, no self offsets)
 	privateBlobs := make([][]byte, len(o.Private))
 	for i, p := range o.Private {
-		privateBlobs[i] = makePrivateDictCFF2(p).encodeCFF2()
+		if err := checkPrivateBlends(p); err != nil {
+			return err
+		}
+		d, err := makePrivateDictCFF2(p)
+		if err != nil {
+			return err
+		}
+		privateBlobs[i] = d.encodeCFF2()
 	}
 
 	// FDSelect is omitted when a single Font DICT covers every glyph
@@ -133,6 +141,9 @@ func (f *FontCFF2) Write(w io.Writer) error {
 			if i < len(o.FontMatrices) && o.FontMatrices[i] != matrix.Identity {
 				setFontMatrixCFF2(fontDict, o.FontMatrices[i])
 			}
+			if err := fontDict.checkReals(); err != nil {
+				return err
+			}
 			fontDict[opPrivate] = []any{
 				int32(len(privateBlobs[i])),
 				offs[secPrivate[i]],
@@ -144,6 +155,9 @@ func (f *FontCFF2) Write(w io.Writer) error {
 		topDict := cffDict{}
 		if f.FontMatrix != defaultFontMatrix {
 			setFontMatrixCFF2(topDict, f.FontMatrix)
+			if err := topDict.checkReals(); err != nil {
+				return err
+			}
 		}
 		topDict[opCharStrings] = []any{offs[secCharStrings]}
 		if secVStore >= 0 {
@@ -193,7 +207,20 @@ func setFontMatrixCFF2(d cffDict, fm matrix.Matrix) {
 // entries that differ from their defaults.  Array operands are re-differenced
 // (the inverse of getBlendArray's prefix sum); scalar operands are stored
 // directly.
-func makePrivateDictCFF2(p *PrivateCFF2) cffDict {
+func makePrivateDictCFF2(p *PrivateCFF2) (cffDict, error) {
+	// checkPrivateBlends has already refused deltas here, so the stored value
+	// is the whole value
+	blueScale, err := blueScaleForWriting(p.BlueScale.Default)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkPrivateScalars(p); err != nil {
+		return nil, err
+	}
+	if err := checkPrivateArrays(p); err != nil {
+		return nil, err
+	}
+
 	d := cffDict{}
 	if p.VSIndex != 0 {
 		d[opVSIndex] = []any{int32(p.VSIndex)}
@@ -204,19 +231,24 @@ func makePrivateDictCFF2(p *PrivateCFF2) cffDict {
 	setBlendArrayCFF2(d, opFamilyOtherBlues, p.FamilyOtherBlues)
 	setBlendArrayCFF2(d, opStemSnapH, p.StemSnapH)
 	setBlendArrayCFF2(d, opStemSnapV, p.StemSnapV)
-	setBlendScalarCFF2(d, opBlueScale, p.BlueScale, Blend{Default: 0.039625})
-	setBlendScalarCFF2(d, opBlueShift, p.BlueShift, Blend{Default: 7})
-	setBlendScalarCFF2(d, opBlueFuzz, p.BlueFuzz, Blend{Default: 1})
+	setBlendScalarCFF2(d, opBlueScale, Blend{Default: blueScale}, Blend{Default: type1.DefaultBlueScale})
+	setBlendScalarCFF2(d, opBlueShift, p.BlueShift, Blend{Default: type1.DefaultBlueShift})
+	setBlendScalarCFF2(d, opBlueFuzz, p.BlueFuzz, Blend{Default: type1.DefaultBlueFuzz})
 	setBlendScalarCFF2(d, opStdHW, p.StdHW, Blend{})
 	setBlendScalarCFF2(d, opStdVW, p.StdVW, Blend{})
-	setBlendScalarCFF2(d, opExpansionFactor, p.ExpansionFactor, Blend{Default: 0.06})
+	setBlendScalarCFF2(d, opExpansionFactor, p.ExpansionFactor, Blend{Default: defaultExpansionFactor})
 	if p.LanguageGroup != 0 {
 		d[opLanguageGroup] = []any{p.LanguageGroup}
 	}
-	return d
+	if err := d.checkReals(); err != nil {
+		return nil, err
+	}
+
+	return d, nil
 }
 
-// setBlendScalarCFF2 stores a single blendable operand, unless it equals def.
+// setBlendScalarCFF2 stores a single scalar operand, unless it equals def.
+// Whether the operand may carry deltas at all is settled by checkPrivateBlends.
 func setBlendScalarCFF2(d cffDict, op dictOp, v, def Blend) {
 	if blendEqualCFF2(v, def) {
 		return

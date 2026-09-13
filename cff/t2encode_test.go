@@ -48,8 +48,8 @@ func TestRoundTrip(t *testing.T) {
 	}
 	private := []*type1.PrivateDict{
 		{
-			BlueValues: []funit.Int16{-22, 0, 500, 520, 700, 720},
-			OtherBlues: []funit.Int16{-120, -100},
+			BlueValues: []float64{-22, 0, 500, 520, 700, 720},
+			OtherBlues: []float64{-120, -100},
 			BlueScale:  0.04379,
 			BlueShift:  2,
 			BlueFuzz:   3,
@@ -130,7 +130,9 @@ func TestFindEdges(t *testing.T) {
 	in := &Font{
 		FontInfo: meta,
 		Outlines: &Outlines{
-			Private:  []*type1.PrivateDict{{}},
+			// BlueScale 0 is the writer's shorthand for the default, so
+			// spell the default out to keep the round trip a fixpoint
+			Private:  []*type1.PrivateDict{{BlueScale: type1.DefaultBlueScale}},
 			FDSelect: func(gi glyph.ID) int { return 0 },
 		},
 	}

@@ -431,24 +431,100 @@ func TestInstantiateNaming(t *testing.T) {
 	})
 }
 
+// TestInstantiateRoundTrip checks that an instance of each glyph flavour
+// survives a read-write-read cycle, and that instancing a CFF2 font yields a
+// static CFF font rather than something which still needs a variation store.
 func TestInstantiateRoundTrip(t *testing.T) {
-	f := debug.MakeVarFont()
-	inst, err := f.Instantiate(map[string]float64{"wght": 900, "wdth": 75})
-	if err != nil {
-		t.Fatal(err)
+	flavours := []struct {
+		name    string
+		build   func() *sfnt.Font
+		wantCFF bool // CFF2 outlines instance to static CFF
+	}{
+		{"glyf", debug.MakeVarFont, false},
+		{"cff2", debug.MakeVarCFF2Font, true},
+	}
+	instances := []struct {
+		name   string
+		coords map[string]float64
+	}{
+		{"defaults", nil},
+		{"extremes", map[string]float64{"wght": 900, "wdth": 75}},
 	}
 
-	buf := &bytes.Buffer{}
-	if _, err := inst.Write(buf); err != nil {
-		t.Fatal(err)
+	for _, f := range flavours {
+		for _, in := range instances {
+			t.Run(f.name+"/"+in.name, func(t *testing.T) {
+				inst, err := f.build().Instantiate(in.coords)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if f.wantCFF {
+					if !inst.IsCFF() || inst.AsCFF() == nil {
+						t.Fatalf("instance holds %T, want CFF outlines", inst.Outlines)
+					}
+					// Instantiate emits a CID-keyed CFF, so that the glyphs
+					// keep their identity without a charset of names.
+					if !inst.AsCFF().Outlines.IsCIDKeyed() {
+						t.Error("instanced CFF is not CID-keyed")
+					}
+				}
+				instanceRoundTrip(t, inst)
+			})
+		}
 	}
-	data := buf.Bytes()
-	got, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
-	if err != nil {
-		t.Fatal(err)
+}
+
+// instanceRoundTrip writes inst, reads it back, then writes and reads it once
+// more, and checks that the two reads agree.
+//
+// The comparison is between the two reads rather than against inst: the first
+// write settles whatever the file format cannot express, and from there on the
+// file has to be stable.  It also checks that what comes back is a static
+// font, since an instance which kept its variation tables would round-trip
+// perfectly well and still be wrong.
+func instanceRoundTrip(t *testing.T, inst *sfnt.Font) {
+	t.Helper()
+
+	write := func(f *sfnt.Font) []byte {
+		t.Helper()
+		buf := &bytes.Buffer{}
+		if _, err := f.Write(buf); err != nil {
+			t.Fatalf("write failed: %v", err)
+		}
+		return buf.Bytes()
 	}
-	if got.IsVariable() {
-		t.Error("round-tripped instance is variable")
+	read := func(data []byte) *sfnt.Font {
+		t.Helper()
+		f, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+		if err != nil {
+			t.Fatalf("read failed: %v", err)
+		}
+		return f
+	}
+
+	if inst.IsVariable() {
+		t.Error("instance is still variable")
+	}
+
+	// The first write is not compared: an in-memory instance may encode a
+	// value more loosely than the reader hands it back, so writing what was
+	// read can be a byte or two shorter without anything having been lost.
+	// From the first read on, the file has to be stable.
+	font1 := read(write(inst))
+	data2 := write(font1)
+	font2 := read(data2)
+
+	if font1.IsVariable() {
+		t.Error("the font read back is variable")
+	}
+	if font1.IsCFF2() {
+		t.Error("the font read back is CFF2")
+	}
+	if data3 := write(font2); !bytes.Equal(data2, data3) {
+		t.Errorf("writing is not a fixpoint: %d bytes, then %d", len(data2), len(data3))
+	}
+	if diff := cmp.Diff(font1, font2, fontCmpOptions(font1)...); diff != "" {
+		t.Errorf("round trip failed (-first +second):\n%s", diff)
 	}
 }
 
@@ -514,7 +590,7 @@ func FuzzInstantiate(f *testing.F) {
 	f.Add(otherBuf.Bytes(), uint16(0), uint16(0xFFFF))
 
 	cff2Buf := &bytes.Buffer{}
-	if _, err := makeVarCFF2Font().Write(cff2Buf); err != nil {
+	if _, err := debug.MakeVarCFF2Font().Write(cff2Buf); err != nil {
 		f.Fatal(err)
 	}
 	f.Add(cff2Buf.Bytes(), uint16(0), uint16(0))
@@ -544,22 +620,7 @@ func FuzzInstantiate(f *testing.F) {
 			return
 		}
 
-		if inst.IsVariable() {
-			t.Fatal("instantiated font is still variable")
-		}
-
-		buf := &bytes.Buffer{}
-		if _, err := inst.Write(buf); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
-		out := buf.Bytes()
-		got, err := sfnt.Read(bytes.NewReader(out), parser.NewBudget(int64(len(out))))
-		if err != nil {
-			t.Fatalf("re-read failed: %v", err)
-		}
-		if got.IsVariable() {
-			t.Fatal("round-tripped instance is variable")
-		}
+		instanceRoundTrip(t, inst)
 	})
 }
 
@@ -573,4 +634,66 @@ func slicesEqualInt16(a, b []int16) bool {
 		}
 	}
 	return true
+}
+
+// TestInstantiatePhantomAdvancesMatchHVAR checks that the two routes to an
+// instanced advance width agree.
+//
+// A font with TrueType outlines can describe advance variation twice over:
+// HVAR states it directly, and the gvar deltas for the advance phantom point
+// imply it.  Both are legitimate sources, and [sfnt.Font.Instantiate] uses
+// HVAR where there is one and the phantom points otherwise, so a font whose
+// two answers differ lays out differently depending on which a consumer
+// happens to read.  Nothing in the file format ties the two together, which
+// leaves the job to the font — and, for the fixture, to this test.
+//
+// The comparison is exact.  Both routes scale integer deltas by the same
+// region scalars, accumulate in float64 and round once at the end, so inputs
+// which agree produce identical results with no tolerance needed.
+func TestInstantiatePhantomAdvancesMatchHVAR(t *testing.T) {
+	// coordinates between the axis extremes as well as on them, so that the
+	// region scalars are fractions rather than only 0 and 1
+	coords := []map[string]float64{
+		nil,
+		{"wght": 900},
+		{"wght": 700},
+		{"wght": 433},
+		{"wdth": 75},
+		{"wdth": 88},
+		{"wght": 900, "wdth": 75},
+		{"wght": 613, "wdth": 97},
+	}
+
+	// guard against a fixture which lost its advance variation, and with it
+	// any ability to tell the two routes apart
+	seen := make(map[float64]bool)
+
+	for _, c := range coords {
+		withHVAR, err := debug.MakeVarFont().Instantiate(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		noHVAR := debug.MakeVarFont()
+		noHVAR.Hvar = nil
+		viaPhantom, err := noHVAR.Instantiate(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for gid := range withHVAR.NumGlyphs() {
+			want := withHVAR.GlyphWidth(glyph.ID(gid))
+			got := viaPhantom.GlyphWidth(glyph.ID(gid))
+			if got != want {
+				t.Errorf("%v gid %d: HVAR gives %v, the phantom points give %v",
+					c, gid, want, got)
+			}
+			seen[want] = true
+		}
+	}
+
+	if len(seen) <= debug.MakeVarFont().NumGlyphs() {
+		t.Errorf("%d distinct advances over %d instances; no advance varies",
+			len(seen), len(coords))
+	}
 }

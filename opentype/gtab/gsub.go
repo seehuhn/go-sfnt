@@ -186,9 +186,11 @@ func (l *Gsub1_2) encodeLen() int {
 
 // encode implements the [Subtable] interface.
 func (l *Gsub1_2) encode() []byte {
-	checkSubtableSize16("Gsub1_2", l.encodeLen())
 	n := len(l.SubstituteGlyphIDs)
 	covOffs := 6 + 2*n
+	// The coverage table comes last and stores no offsets of its own, so it
+	// may extend past what the offset reaching it can address.
+	checkSubtableOffset16("Gsub1_2", covOffs)
 
 	buf := make([]byte, covOffs+l.Cov.EncodeLen())
 	// buf[0] = 0
@@ -314,7 +316,6 @@ func (l *Gsub2_1) encode() []byte {
 			panic("Gsub2_1: empty replacement sequence")
 		}
 	}
-	checkSubtableSize16("Gsub2_1", l.encodeLen())
 	sequenceCount := len(l.Repl)
 	covOffs := 6 + 2*sequenceCount
 
@@ -323,6 +324,10 @@ func (l *Gsub2_1) encode() []byte {
 		sequenceOffsets[i] = uint16(covOffs)
 		covOffs += 2 + 2*len(repl)
 	}
+	// The sequences precede the coverage table, so bounding the coverage
+	// offset bounds every offset the subtable stores.  The coverage table
+	// itself comes last and may extend past the limit.
+	checkSubtableOffset16("Gsub2_1", covOffs)
 
 	buf := make([]byte, covOffs+l.Cov.EncodeLen())
 	// buf[0] = 0
@@ -455,7 +460,6 @@ func (l *Gsub3_1) encode() []byte {
 			panic("Gsub3_1: empty alternate set")
 		}
 	}
-	checkSubtableSize16("Gsub3_1", l.encodeLen())
 	alternateSetCount := len(l.Alternates)
 	covOffs := 6 + 2*alternateSetCount
 
@@ -464,6 +468,10 @@ func (l *Gsub3_1) encode() []byte {
 		alternateSetOffsets[i] = uint16(covOffs)
 		covOffs += 2 + 2*len(repl)
 	}
+	// The alternate sets precede the coverage table, so bounding the coverage
+	// offset bounds every offset the subtable stores.  The coverage table
+	// itself comes last and may extend past the limit.
+	checkSubtableOffset16("Gsub3_1", covOffs)
 
 	buf := make([]byte, covOffs+l.Cov.EncodeLen())
 	// buf[0] = 0
@@ -715,11 +723,12 @@ func (l *Gsub4_1) encode() []byte {
 			total += 4 + 2*len(lig.In)
 		}
 	}
+	// The ligature sets precede the coverage table, so bounding the coverage
+	// offset bounds every offset the subtable stores.  The coverage table
+	// itself comes last and may extend past the limit.
 	coverageOffset := total
 	total += l.Cov.EncodeLen()
-	if coverageOffset > 0xFFFF {
-		panic("coverage offset overflow")
-	}
+	checkSubtableOffset16("Gsub4_1", coverageOffset)
 
 	buf := make([]byte, 0, total)
 
@@ -892,19 +901,25 @@ func (l *Gsub8_1) encode() []byte {
 	total += 2 * backtrackGlyphCount
 	total += 2 * lookaheadGlyphCount
 	total += 2 * glyphCount
+	// The coverage tables store no offsets of their own, so only the offsets
+	// reaching them are bounded and the last table may extend past the limit.
+	// Each is checked where it is narrowed to a uint16, since a truncated
+	// offset would no longer show that it is out of range.
 	coverageOffset := total
+	checkSubtableOffset16("Gsub8_1", coverageOffset)
 	total += l.Input.EncodeLen()
 	backtrackCoverageOffsets := make([]uint16, backtrackGlyphCount)
 	for i, cov := range l.Backtrack {
+		checkSubtableOffset16("Gsub8_1", total)
 		backtrackCoverageOffsets[i] = uint16(total)
 		total += cov.EncodeLen()
 	}
 	lookaheadCoverageOffsets := make([]uint16, lookaheadGlyphCount)
 	for i, cov := range l.Lookahead {
+		checkSubtableOffset16("Gsub8_1", total)
 		lookaheadCoverageOffsets[i] = uint16(total)
 		total += cov.EncodeLen()
 	}
-	checkSubtableSize16("Gsub8_1", total)
 
 	buf := make([]byte, 0, total)
 	buf = append(buf,

@@ -17,12 +17,9 @@
 package cff
 
 import (
-	"math"
-
 	"seehuhn.de/go/geom/matrix"
 
 	"seehuhn.de/go/postscript/cid"
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -196,37 +193,31 @@ func instancePrivateDict(p *PrivateCFF2, scalars []float64) *type1.PrivateDict {
 	if p == nil {
 		return &type1.PrivateDict{}
 	}
-	return &type1.PrivateDict{
+	res := &type1.PrivateDict{
 		BlueValues: instanceBlueArray(p.BlueValues, scalars),
 		OtherBlues: instanceBlueArray(p.OtherBlues, scalars),
 		BlueScale:  p.BlueScale.At(scalars),
-		BlueShift:  int32(variation.OTRound(p.BlueShift.At(scalars))),
-		BlueFuzz:   int32(variation.OTRound(p.BlueFuzz.At(scalars))),
+		BlueShift:  p.BlueShift.At(scalars),
+		BlueFuzz:   p.BlueFuzz.At(scalars),
 		StdHW:      p.StdHW.At(scalars),
 		StdVW:      p.StdVW.At(scalars),
 	}
-}
-
-// instanceBlueArray evaluates a list of blended blue-zone edges at scalars,
-// rounding each to the int16 grid.  The order is preserved.
-func instanceBlueArray(vals []Blend, scalars []float64) []funit.Int16 {
-	if len(vals) == 0 {
-		return nil
-	}
-	res := make([]funit.Int16, len(vals))
-	for i, v := range vals {
-		res[i] = toInt16(variation.OTRound(v.At(scalars)))
-	}
+	// A blendable operand is constrained at each instance rather than in the
+	// stored value, so the repair belongs here, where the blend becomes the
+	// scalar the CFF writer will emit.
+	res.Repair()
 	return res
 }
 
-// toInt16 clamps v to the range of funit.Int16.
-func toInt16(v float64) funit.Int16 {
-	if v > math.MaxInt16 {
-		return math.MaxInt16
+// instanceBlueArray evaluates a list of blended blue-zone edges at scalars.
+// The order is preserved.
+func instanceBlueArray(vals []Blend, scalars []float64) []float64 {
+	if len(vals) == 0 {
+		return nil
 	}
-	if v < math.MinInt16 {
-		return math.MinInt16
+	res := make([]float64, len(vals))
+	for i, v := range vals {
+		res[i] = v.At(scalars)
 	}
-	return funit.Int16(v)
+	return res
 }

@@ -47,6 +47,9 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 	if err := f.checkPSNames(); err != nil {
 		return 0, err
 	}
+	if err := f.checkUnitsPerEm(); err != nil {
+		return 0, err
+	}
 
 	tableData := make(map[string][]byte)
 
@@ -201,6 +204,9 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 	if err := f.CheckFontName(f.FontName); err != nil {
 		return 0, err
 	}
+	if err := f.checkUnitsPerEm(); err != nil {
+		return 0, err
+	}
 
 	tableData := make(map[string][]byte)
 
@@ -268,6 +274,17 @@ func (f *Font) WriteOpenTypeCFFPDF(w io.Writer) error {
 
 	_, err = header.Write(w, header.ScalerTypeCFF, tableData)
 	return err
+}
+
+// checkUnitsPerEm verifies that the units per em of the font can be stored in
+// the "head" table.  Fonts read from a file are repaired on read, so a failure
+// here means the caller supplied an unusable value.
+func (f *Font) checkUnitsPerEm() error {
+	if !validUnitsPerEm(float64(f.UnitsPerEm)) {
+		return fmt.Errorf("sfnt: UnitsPerEm %d outside %d...%d",
+			f.UnitsPerEm, MinUnitsPerEm, MaxUnitsPerEm)
+	}
+	return nil
 }
 
 // bboxRect16 rounds a design-unit bounding box outwards to the integer type

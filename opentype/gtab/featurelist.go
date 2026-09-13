@@ -143,8 +143,10 @@ func (info FeatureListInfo) encode() []byte {
 			totalSize += f.Params.encodeLen()
 		}
 	}
+	// The remedy here is not the one checkSubtableOffset16 offers: a feature
+	// list holds every feature of the table and cannot be split.
 	if largestOffset > 0xFFFF {
-		panic("featureListInfo too large")
+		panic(fmt.Sprintf("sfnt/gtab: feature offset %d out of range", largestOffset))
 	}
 
 	buf := make([]byte, 2+6*len(info), totalSize)

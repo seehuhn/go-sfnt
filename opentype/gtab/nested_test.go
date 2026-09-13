@@ -879,3 +879,96 @@ func (l *debugNestedLookup) encodeLen() int {
 func (l *debugNestedLookup) encode() []byte {
 	panic("unreachable")
 }
+
+// TestContextSubtableOffsetOverflow checks that the context subtables refuse a
+// layout whose offsets would not fit the uint16 the format stores them in,
+// instead of writing a truncated offset which points at the wrong data.
+func TestContextSubtableOffsetOverflow(t *testing.T) {
+	// a rule set of a few glyphs, small enough that thousands are needed to
+	// push the offsets out of range
+	rule := &SeqRule{Input: []glyph.ID{2}, Actions: []SeqLookup{{SequenceIndex: 0}}}
+	chained := &ChainedSeqRule{
+		Input:   []glyph.ID{2},
+		Actions: []SeqLookup{{SequenceIndex: 0}},
+	}
+	// a coverage table of 10000 glyphs two apart encodes to about 20 KiB, so
+	// a handful of them reach past the limit
+	wideSet := coverage.Set{}
+	for i := range 10000 {
+		wideSet[glyph.ID(2*i+1)] = true
+	}
+
+	cases := []struct {
+		name string
+		make func() Subtable
+	}{
+		{"SeqContext1", func() Subtable {
+			const n = 5000
+			cov := coverage.Table{}
+			rules := make([][]*SeqRule, n)
+			for i := range rules {
+				cov[glyph.ID(i+1)] = i
+				rules[i] = []*SeqRule{rule}
+			}
+			return &SeqContext1{Cov: cov, Rules: rules}
+		}},
+		{"SeqContext3", func() Subtable {
+			return &SeqContext3{
+				Input:   []coverage.Set{wideSet, wideSet, wideSet, wideSet, wideSet},
+				Actions: []SeqLookup{{SequenceIndex: 0}},
+			}
+		}},
+		{"ChainedSeqContext1", func() Subtable {
+			const n = 5000
+			cov := coverage.Table{}
+			rules := make([][]*ChainedSeqRule, n)
+			for i := range rules {
+				cov[glyph.ID(i+1)] = i
+				rules[i] = []*ChainedSeqRule{chained}
+			}
+			return &ChainedSeqContext1{Cov: cov, Rules: rules}
+		}},
+		// A subtable whose rule sets are all absent still stores the offsets
+		// in its header, and those are the ones which run away here.  The
+		// checks alongside the rule sets never run for these.
+		{"ChainedSeqContext1 without rules", func() Subtable {
+			const n = 40000 // 6 + 2*n puts the coverage table out of reach
+			return &ChainedSeqContext1{
+				Cov:   coverage.Table{1: 0},
+				Rules: make([][]*ChainedSeqRule, n),
+			}
+		}},
+		{"ChainedSeqContext2 without rules", func() Subtable {
+			cd := classdef.Table{}
+			for i := range 20000 {
+				cd[glyph.ID(2*i+1)] = uint16(i%300 + 1)
+			}
+			return &ChainedSeqContext2{
+				Cov:       wideSet.ToTable(),
+				Backtrack: cd,
+				Input:     cd,
+				Lookahead: cd,
+				Rules:     make([][]*ChainedClassSeqRule, 4),
+			}
+		}},
+
+		{"ChainedSeqContext3", func() Subtable {
+			return &ChainedSeqContext3{
+				Backtrack: []coverage.Set{wideSet, wideSet},
+				Input:     []coverage.Set{wideSet, wideSet},
+				Lookahead: []coverage.Set{wideSet, wideSet},
+				Actions:   []SeqLookup{{SequenceIndex: 0}},
+			}
+		}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			l := c.make()
+			if n := l.encodeLen(); n <= 0xFFFF {
+				t.Fatalf("subtable is only %d bytes; its offsets still fit", n)
+			}
+			assertPanics(t, func() { l.encode() })
+		})
+	}
+}

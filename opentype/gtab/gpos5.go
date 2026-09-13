@@ -139,7 +139,7 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			return nil, err
 		}
 		for j := range ligAttach {
-			row, err := membudget.AllocSlice[*anchor.Table](p.Budget, int(markClassCount))
+			row, err := membudget.AllocSlice[*anchor.Table](p.Budget, markClassCount)
 			if err != nil {
 				return nil, err
 			}
@@ -262,35 +262,43 @@ func (l *Gpos5_1) countMarkClasses() int {
 	return count
 }
 
+// arrays lays out the mark array and the LigatureAttach table of each
+// ligature.  Anchors of a LigatureAttach table are addressed from the start of
+// that table, so each ligature keeps a table (and so a pool) of its own.
+func (l *Gpos5_1) arrays() (markClassCount int, marks *markArray, ligs []*anchorMatrix) {
+	markClassCount = l.countMarkClasses()
+	marks = newMarkArray("Gpos5_1", l.MarkArray)
+	ligs = make([]*anchorMatrix, len(l.LigArray))
+	for i, lig := range l.LigArray {
+		ligs[i] = newAnchorMatrix("Gpos5_1", lig, markClassCount)
+	}
+	return markClassCount, marks, ligs
+}
+
+// ligArrayLayout returns the offset of each LigatureAttach table from the
+// start of the ligature array, together with the array's total length.
+func ligArrayLayout(ligs []*anchorMatrix) (offs []int, size int) {
+	offs = make([]int, len(ligs))
+	size = 2 + 2*len(ligs)
+	for i, m := range ligs {
+		offs[i] = size
+		size += m.size()
+	}
+	return offs, size
+}
+
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos5_1) encodeLen() int {
-	markClassCount := l.countMarkClasses()
-	total := 12
-	total += l.MarkCov.EncodeLen()
-	total += l.LigCov.EncodeLen()
-	total += 2 + 4*len(l.MarkArray)
-	for _, rec := range l.MarkArray {
-		total += rec.Table.EncodeLen()
-	}
-	total += 2 + 2*len(l.LigArray)
-	for _, lig := range l.LigArray {
-		total += 2 + 2*len(lig)*markClassCount
-		for _, row := range lig {
-			for _, rec := range row {
-				if rec != nil {
-					total += rec.EncodeLen()
-				}
-			}
-		}
-	}
-	return total
+	_, marks, ligs := l.arrays()
+	_, ligArrayLen := ligArrayLayout(ligs)
+	return 12 + l.MarkCov.EncodeLen() + l.LigCov.EncodeLen() + marks.size() + ligArrayLen
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gpos5_1) encode() []byte {
-	markCount := len(l.MarkArray)
 	ligCount := len(l.LigArray)
-	markClassCount := l.countMarkClasses()
+	markClassCount, marks, ligs := l.arrays()
+	ligOffs, ligArrayLen := ligArrayLayout(ligs)
 
 	total := 12
 	markCoverageOffset := total
@@ -298,28 +306,19 @@ func (l *Gpos5_1) encode() []byte {
 	ligCoverageOffset := total
 	total += l.LigCov.EncodeLen()
 	markArrayOffset := total
-	total += 2 + 4*markCount
-	for _, rec := range l.MarkArray {
-		total += rec.Table.EncodeLen()
-	}
+	total += marks.size()
 	ligArrayOffset := total
-
-	// lig array section: count + per-lig offsets + per-LigatureAttach blocks
-	ligArrayLen := 2 + 2*ligCount
-	ligAttachOffs := make([]uint16, ligCount)
-	for i, lig := range l.LigArray {
-		ligAttachOffs[i] = uint16(ligArrayLen)
-		ligArrayLen += 2 + 2*len(lig)*markClassCount
-		for _, row := range lig {
-			for _, rec := range row {
-				if rec != nil {
-					ligArrayLen += rec.EncodeLen()
-				}
-			}
-		}
-	}
 	total += ligArrayLen
-	checkSubtableSize16("Gpos5_1", total)
+
+	// The mark array and each LigatureAttach table address their anchors from
+	// their own start and bound themselves, so the subtable may reach past the
+	// 64 KiB an offset can cover.  What is left to check are the offsets in
+	// the subtable header, of which ligArrayOffset is the largest, and those
+	// in the ligature array, of which the last is.
+	checkSubtableOffset16("Gpos5_1", ligArrayOffset)
+	if ligCount > 0 {
+		checkSubtableOffset16("Gpos5_1", ligOffs[ligCount-1])
+	}
 
 	res := make([]byte, 0, total)
 	res = append(res,
@@ -333,52 +332,17 @@ func (l *Gpos5_1) encode() []byte {
 
 	res = append(res, l.MarkCov.Encode()...)
 	res = append(res, l.LigCov.Encode()...)
-
-	// mark array
-	res = append(res,
-		byte(markCount>>8), byte(markCount),
-	)
-	offs := 2 + 4*markCount
-	for _, rec := range l.MarkArray {
-		res = append(res,
-			byte(rec.Class>>8), byte(rec.Class),
-			byte(offs>>8), byte(offs),
-		)
-		offs += rec.Table.EncodeLen()
-	}
-	for _, rec := range l.MarkArray {
-		res = rec.Append(res)
-	}
+	res = marks.append(res)
 
 	// lig array
 	res = append(res,
 		byte(ligCount>>8), byte(ligCount),
 	)
-	for _, off := range ligAttachOffs {
+	for _, off := range ligOffs {
 		res = append(res, byte(off>>8), byte(off))
 	}
-	for _, lig := range l.LigArray {
-		componentCount := len(lig)
-		res = append(res, byte(componentCount>>8), byte(componentCount))
-		anchorOff := 2 + 2*componentCount*markClassCount
-		for _, row := range lig {
-			for _, rec := range row {
-				if rec == nil {
-					res = append(res, 0, 0)
-					continue
-				}
-				res = append(res, byte(anchorOff>>8), byte(anchorOff))
-				anchorOff += rec.EncodeLen()
-			}
-		}
-		for _, row := range lig {
-			for _, rec := range row {
-				if rec == nil {
-					continue
-				}
-				res = rec.Append(res)
-			}
-		}
+	for _, m := range ligs {
+		res = m.append(res)
 	}
 
 	return res

@@ -234,6 +234,10 @@ func (l *SeqContext1) encode() []byte {
 	}
 	coverageOffset := total
 	total += l.Cov.EncodeLen()
+	// The rule sets precede the coverage table, so bounding the coverage
+	// offset bounds every offset the subtable stores, those within a rule set
+	// included.  The coverage table itself may extend past the limit.
+	checkSubtableOffset16("SeqContext1", coverageOffset)
 
 	buf := make([]byte, 0, total)
 	buf = append(buf,
@@ -494,9 +498,7 @@ func (l *SeqContext2) encode() []byte {
 	classDefOffset := total
 	total += l.Input.AppendLen()
 
-	if classDefOffset > 0xFFFF {
-		panic("classDefOffset too large")
-	}
+	checkSubtableOffset16("SeqContext2", classDefOffset)
 
 	buf := make([]byte, 0, total)
 	buf = append(buf,
@@ -658,6 +660,7 @@ func (l *SeqContext3) encode() []byte {
 	total := 6 + 2*len(l.Input) + 4*len(l.Actions)
 	coverageOffsets := make([]uint16, glyphCount)
 	for i, cov := range l.Input {
+		checkSubtableOffset16("SeqContext3", total)
 		coverageOffsets[i] = uint16(total)
 		total += cov.ToTable().EncodeLen()
 	}
@@ -925,12 +928,16 @@ func (l *ChainedSeqContext1) encode() []byte {
 	chainedSeqRuleSetCount := len(l.Rules)
 	total := 6 + 2*len(l.Rules)
 	coverageOffset := total
+	// checked here rather than only alongside the rule sets below, which a
+	// subtable whose rule sets are all absent never reaches
+	checkSubtableOffset16("ChainedSeqContext1", coverageOffset)
 	total += l.Cov.EncodeLen()
 	chainedSeqRuleSetOffsets := make([]uint16, chainedSeqRuleSetCount)
 	for i, rules := range l.Rules {
 		if rules == nil {
 			continue
 		}
+		checkSubtableOffset16("ChainedSeqContext1", total)
 		chainedSeqRuleSetOffsets[i] = uint16(total)
 		total += 2 + 2*len(rules)
 		for _, rule := range rules {
@@ -964,6 +971,7 @@ func (l *ChainedSeqContext1) encode() []byte {
 
 		pos := 2 + 2*chainedSeqRuleCount
 		for _, rule := range rules {
+			checkSubtableOffset16("ChainedSeqContext1", pos)
 			buf = append(buf,
 				byte(pos>>8), byte(pos),
 			)
@@ -1300,15 +1308,18 @@ func (l *ChainedSeqContext2) encode() []byte {
 	inputOffset := total
 	total += l.Input.AppendLen()
 	lookaheadOffset := total
+	// The four header offsets increase in the order they are laid out, so
+	// bounding the last one bounds them all.  Checked here rather than only
+	// alongside the rule sets below, which a subtable whose rule sets are all
+	// absent never reaches.
+	checkSubtableOffset16("ChainedSeqContext2", lookaheadOffset)
 	total += l.Lookahead.AppendLen()
 	chainedSeqRuleSetOffsets := make([]uint16, chainedSeqRuleSetCount)
 	for i, rr := range l.Rules {
 		if rr == nil {
 			continue
 		}
-		if total > 0xFFFF {
-			panic("ChainedSeqContext2 too large")
-		}
+		checkSubtableOffset16("ChainedSeqContext2", total)
 		chainedSeqRuleSetOffsets[i] = uint16(total)
 		total += 2 + 2*len(rr)
 		for _, rule := range rr {
@@ -1348,9 +1359,7 @@ func (l *ChainedSeqContext2) encode() []byte {
 
 		pos := 2 + 2*chainedSeqRuleCount
 		for _, rule := range rr {
-			if pos > 0xFFFF {
-				panic("ChainedSeqContext2 too large")
-			}
+			checkSubtableOffset16("ChainedSeqContext2", pos)
 			buf = append(buf,
 				byte(pos>>8), byte(pos),
 			)
@@ -1579,18 +1588,21 @@ func (l *ChainedSeqContext3) encode() []byte {
 	total += 4 * len(l.Actions)
 	backtrackCoverageOffsets := make([]uint16, backtrackGlyphCount)
 	for i, set := range l.Backtrack {
+		checkSubtableOffset16("ChainedSeqContext3", total)
 		backtrackCoverageOffsets[i] = uint16(total)
 		cov := set.ToTable()
 		total += cov.EncodeLen()
 	}
 	inputCoverageOffsets := make([]uint16, inputGlyphCount)
 	for i, set := range l.Input {
+		checkSubtableOffset16("ChainedSeqContext3", total)
 		inputCoverageOffsets[i] = uint16(total)
 		cov := set.ToTable()
 		total += cov.EncodeLen()
 	}
 	lookaheadCoverageOffsets := make([]uint16, lookaheadGlyphCount)
 	for i, set := range l.Lookahead {
+		checkSubtableOffset16("ChainedSeqContext3", total)
 		lookaheadCoverageOffsets[i] = uint16(total)
 		cov := set.ToTable()
 		total += cov.EncodeLen()

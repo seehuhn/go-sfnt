@@ -67,7 +67,12 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Font, error) {
 		return nil, unsupported("fontsets with more than one font")
 	}
 	cff.FontInfo = &type1.FontInfo{
-		FontName: string(fontNames[0]),
+		// The Name INDEX is bytes with no stated encoding, so a name off a
+		// file can hold characters a PostScript name may not.  Repairing it
+		// here keeps the font writable: the writer refuses such a name, and a
+		// font which cannot be written back out is a font which cannot be
+		// round-tripped.
+		FontName: type1.RepairFontName(string(fontNames[0])),
 	}
 
 	// section 2: top DICT INDEX

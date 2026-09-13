@@ -22,7 +22,6 @@ import (
 	"os"
 	"time"
 
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt"
@@ -89,7 +88,7 @@ func main() {
 
 	cffInfo.Private = []*type1.PrivateDict{
 		{
-			BlueValues: []funit.Int16{-10, 0, 700, 710},
+			BlueValues: []float64{-10, 0, 700, 710},
 		},
 	}
 	cffInfo.FDSelect = func(gi glyph.ID) int { return 0 }

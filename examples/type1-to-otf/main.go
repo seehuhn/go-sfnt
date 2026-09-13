@@ -17,6 +17,7 @@
 package main
 
 import (
+	"cmp"
 	"flag"
 	"fmt"
 	"log"
@@ -25,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -147,10 +149,18 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 		weight = os2.WeightNormal
 	}
 	version, _ := head.VersionFromString(t1Info.FontInfo.Version)
-	modificationTime := time.Now()
-	creationTime := modificationTime
-	if !t1Info.CreationDate.IsZero() {
-		creationTime = t1Info.CreationDate
+	// The output is dated by the Type 1 font, so that converting the same font
+	// twice gives the same file.  Fonts without a date fall back to
+	// SOURCE_DATE_EPOCH, and finally to the current time.
+	fontDate := t1Info.CreationDate
+	if fontDate.IsZero() {
+		fontDate, err = sourceDateEpoch()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if fontDate.IsZero() {
+		fontDate = time.Now()
 	}
 
 	// TODO(voss): can this be improved?
@@ -178,36 +188,38 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 
 	unitsPerEm := math.Round(1 / t1Info.FontMatrix[0])
 
+	// conversion factor from units of 1/1000 em to font design units
+	q := unitsPerEm / 1000
+
+	// measurements taken from the font program itself; the glyph extents are
+	// already in font design units
 	var ascent float64
 	var descent float64
-	var capHeight float64
-	var xHeight float64
+	for _, name := range []string{"b", "d", "h", "l", "f"} {
+		if gid, exists := name2gid[name]; exists {
+			g := glyphs[gid]
+			bb := g.Extent()
+			ascent = float64(bb.URy)
+			break
+		}
+	}
+	for _, name := range []string{"p", "q", "g", "j", "y"} {
+		if gid, exists := name2gid[name]; exists {
+			g := glyphs[gid]
+			bb := g.Extent()
+			descent = float64(bb.LLy)
+			break
+		}
+	}
+	capHeight := t1Info.CapHeightPDF() * q
+	xHeight := t1Info.XHeightPDF() * q
+
+	// where the metrics give a usable value, it wins over the measurement
 	if afm != nil {
-		ascent = afm.Ascent
-		descent = afm.Descent
-		capHeight = afm.CapHeight
-		xHeight = afm.XHeight
-	} else {
-		for _, name := range []string{"b", "d", "h", "l", "f"} {
-			if gid, exists := name2gid[name]; exists {
-				g := glyphs[gid]
-				bb := g.Extent()
-				ascent = float64(bb.URy)
-				break
-			}
-		}
-		for _, name := range []string{"p", "q", "g", "j", "y"} {
-			if gid, exists := name2gid[name]; exists {
-				g := glyphs[gid]
-				bb := g.Extent()
-				descent = float64(bb.LLy)
-				break
-			}
-		}
-		// convert from PDF glyph space units to font design units
-		q := unitsPerEm / 1000
-		capHeight = t1Info.CapHeightPDF() * q
-		xHeight = t1Info.XHeightPDF() * q
+		ascent = afmValue(afm.Ascent, q, ascent)
+		descent = afmValue(afm.Descent, q, descent)
+		capHeight = afmValue(afm.CapHeight, q, capHeight)
+		xHeight = afmValue(afm.XHeight, q, xHeight)
 	}
 
 	minBaseLineSkip := math.Ceil(1.2 * unitsPerEm)
@@ -218,8 +230,16 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 		ascent += d2
 	}
 
-	gsub := makeLigatures(afm, name2gid)
-	gpos := makeKerningTable(afm, name2gid)
+	gsub, ligSkipped := makeLigatures(afm, name2gid)
+	gpos, kernSkipped := makeKerningTable(afm, name2gid, q)
+	if ligSkipped > 0 {
+		fmt.Fprintf(os.Stderr,
+			"warning: skipped %d ligatures naming glyphs the font lacks\n", ligSkipped)
+	}
+	if kernSkipped > 0 {
+		fmt.Fprintf(os.Stderr,
+			"warning: skipped %d kerning pairs naming glyphs the font lacks\n", kernSkipped)
+	}
 
 	otfInfo := sfnt.Font{
 		FamilyName:         t1Info.FontInfo.FamilyName,
@@ -234,8 +254,8 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 		IsSerif:            isSerif,
 		IsScript:           isScript,
 		Version:            version,
-		CreationTime:       creationTime,
-		ModificationTime:   modificationTime,
+		CreationTime:       fontDate,
+		ModificationTime:   fontDate,
 		Copyright:          t1Info.FontInfo.Copyright,
 		Trademark:          t1Info.FontInfo.Notice,
 		UnitsPerEm:         uint16(unitsPerEm),
@@ -258,70 +278,118 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 	return &otfInfo, nil
 }
 
+// afmValue converts x, a value from an AFM file in units of 1/1000 em, to font
+// design units.  AFM files leave unknown values unset, and scaling can carry a
+// value beyond what the font tables hold; both cases yield fallback instead.
+func afmValue(x, q, fallback float64) float64 {
+	if x == 0 {
+		return fallback
+	}
+	y := x * q
+	if r := math.Round(y); math.IsNaN(r) || r < math.MinInt16 || r > math.MaxInt16 {
+		return fallback
+	}
+	return y
+}
+
+// sourceDateEpoch returns the date given by the SOURCE_DATE_EPOCH environment
+// variable, or the zero time if the variable is unset.
+func sourceDateEpoch() (time.Time, error) {
+	s := os.Getenv("SOURCE_DATE_EPOCH")
+	if s == "" {
+		return time.Time{}, nil
+	}
+	secs, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || secs < 0 {
+		return time.Time{}, fmt.Errorf("invalid SOURCE_DATE_EPOCH %q", s)
+	}
+	return time.Unix(secs, 0).UTC(), nil
+}
+
 func makeCmap(glyphNames []string) cmap.Subtable {
+	// Glyph names which stand for no single character, including ".notdef",
+	// get no entry.  Where several glyphs share a character, the first wins.
 	canUseFormat4 := true
-	codes := make([]rune, len(glyphNames))
+	codes := make(map[rune]glyph.ID)
 	for gid, name := range glyphNames {
 		rr := []rune(names.ToUnicode(name, ""))
 		if len(rr) != 1 {
 			continue
 		}
 		r := rr[0]
-		if r > 65535 {
+		if _, exists := codes[r]; exists {
+			continue
+		}
+		if r > 0xFFFF {
 			canUseFormat4 = false
 		}
-		codes[gid] = r
+		codes[r] = glyph.ID(gid)
 	}
 
 	if canUseFormat4 {
 		cmap := cmap.Format4{}
-		for gid, r := range codes {
-			r16 := uint16(r)
-			if _, exists := cmap[r16]; exists {
-				continue
-			}
-			cmap[r16] = glyph.ID(gid)
+		for r, gid := range codes {
+			cmap[uint16(r)] = gid
 		}
 		return cmap
 	}
 
 	cmap := cmap.Format12{}
-	for gid, r := range codes {
-		r32 := uint32(r)
-		if _, exists := cmap[r32]; exists {
-			continue
-		}
-		cmap[r32] = glyph.ID(gid)
+	for r, gid := range codes {
+		cmap[uint32(r)] = gid
 	}
 	return cmap
 }
 
-func makeLigatures(afm *afm.Metrics, name2gid map[string]glyph.ID) *gtab.Info {
+// makeLigatures builds the "liga" feature from the metrics.  The second return
+// value counts the ligatures skipped because the font program lacks a glyph.
+func makeLigatures(afm *afm.Metrics, name2gid map[string]glyph.ID) (*gtab.Info, int) {
 	if afm == nil {
-		return nil
+		return nil, 0
 	}
 
+	// The metrics may name glyphs the font program does not have: the two
+	// come from separate files and need not agree.  Such entries are skipped,
+	// since an unknown name would otherwise resolve to glyph ID 0 and quietly
+	// attach the ligature to ".notdef".
+	var skipped int
 	ll := map[glyph.ID][]gtab.Ligature{}
 	for left, g := range afm.Glyphs {
-		a := name2gid[left]
+		a, leftOK := name2gid[left]
 		for right, repl := range g.Ligatures {
-			b := name2gid[right]
+			b, rightOK := name2gid[right]
+			out, outOK := name2gid[repl]
+			if !leftOK || !rightOK || !outOK {
+				skipped++
+				continue
+			}
 			ll[a] = append(ll[a], gtab.Ligature{
 				In:  []glyph.ID{b},
-				Out: name2gid[repl],
+				Out: out,
 			})
 		}
+	}
+	if len(ll) == 0 {
+		return nil, skipped
 	}
 
 	// TODO(voss): merge this with the code in go-sfnt/ligatures.go
 
 	keys := slices.Sorted(maps.Keys(ll))
 
+	// the metrics are held in maps, so one glyph's ligatures arrive in no
+	// particular order; sorting them makes the output file reproducible
+	byInput := func(a, b gtab.Ligature) int {
+		return cmp.Or(cmp.Compare(a.In[0], b.In[0]), cmp.Compare(a.Out, b.Out))
+	}
+
 	cov := coverage.Table{}
 	var repl [][]gtab.Ligature
 	for i, gid := range keys {
 		cov[gid] = i
-		repl = append(repl, ll[gid])
+		entries := ll[gid]
+		slices.SortFunc(entries, byInput)
+		repl = append(repl, entries)
 	}
 	subst := &gtab.Gsub4_1{
 		Cov:  cov,
@@ -341,24 +409,46 @@ func makeLigatures(afm *afm.Metrics, name2gid map[string]glyph.ID) *gtab.Info {
 			},
 		},
 	}
-	return gsub
+	return gsub, skipped
 }
 
-func makeKerningTable(afm *afm.Metrics, name2gid map[string]glyph.ID) *gtab.Info {
+// makeKerningTable builds the "kern" feature from the metrics.  The adjustments
+// are scaled from PDF glyph space units to font design units by q.  The second
+// return value counts the pairs skipped because the font program lacks a glyph.
+func makeKerningTable(afm *afm.Metrics, name2gid map[string]glyph.ID, q float64) (*gtab.Info, int) {
 	if afm == nil || len(afm.Kern) == 0 {
-		return nil
+		return nil, 0
 	}
 
+	// A pair which names a glyph the font program does not have is skipped,
+	// for the reason makeLigatures gives.
+	var skipped int
 	kern := gtab.Gpos2_1{}
 	for _, pair := range afm.Kern {
-		left := name2gid[pair.Left]
-		right := name2gid[pair.Right]
+		left, leftOK := name2gid[pair.Left]
+		right, rightOK := name2gid[pair.Right]
+		if !leftOK || !rightOK {
+			skipped++
+			continue
+		}
+		// AFM sets no range for an adjustment, but a GPOS value record holds
+		// an int16.  The comparison also drops NaN.
+		adjust := math.Round(pair.Adjust * q)
+		if !(adjust >= math.MinInt16 && adjust <= math.MaxInt16) {
+			skipped++
+			continue
+		}
 		kern[glyph.Pair{
 			Left:  left,
 			Right: right,
 		}] = &gtab.PairAdjust{
-			First: &gtab.GposValueRecord{XAdvance: pair.Adjust},
+			First: &gtab.GposValueRecord{
+				XAdvance: funit.Int16(adjust),
+			},
 		}
+	}
+	if len(kern) == 0 {
+		return nil, skipped
 	}
 
 	gpos := &gtab.Info{
@@ -375,7 +465,7 @@ func makeKerningTable(afm *afm.Metrics, name2gid map[string]glyph.ID) *gtab.Info
 			},
 		},
 	}
-	return gpos
+	return gpos, skipped
 }
 
 func writeOtf(outname string, info *sfnt.Font) error {

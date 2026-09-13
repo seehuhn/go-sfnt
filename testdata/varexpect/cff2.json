@@ -1,0 +1,346 @@
+{
+  "cases": [
+    {
+      "coords": {},
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "gid": 0,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["closePath"]
+          ]
+        },
+        "glyph00001": {
+          "advance_width": 550,
+          "gid": 1,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 500, 0],
+            ["lineTo", 500, 700],
+            ["lineTo", 0, 700],
+            ["closePath"]
+          ]
+        },
+        "glyph00002": {
+          "advance_width": 620,
+          "gid": 2,
+          "segments": [
+            ["moveTo", 50, 0],
+            ["curveTo", 150, 200, 350, 400, 450, 600],
+            ["lineTo", 450, 700],
+            ["curveTo", 300, 760, 100, 760, 50, 700],
+            ["closePath"]
+          ]
+        },
+        "glyph00003": {
+          "advance_width": 700,
+          "gid": 3,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 200, 0],
+            ["lineTo", 200, 300],
+            ["closePath"],
+            ["moveTo", 300, 400],
+            ["lineTo", 500, 400],
+            ["lineTo", 300, 650],
+            ["closePath"]
+          ]
+        },
+        "glyph00004": {
+          "advance_width": 480,
+          "gid": 4,
+          "segments": [
+            ["moveTo", 100, 100],
+            ["lineTo", 400, 100],
+            ["lineTo", 400, 500],
+            ["lineTo", 100, 500],
+            ["closePath"]
+          ]
+        }
+      },
+      "metrics": {
+        "ascent": 700,
+        "cap_height": 700,
+        "descent": -300
+      },
+      "name": "defaults"
+    },
+    {
+      "coords": {
+        "wght": 900.0
+      },
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "gid": 0,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["closePath"]
+          ]
+        },
+        "glyph00001": {
+          "advance_width": 600,
+          "gid": 1,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 600, 0],
+            ["lineTo", 600, 700],
+            ["lineTo", 0, 700],
+            ["closePath"]
+          ]
+        },
+        "glyph00002": {
+          "advance_width": 650,
+          "gid": 2,
+          "segments": [
+            ["moveTo", 50, 0],
+            ["curveTo", 150, 240, 350, 480, 500, 600],
+            ["lineTo", 500, 700],
+            ["curveTo", 300, 760, 100, 760, 50, 700],
+            ["closePath"]
+          ]
+        },
+        "glyph00003": {
+          "advance_width": 720,
+          "gid": 3,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 255, 0],
+            ["lineTo", 255, 300],
+            ["closePath"],
+            ["moveTo", 300, 400],
+            ["lineTo", 540, 400],
+            ["lineTo", 300, 675],
+            ["closePath"]
+          ]
+        },
+        "glyph00004": {
+          "advance_width": 525,
+          "gid": 4,
+          "segments": [
+            ["moveTo", 100, 100],
+            ["lineTo", 460, 100],
+            ["lineTo", 460, 500],
+            ["lineTo", 100, 500],
+            ["closePath"]
+          ]
+        }
+      },
+      "metrics": {
+        "ascent": 700,
+        "cap_height": 700,
+        "descent": -300
+      },
+      "name": "bold"
+    },
+    {
+      "coords": {
+        "wdth": 75.0
+      },
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "gid": 0,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["closePath"]
+          ]
+        },
+        "glyph00001": {
+          "advance_width": 510,
+          "gid": 1,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 440, 0],
+            ["lineTo", 440, 700],
+            ["lineTo", 0, 700],
+            ["closePath"]
+          ]
+        },
+        "glyph00002": {
+          "advance_width": 595,
+          "gid": 2,
+          "segments": [
+            ["moveTo", 50, 0],
+            ["curveTo", 150, 200, 350, 400, 430, 600],
+            ["lineTo", 430, 700],
+            ["curveTo", 300, 760, 100, 760, 50, 670],
+            ["closePath"]
+          ]
+        },
+        "glyph00003": {
+          "advance_width": 690,
+          "gid": 3,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 190, 0],
+            ["lineTo", 190, 300],
+            ["closePath"],
+            ["moveTo", 300, 400],
+            ["lineTo", 480, 400],
+            ["lineTo", 300, 650],
+            ["closePath"]
+          ]
+        },
+        "glyph00004": {
+          "advance_width": 465,
+          "gid": 4,
+          "segments": [
+            ["moveTo", 100, 100],
+            ["lineTo", 360, 100],
+            ["lineTo", 360, 580],
+            ["lineTo", 100, 580],
+            ["closePath"]
+          ]
+        }
+      },
+      "metrics": {
+        "ascent": 700,
+        "cap_height": 700,
+        "descent": -300
+      },
+      "name": "narrow"
+    },
+    {
+      "coords": {
+        "wdth": 75.0,
+        "wght": 900.0
+      },
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "gid": 0,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["closePath"]
+          ]
+        },
+        "glyph00001": {
+          "advance_width": 560,
+          "gid": 1,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 540, 0],
+            ["lineTo", 540, 700],
+            ["lineTo", 0, 700],
+            ["closePath"]
+          ]
+        },
+        "glyph00002": {
+          "advance_width": 625,
+          "gid": 2,
+          "segments": [
+            ["moveTo", 50, 0],
+            ["curveTo", 150, 240, 350, 480, 480, 600],
+            ["lineTo", 480, 700],
+            ["curveTo", 300, 760, 100, 760, 50, 670],
+            ["closePath"]
+          ]
+        },
+        "glyph00003": {
+          "advance_width": 710,
+          "gid": 3,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 245, 0],
+            ["lineTo", 245, 300],
+            ["closePath"],
+            ["moveTo", 300, 400],
+            ["lineTo", 520, 400],
+            ["lineTo", 300, 675],
+            ["closePath"]
+          ]
+        },
+        "glyph00004": {
+          "advance_width": 510,
+          "gid": 4,
+          "segments": [
+            ["moveTo", 100, 100],
+            ["lineTo", 420, 100],
+            ["lineTo", 420, 580],
+            ["lineTo", 100, 580],
+            ["closePath"]
+          ]
+        }
+      },
+      "metrics": {
+        "ascent": 700,
+        "cap_height": 700,
+        "descent": -300
+      },
+      "name": "bold-narrow"
+    },
+    {
+      "coords": {
+        "wght": 700.0
+      },
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "gid": 0,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["closePath"]
+          ]
+        },
+        "glyph00001": {
+          "advance_width": 580,
+          "gid": 1,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 560, 0],
+            ["lineTo", 560, 700],
+            ["lineTo", 0, 700],
+            ["closePath"]
+          ]
+        },
+        "glyph00002": {
+          "advance_width": 638,
+          "gid": 2,
+          "segments": [
+            ["moveTo", 50, 0],
+            ["curveTo", 150, 224, 350, 416, 480, 600],
+            ["lineTo", 480, 700],
+            ["curveTo", 300, 760, 100, 760, 50, 700],
+            ["closePath"]
+          ]
+        },
+        "glyph00003": {
+          "advance_width": 712,
+          "gid": 3,
+          "segments": [
+            ["moveTo", 0, 0],
+            ["lineTo", 223, 0],
+            ["lineTo", 223, 300],
+            ["closePath"],
+            ["moveTo", 300, 400],
+            ["lineTo", 524, 400],
+            ["lineTo", 300, 665],
+            ["closePath"]
+          ]
+        },
+        "glyph00004": {
+          "advance_width": 507,
+          "gid": 4,
+          "segments": [
+            ["moveTo", 100, 100],
+            ["lineTo", 436, 100],
+            ["lineTo", 436, 500],
+            ["lineTo", 100, 500],
+            ["closePath"]
+          ]
+        }
+      },
+      "metrics": {
+        "ascent": 700,
+        "cap_height": 700,
+        "descent": -300
+      },
+      "name": "mid"
+    }
+  ],
+  "fonttools_version": "4.65.0",
+  "source_font": "cff2.otf",
+  "source_sha256": "70382a42366927bd445fb3d3d1b5c364c5f4046194b461d6160c7ffa5de25266"
+}

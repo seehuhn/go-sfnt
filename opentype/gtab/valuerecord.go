@@ -197,17 +197,21 @@ func valueRecordEncodeLen(format uint16) int {
 // a nil input — matching the OpenType convention that offset 0 means
 // "no Device table".
 type devicePool struct {
+	name    string            // the subtable type, for the out-of-range panic
 	base    int               // subtable-relative byte offset of the first pool entry
 	seen    map[string]uint16 // encoded bytes → subtable-relative offset
 	encoded []byte            // concatenated bytes of unique tables, in offset order
 }
 
-func newDevicePool(base int) *devicePool {
-	return &devicePool{base: base, seen: map[string]uint16{}}
+func newDevicePool(name string, base int) *devicePool {
+	return &devicePool{name: name, base: base, seen: map[string]uint16{}}
 }
 
 // add registers t and returns its subtable-relative offset.  Tables
 // with byte-identical Encode output share a single offset.
+//
+// The offset is checked here rather than left to the caller, for the
+// reason [anchorPool.add] gives.
 func (p *devicePool) add(t *device.Table) uint16 {
 	if t == nil {
 		return 0
@@ -217,10 +221,11 @@ func (p *devicePool) add(t *device.Table) uint16 {
 	if off, ok := p.seen[key]; ok {
 		return off
 	}
-	off := uint16(p.base + len(p.encoded))
-	p.seen[key] = off
+	off := p.base + len(p.encoded)
+	checkSubtableOffset16(p.name, off)
+	p.seen[key] = uint16(off)
 	p.encoded = append(p.encoded, enc...)
-	return off
+	return uint16(off)
 }
 
 // addAll registers every non-nil Device table in vrs, in the canonical

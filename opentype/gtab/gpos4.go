@@ -112,7 +112,7 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 	for i := range baseArray {
-		row, err := membudget.AllocSlice[*anchor.Table](p.Budget, int(markClassCount))
+		row, err := membudget.AllocSlice[*anchor.Table](p.Budget, markClassCount)
 		if err != nil {
 			return nil, err
 		}
@@ -212,36 +212,23 @@ func (l *Gpos4_1) countMarkClasses() int {
 	return count
 }
 
+// arrays lays out the mark array and the base array.
+func (l *Gpos4_1) arrays() (markClassCount int, marks *markArray, bases *anchorMatrix) {
+	markClassCount = l.countMarkClasses()
+	marks = newMarkArray("Gpos4_1", l.MarkArray)
+	bases = newAnchorMatrix("Gpos4_1", l.BaseArray, markClassCount)
+	return markClassCount, marks, bases
+}
+
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos4_1) encodeLen() int {
-	// invoke for its consistency-check side effects
-	_ = l.countMarkClasses()
-	total := 12
-	total += l.MarkCov.EncodeLen()
-	total += l.BaseCov.EncodeLen()
-
-	total += 2 + 4*len(l.MarkArray)
-	for _, rec := range l.MarkArray {
-		total += rec.Table.EncodeLen()
-	}
-
-	total += 2
-	for _, row := range l.BaseArray {
-		for _, rec := range row {
-			total += 2
-			if rec != nil {
-				total += rec.EncodeLen()
-			}
-		}
-	}
-	return total
+	_, marks, bases := l.arrays()
+	return 12 + l.MarkCov.EncodeLen() + l.BaseCov.EncodeLen() + marks.size() + bases.size()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gpos4_1) encode() []byte {
-	markCount := len(l.MarkArray)
-	markClassCount := l.countMarkClasses()
-	baseCount := len(l.BaseArray)
+	markClassCount, marks, bases := l.arrays()
 
 	total := 12
 	markCoverageOffset := total
@@ -249,21 +236,16 @@ func (l *Gpos4_1) encode() []byte {
 	baseCoverageOffset := total
 	total += l.BaseCov.EncodeLen()
 	markArrayOffset := total
-	total += 2 + 4*markCount
-	for _, rec := range l.MarkArray {
-		total += rec.Table.EncodeLen()
-	}
+	total += marks.size()
 	baseArrayOffset := total
-	total += 2
-	for _, row := range l.BaseArray {
-		for _, rec := range row {
-			total += 2
-			if rec != nil {
-				total += rec.EncodeLen()
-			}
-		}
-	}
-	checkSubtableSize16("Gpos4_1", total)
+	total += bases.size()
+
+	// Each array addresses its anchors from its own start and bounds itself,
+	// so the subtable may reach past the 64 KiB an offset can cover.  What is
+	// left to check are the offsets in the subtable header, of which
+	// baseArrayOffset is the largest.
+	checkSubtableOffset16("Gpos4_1", baseArrayOffset)
+
 	res := make([]byte, 0, total)
 
 	res = append(res,
@@ -277,46 +259,8 @@ func (l *Gpos4_1) encode() []byte {
 
 	res = append(res, l.MarkCov.Encode()...)
 	res = append(res, l.BaseCov.Encode()...)
-
-	res = append(res,
-		byte(markCount>>8), byte(markCount),
-	)
-	offs := 2 + 4*markCount
-	for _, rec := range l.MarkArray {
-		res = append(res,
-			byte(rec.Class>>8), byte(rec.Class),
-			byte(offs>>8), byte(offs),
-		)
-		offs += rec.Table.EncodeLen()
-	}
-	for _, rec := range l.MarkArray {
-		res = rec.Append(res)
-	}
-
-	res = append(res,
-		byte(baseCount>>8), byte(baseCount),
-	)
-	offs = 2 + 2*baseCount*markClassCount
-	for _, row := range l.BaseArray {
-		for _, rec := range row {
-			if rec == nil {
-				res = append(res, 0, 0)
-				continue
-			}
-			res = append(res,
-				byte(offs>>8), byte(offs),
-			)
-			offs += rec.EncodeLen()
-		}
-	}
-	for _, row := range l.BaseArray {
-		for _, rec := range row {
-			if rec == nil {
-				continue
-			}
-			res = rec.Append(res)
-		}
-	}
+	res = marks.append(res)
+	res = bases.append(res)
 
 	return res
 }

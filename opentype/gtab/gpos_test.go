@@ -681,6 +681,67 @@ func FuzzGpos4_1(f *testing.F) {
 	})
 }
 
+func FuzzGpos5_1(f *testing.F) {
+	l := &Gpos5_1{}
+	f.Add(l.encode())
+	l = &Gpos5_1{
+		MarkCov: coverage.Table{
+			1: 0,
+			3: 1,
+			9: 2,
+		},
+		LigCov: coverage.Table{
+			2: 0,
+			4: 1,
+			6: 2,
+		},
+		MarkArray: []markarray.Record{
+			{
+				Class: 0,
+				Table: anchor.Table{
+					X: -32768,
+					Y: 0,
+				},
+			},
+			{
+				Class: 1,
+				Table: anchor.Table{
+					X: 32767,
+					Y: 0,
+				},
+			},
+			{
+				Class: 0,
+				Table: anchor.Table{
+					X: -1,
+					Y: 1,
+				},
+			},
+		},
+		// ligatures of one, two and three components; nil entries leave a
+		// mark class unattached, and the repeated anchor exercises the pool
+		LigArray: [][][]*anchor.Table{
+			{
+				{{X: -2, Y: -1}, nil},
+			},
+			{
+				{{X: 2, Y: 3}, {X: 4, Y: 5}},
+				{nil, {X: 4, Y: 5}},
+			},
+			{
+				{{X: 6, Y: 7}, {X: 8, Y: 255}},
+				{{X: 6, Y: 7}, nil},
+				{nil, nil},
+			},
+		},
+	}
+	f.Add(l.encode())
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		doFuzz(t, 5, 1, readGpos5_1, data)
+	})
+}
+
 func FuzzGpos6_1(f *testing.F) {
 	l := &Gpos6_1{}
 	f.Add(l.encode())
@@ -815,6 +876,24 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 	})
 }
 
+// TestCountClassesCatchesInconsistency confirms that countClasses rejects a
+// ragged Adjust.  The class-pair records are written as one rectangular
+// block, and the coverage table, the two classdefs and every Device table are
+// placed after it, so a short row would displace all of them.
+func TestCountClassesCatchesInconsistency(t *testing.T) {
+	l := &Gpos2_2{
+		Cov:    coverage.Set{1: true, 2: true},
+		Class1: classdef.Table{1: 1},
+		Class2: classdef.Table{2: 1},
+		Adjust: [][]*PairAdjust{
+			{{First: &GposValueRecord{XAdvance: 1}}, {First: &GposValueRecord{XAdvance: 2}}}, // width 2
+			{{First: &GposValueRecord{XAdvance: 3}}},                                         // width 1 — inconsistent
+		},
+	}
+	assertPanics(t, func() { _ = l.encodeLen() })
+	assertPanics(t, func() { _ = l.encode() })
+}
+
 // TestSubtableSizeOverflow confirms that the encoder panics when a
 // subtable's offsets would no longer fit in uint16, instead of
 // silently truncating offsets and producing corrupt output.
@@ -905,6 +984,265 @@ func TestDevicePoolDeduplicates(t *testing.T) {
 	}
 }
 
+// TestGpos2_2LongSubtable checks that a Gpos2_2 subtable longer than
+// 64 KiB still encodes, as long as every offset it stores fits in a
+// uint16.  Real fonts contain such subtables: the class-pair records
+// and the Device tables they point at come first, and the tables which
+// are reached through a single offset each sit at the end, where they
+// may extend past the limit.
+func TestGpos2_2LongSubtable(t *testing.T) {
+	const (
+		class1Count = 85
+		class2Count = 134
+		numDevices  = 2778
+	)
+
+	adjust := make([][]*PairAdjust, class1Count)
+	k := 0
+	for i := range adjust {
+		adjust[i] = make([]*PairAdjust, class2Count)
+		for j := range adjust[i] {
+			adjust[i][j] = &PairAdjust{
+				First: &GposValueRecord{
+					XAdvance: funit.Int16(k%100 - 50),
+					XAdvanceDev: &device.Table{
+						OuterIndex:  uint16(k % numDevices),
+						DeltaFormat: device.VariationIndexFormat,
+					},
+				},
+			}
+			k++
+		}
+	}
+
+	cov := coverage.Set{}
+	for gid := glyph.ID(1); gid <= 916; gid++ {
+		cov[gid] = true
+	}
+	class1 := classdef.Table{}
+	for gid := glyph.ID(1); gid <= 900; gid++ {
+		class1[gid] = uint16(gid)%(class1Count-1) + 1
+	}
+	class2 := classdef.Table{}
+	for gid := glyph.ID(1); gid <= 1000; gid++ {
+		class2[gid] = uint16(gid)%(class2Count-1) + 1
+	}
+
+	l1 := &Gpos2_2{
+		Cov:    cov,
+		Class1: class1,
+		Class2: class2,
+		Adjust: adjust,
+	}
+
+	data := l1.encode()
+	if len(data) != l1.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	}
+	if len(data) <= 0xFFFF {
+		t.Fatalf("subtable is only %d bytes, test does not exercise long subtables", len(data))
+	}
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := readGpos2_2(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(l1, l2); d != "" {
+		t.Errorf("mismatch (-want +got):\n%s", d)
+	}
+}
+
+// TestAnchorPoolDeduplicates confirms that the mark attachment encoders
+// write one copy of an anchor shared by many glyphs.  Fonts reuse anchors
+// heavily, and a copy per reference makes the arrays outgrow the offsets
+// which address them.
+func TestAnchorPoolDeduplicates(t *testing.T) {
+	shared := &anchor.Table{X: 100, Y: 200}
+	const n = 50
+
+	baseCov := coverage.Table{}
+	baseArray := make([][]*anchor.Table, n)
+	for i := range baseArray {
+		baseArray[i] = []*anchor.Table{shared}
+		baseCov[glyph.ID(i+1)] = i
+	}
+	l1 := &Gpos4_1{
+		MarkCov:   coverage.Table{1000: 0},
+		BaseCov:   baseCov,
+		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		BaseArray: baseArray,
+	}
+
+	data := l1.encode()
+	if len(data) != l1.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	}
+	needle := shared.Append(nil)
+	if count := bytes.Count(data, needle); count != 1 {
+		t.Errorf("expected 1 copy of the shared anchor, found %d", count)
+	}
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := readGpos4_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(l1, l2); d != "" {
+		t.Errorf("mismatch (-want +got):\n%s", d)
+	}
+}
+
+// TestAnchorPoolDeduplicatesCursive confirms that cursive attachment writes
+// one copy of an anchor shared by several glyphs.  Joining scripts attach many
+// glyphs to the same entry and exit points.
+func TestAnchorPoolDeduplicatesCursive(t *testing.T) {
+	entry := &anchor.Table{X: 100, Y: 200}
+	exit := &anchor.Table{X: 700, Y: 200}
+	const n = 50
+
+	cov := coverage.Table{}
+	records := make([]EntryExitRecord, n)
+	for i := range records {
+		records[i] = EntryExitRecord{Entry: entry, Exit: exit}
+		cov[glyph.ID(i+1)] = i
+	}
+	l1 := &Gpos3_1{Cov: cov, Records: records}
+
+	data := l1.encode()
+	if len(data) != l1.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	}
+	for _, a := range []*anchor.Table{entry, exit} {
+		if count := bytes.Count(data, a.Append(nil)); count != 1 {
+			t.Errorf("expected 1 copy of anchor %v, found %d", *a, count)
+		}
+	}
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := readGpos3_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(l1, l2); d != "" {
+		t.Errorf("mismatch (-want +got):\n%s", d)
+	}
+}
+
+// TestAnchorPoolDeduplicatesLig confirms that a LigatureAttach table writes
+// one copy of an anchor shared by several of its components.
+func TestAnchorPoolDeduplicatesLig(t *testing.T) {
+	shared := &anchor.Table{X: 100, Y: 200}
+	const n = 50
+
+	lig := make([][]*anchor.Table, n)
+	for i := range lig {
+		lig[i] = []*anchor.Table{shared}
+	}
+	l1 := &Gpos5_1{
+		MarkCov:   coverage.Table{1000: 0},
+		LigCov:    coverage.Table{1: 0},
+		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		LigArray:  [][][]*anchor.Table{lig},
+	}
+
+	data := l1.encode()
+	if len(data) != l1.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	}
+	needle := shared.Append(nil)
+	if count := bytes.Count(data, needle); count != 1 {
+		t.Errorf("expected 1 copy of the shared anchor, found %d", count)
+	}
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := readGpos5_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(l1, l2); d != "" {
+		t.Errorf("mismatch (-want +got):\n%s", d)
+	}
+}
+
+// TestAnchorPoolDeduplicatesMark2 confirms that the mark to mark encoder
+// writes one copy of an anchor shared by many mark2 glyphs.
+func TestAnchorPoolDeduplicatesMark2(t *testing.T) {
+	shared := &anchor.Table{X: 100, Y: 200}
+	const n = 50
+
+	mark2Cov := coverage.Table{}
+	mark2Array := make([][]*anchor.Table, n)
+	for i := range mark2Array {
+		mark2Array[i] = []*anchor.Table{shared}
+		mark2Cov[glyph.ID(i+1)] = i
+	}
+	l1 := &Gpos6_1{
+		Mark1Cov:   coverage.Table{1000: 0},
+		Mark2Cov:   mark2Cov,
+		Mark1Array: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		Mark2Array: mark2Array,
+	}
+
+	data := l1.encode()
+	if len(data) != l1.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	}
+	needle := shared.Append(nil)
+	if count := bytes.Count(data, needle); count != 1 {
+		t.Errorf("expected 1 copy of the shared anchor, found %d", count)
+	}
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := readGpos6_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(l1, l2); d != "" {
+		t.Errorf("mismatch (-want +got):\n%s", d)
+	}
+}
+
+// TestGpos5_1LigArrayTooLong checks that a ligature array whose last
+// LigatureAttach sits beyond the reach of an Offset16 is refused, instead of
+// being written with a truncated offset.  Each LigatureAttach table is small
+// here; only their total exceeds the limit.
+func TestGpos5_1LigArrayTooLong(t *testing.T) {
+	// each LigatureAttach takes 10 bytes, and the array header a further
+	// 2 bytes per ligature, so 6000 ligatures put the last offset at 71992
+	const n = 6000
+
+	ligCov := coverage.Table{}
+	ligArray := make([][][]*anchor.Table, n)
+	for i := range ligArray {
+		ligArray[i] = [][]*anchor.Table{{{X: 100, Y: 200}}}
+		ligCov[glyph.ID(i+1)] = i
+	}
+	l := &Gpos5_1{
+		MarkCov:   coverage.Table{60000: 0},
+		LigCov:    ligCov,
+		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		LigArray:  ligArray,
+	}
+
+	assertPanics(t, func() { l.encode() })
+}
+
 // assertPanics runs fn and reports a t.Errorf if fn does not panic.
 func assertPanics(t *testing.T, fn func()) {
 	t.Helper()
@@ -914,4 +1252,152 @@ func assertPanics(t *testing.T, fn func()) {
 		}
 	}()
 	fn()
+}
+
+// TestPoolsCheckOffsetsWhenSizing confirms that an over-long pool is refused
+// by the sizing pass as well as by encode.  encodeLen fills the same pools but
+// never lays out the subtable around them, so a check left to the encoder
+// would not run on this path at all, and the pool would hand out truncated
+// offsets unnoticed.
+func TestPoolsCheckOffsetsWhenSizing(t *testing.T) {
+	t.Run("anchors", func(t *testing.T) {
+		// 2 + 2*n bytes of offsets followed by 6*n bytes of anchors
+		const n = 9000
+
+		baseCov := coverage.Table{}
+		baseArray := make([][]*anchor.Table, n)
+		for i := range baseArray {
+			baseArray[i] = []*anchor.Table{{X: funit.Int16(i)}}
+			baseCov[glyph.ID(i+1)] = i
+		}
+		l := &Gpos4_1{
+			MarkCov:   coverage.Table{60000: 0},
+			BaseCov:   baseCov,
+			MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+			BaseArray: baseArray,
+		}
+
+		assertPanics(t, func() { _ = l.encodeLen() })
+		assertPanics(t, func() { _ = l.encode() })
+	})
+
+	t.Run("devices", func(t *testing.T) {
+		// 8 + 2*n bytes of value records and coverage, then 6*n bytes of
+		// VariationIndex tables
+		const n = 12000
+
+		cov := coverage.Table{}
+		adjust := make([]*GposValueRecord, n)
+		for i := range adjust {
+			cov[glyph.ID(i+1)] = i
+			adjust[i] = &GposValueRecord{
+				XAdvanceDev: &device.Table{
+					OuterIndex:  uint16(i),
+					DeltaFormat: device.VariationIndexFormat,
+				},
+			}
+		}
+		l := &Gpos1_2{Cov: cov, Adjust: adjust}
+
+		assertPanics(t, func() { _ = l.encodeLen() })
+		assertPanics(t, func() { _ = l.encode() })
+	})
+}
+
+// TestGposLongSubtables checks that a GPOS subtable longer than 64 KiB
+// encodes and reads back unchanged, as long as every offset it stores fits in
+// a uint16.  These subtables end in a coverage table which carries no offsets
+// of its own, so only the offset reaching it is bounded; the table itself may
+// run past the limit.  Gpos2_2 has a test of its own, since its layout ends in
+// two classdefs rather than a coverage table.
+func TestGposLongSubtables(t *testing.T) {
+	// glyphs spaced two apart, so the coverage table cannot collapse them
+	// into a range and grows with the number of entries
+	gid := func(i int) glyph.ID { return glyph.ID(2*i + 1) }
+	covTable := func(n int) coverage.Table {
+		c := coverage.Table{}
+		for i := range n {
+			c[gid(i)] = i
+		}
+		return c
+	}
+
+	// a handful of distinct VariationIndex tables, so the Device pool is not
+	// empty and its offsets are exercised in their new position
+	dev := func(outer uint16) *device.Table {
+		return &device.Table{
+			OuterIndex:  outer,
+			DeltaFormat: device.VariationIndexFormat,
+		}
+	}
+
+	cases := []struct {
+		name string
+		make func() Subtable
+		read func(*parser.Parser, int64) (Subtable, error)
+	}{
+		{"Gpos1_1", func() Subtable {
+			// one shared adjustment over a very large coverage table
+			return &Gpos1_1{
+				Cov: covTable(32767),
+				Adjust: &GposValueRecord{
+					XAdvance:    10,
+					XAdvanceDev: dev(0),
+				},
+			}
+		}, readGpos1_1},
+
+		{"Gpos1_2", func() Subtable {
+			const n = 16000
+			adj := make([]*GposValueRecord, n)
+			for i := range adj {
+				adj[i] = &GposValueRecord{
+					XAdvance:    funit.Int16(i%100 - 50),
+					XAdvanceDev: dev(uint16(i % 7)),
+				}
+			}
+			return &Gpos1_2{Cov: covTable(n), Adjust: adj}
+		}, readGpos1_2},
+
+		{"Gpos2_1", func() Subtable {
+			const n = 6000
+			l := Gpos2_1{}
+			for i := range n {
+				l[glyph.Pair{Left: gid(i), Right: gid(i) + 1}] = &PairAdjust{
+					First: &GposValueRecord{
+						XAdvance:    funit.Int16(i%100 - 50),
+						XAdvanceDev: dev(uint16(i % 7)),
+					},
+				}
+			}
+			return l
+		}, readGpos2_1},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			l1 := c.make()
+
+			data := l1.encode()
+			if len(data) != l1.encodeLen() {
+				t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+			}
+			if len(data) <= 0xFFFF {
+				t.Fatalf("subtable is only %d bytes, the case does not test long subtables",
+					len(data))
+			}
+
+			p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+			if err := p.Discard(2); err != nil {
+				t.Fatal(err)
+			}
+			l2, err := c.read(p, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d := cmp.Diff(l1, l2); d != "" {
+				t.Errorf("round trip (-want +got):\n%s", d)
+			}
+		})
+	}
 }

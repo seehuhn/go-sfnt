@@ -364,23 +364,16 @@ findTypeLoop:
 	}
 
 	// If needed, reorder the chunks or introduce extension records.
-	isTooLarge := false
-	var total uint32
-	for i := range chunks {
-		code := chunks[i].code
-		if code&chunkTypeMask == chunkTable && total > 0xFFFF {
-			isTooLarge = true
-			break
-		}
-		total += chunks[i].size
-	}
-	if isTooLarge {
+	if outOfReach(chunks) {
 		chunks = ll.tryReorder(chunks)
+		if outOfReach(chunks) {
+			panic("too much data for lookup list table")
+		}
 	}
 
 	// Layout the chunks.
 	chunkPos := make(map[chunkCode]uint32, len(chunks))
-	total = 0
+	var total uint32
 	for i := range chunks {
 		code := chunks[i].code
 		chunkPos[code] = total
@@ -455,6 +448,77 @@ type layoutChunk struct {
 	size uint32
 }
 
+// outOfReach reports whether the chunks, laid out in the given order, need an
+// offset which does not fit in the uint16 the format uses: a lookup table too
+// far from the start of the lookup list, or a subtable too far from its lookup
+// table.  Extension records are exempt, since they hold a 32-bit offset.
+func outOfReach(chunks []layoutChunk) bool {
+	replaced := make(map[chunkCode]bool)
+	for i := range chunks {
+		if chunks[i].code&chunkTypeMask == chunkExtReplace {
+			replaced[chunks[i].code&^chunkTypeMask] = true
+		}
+	}
+
+	tablePos := make(map[chunkCode]uint32)
+	var total uint32
+	for i := range chunks {
+		code := chunks[i].code
+		tCode := code & chunkTableMask
+		switch code & chunkTypeMask {
+		case chunkTable:
+			if total > 0xFFFF {
+				return true
+			}
+			tablePos[tCode] = total
+		case chunkSubtable:
+			// a replaced subtable is reached from its extension record
+			if !replaced[code&^chunkTypeMask] && total-tablePos[tCode] > 0xFFFF {
+				return true
+			}
+		case chunkExtReplace:
+			if total-tablePos[tCode] > 0xFFFF {
+				return true
+			}
+		}
+		total += chunks[i].size
+	}
+	return false
+}
+
+// lookupsNeedingExtension returns the lookups whose subtables lie further from
+// the lookup table than an Offset16 can reach.  Such a lookup needs extension
+// records, which hold a 32-bit offset, wherever it ends up in the layout.
+func lookupsNeedingExtension(chunks []layoutChunk) map[chunkCode]bool {
+	res := make(map[chunkCode]bool)
+	var pos uint32
+	var cur chunkCode
+	for _, chunk := range chunks {
+		switch chunk.code & chunkTypeMask {
+		case chunkTable:
+			cur = chunk.code & chunkTableMask
+			pos = 0
+		case chunkSubtable:
+			if pos > 0xFFFF {
+				res[cur] = true
+			}
+		}
+		pos += chunk.size
+	}
+	return res
+}
+
+// extLookupSize returns the size of the lookup table tCode, once its subtables
+// have been replaced by extension records.
+func (ll LookupList) extLookupSize(tCode chunkCode) uint32 {
+	l := ll[tCode>>14]
+	size := 6 + 2*len(l.Subtables)
+	if l.Meta.LookupFlags&UseMarkFilteringSet != 0 {
+		size += 2
+	}
+	return uint32(size) + 8*uint32(len(l.Subtables))
+}
+
 func (ll LookupList) tryReorder(chunks []layoutChunk) []layoutChunk {
 	total := uint32(0)
 	for i := range chunks {
@@ -482,30 +546,33 @@ func (ll LookupList) tryReorder(chunks []layoutChunk) []layoutChunk {
 	// as needed.
 	biggestLookup := lookups[len(lookups)-1]
 	lastPos := total - lookupSize[biggestLookup]
-	idx := len(lookups) - 2
-	replace := make(map[chunkCode]bool)
+	replace := lookupsNeedingExtension(chunks)
 	extra := 0
+	for tCode := range replace {
+		extra += len(ll[tCode>>14].Subtables)
+		if tCode != biggestLookup {
+			lastPos -= lookupSize[tCode] - ll.extLookupSize(tCode)
+		}
+	}
+
+	idx := len(lookups) - 2
 	for lastPos > 0xFFFF && idx >= 0 {
 		tCode := lookups[idx]
+		if replace[tCode] {
+			idx--
+			continue
+		}
 
 		oldSize := lookupSize[tCode]
-		l := ll[tCode>>14]
-		lookupHeaderLen := 6 + 2*len(l.Subtables)
-		if l.Meta.LookupFlags&UseMarkFilteringSet != 0 {
-			lookupHeaderLen += 2
-		}
-		newSize := uint32(lookupHeaderLen) + 8*uint32(len(l.Subtables))
+		newSize := ll.extLookupSize(tCode)
 
 		if newSize < oldSize {
 			replace[tCode] = true
-			extra += len(l.Subtables)
+			extra += len(ll[tCode>>14].Subtables)
 			lastPos -= oldSize - newSize
 		}
 
 		idx--
-	}
-	if lastPos > 0xFFFF {
-		panic("too much data for lookup list table")
 	}
 
 	res := make([]layoutChunk, 0, len(chunks)+extra)
@@ -517,19 +584,20 @@ func (ll LookupList) tryReorder(chunks []layoutChunk) []layoutChunk {
 		switch {
 		case tp == chunkHeader:
 			res = append(res, chunk)
+		case replace[tCode] && tp == chunkSubtable:
+			sCode := code & chunkSubtableMask
+			record := layoutChunk{
+				code: chunkExtReplace | tCode | sCode,
+				size: 8,
+			}
+			if tCode == biggestLookup {
+				moved = append(moved, record)
+			} else {
+				res = append(res, record)
+			}
+			ext = append(ext, chunk)
 		case tCode == biggestLookup:
 			moved = append(moved, chunk)
-		case replace[tCode]:
-			sCode := code & chunkSubtableMask
-			if tp == chunkSubtable {
-				res = append(res, layoutChunk{
-					code: chunkExtReplace | tCode | sCode,
-					size: 8,
-				})
-				ext = append(ext, chunk)
-			} else {
-				res = append(res, chunk)
-			}
 		default:
 			res = append(res, chunk)
 		}

@@ -24,6 +24,7 @@ import (
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/geom/vec"
+	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/variation"
@@ -72,6 +73,18 @@ type GlyphCFF2 struct {
 }
 
 // PrivateCFF2 holds a CFF2 private dict with blendable values.
+//
+// Each entry is a value at the default instance plus one delta per active
+// variation region.  Only BlueValues, OtherBlues, StdHW, StdVW, StemSnapH and
+// StemSnapV may carry deltas; the remaining entries are the same for every
+// instance, and the writer refuses deltas on them.
+//
+// The alignment zone arrays hold an even number of values, taken in pairs
+// whose first value does not exceed the second, at most seven pairs for
+// BlueValues and FamilyBlues and five for OtherBlues and FamilyOtherBlues.
+// The stem snap arrays hold at most twelve values each.  A zero BlueScale
+// stands for the default, so that a dict left at its zero value can be
+// written.
 type PrivateCFF2 struct {
 	BlueValues, OtherBlues, FamilyBlues, FamilyOtherBlues []Blend
 	BlueScale, BlueShift, BlueFuzz                        Blend
@@ -86,10 +99,10 @@ type PrivateCFF2 struct {
 // values for the scalar blend entries.
 func newPrivateCFF2() *PrivateCFF2 {
 	return &PrivateCFF2{
-		BlueScale:       Blend{Default: 0.039625},
-		BlueShift:       Blend{Default: 7},
-		BlueFuzz:        Blend{Default: 1},
-		ExpansionFactor: Blend{Default: 0.06},
+		BlueScale:       Blend{Default: type1.DefaultBlueScale},
+		BlueShift:       Blend{Default: type1.DefaultBlueShift},
+		BlueFuzz:        Blend{Default: type1.DefaultBlueFuzz},
+		ExpansionFactor: Blend{Default: defaultExpansionFactor},
 	}
 }
 

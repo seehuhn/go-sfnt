@@ -19,7 +19,6 @@ package cff
 import (
 	"bytes"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -27,8 +26,6 @@ import (
 	"seehuhn.de/go/membudget"
 
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/header"
-	"seehuhn.de/go/sfnt/internal/testfonts"
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/variation"
 )
@@ -199,6 +196,23 @@ func TestWriteCFF2VSIndex(t *testing.T) {
 	}))
 }
 
+// TestWriteCFF2InheritedVSIndex covers a glyph which takes the vsindex from
+// its Font DICT's Private DICT instead of naming one itself.  The blend then
+// resolves against a subtable of a different width than subtable 0, and the
+// re-encoded charstring must still leave the operator out, since writing one
+// would change nothing but the bytes.
+func TestWriteCFF2InheritedVSIndex(t *testing.T) {
+	roundTripCFF2(t, buildCFF2(&cff2Spec{
+		vstore: vsIndexStore(),
+		fds: []fdSpec{
+			{privateBody: append(dictNum(1), 22)}, // VSIndex = 1, two regions
+		},
+		charStrings: cffIndex{
+			cs(100, 200, 10, 20, 30, 40, 2, t2blend, t2rmoveto),
+		},
+	}))
+}
+
 // TestWriteCFF2TwoFDs covers multiple Font DICTs, an FDSelect table and a
 // per-FD font matrix.
 func TestWriteCFF2TwoFDs(t *testing.T) {
@@ -286,56 +300,6 @@ func TestWriteCFF2FDSelectFormats(t *testing.T) {
 		fdselect:    fdSelect,
 		charStrings: charStrings,
 	}))
-}
-
-// TestWriteCFF2AdobeVF round-trips the CFF2 table of the Adobe Variable Font
-// Prototype, gated on the external test font.
-func TestWriteCFF2AdobeVF(t *testing.T) {
-	path := testfonts.Path(t, "AdobeVFPrototype.otf")
-	fd, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer fd.Close()
-
-	info, err := header.Read(fd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !info.Has("CFF2") {
-		t.Fatal("font has no CFF2 table")
-	}
-	r, err := info.TableReader(fd, "CFF2")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	font1, err := ReadCFF2(r, membudget.New(1<<28))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var buf1 bytes.Buffer
-	if err := font1.Write(&buf1); err != nil {
-		t.Fatalf("write 1: %v", err)
-	}
-	font2, err := ReadCFF2(bytes.NewReader(buf1.Bytes()), membudget.New(1<<28))
-	if err != nil {
-		t.Fatalf("read 2: %v", err)
-	}
-
-	opts := cff2CmpOptions(font1.NumGlyphs())
-	if diff := cmp.Diff(font1, font2, opts...); diff != "" {
-		t.Errorf("model round trip (-first +second):\n%s", diff)
-	}
-
-	var buf2 bytes.Buffer
-	if err := font2.Write(&buf2); err != nil {
-		t.Fatalf("write 2: %v", err)
-	}
-	if !bytes.Equal(buf1.Bytes(), buf2.Bytes()) {
-		t.Errorf("write not a byte fixpoint: %d vs %d bytes", buf1.Len(), buf2.Len())
-	}
 }
 
 func FuzzCFF2(f *testing.F) {

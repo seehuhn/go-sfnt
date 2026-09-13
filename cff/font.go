@@ -17,6 +17,7 @@
 package cff
 
 import (
+	"fmt"
 	"math"
 
 	"seehuhn.de/go/geom/rect"
@@ -108,21 +109,29 @@ func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 	return f.Glyphs[gid].Width * (q * 1000)
 }
 
-func (f *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) cffDict {
+func (f *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) (cffDict, error) {
 	private := f.Private[idx]
+
+	if err := private.Validate(); err != nil {
+		return nil, fmt.Errorf("cff: %w", err)
+	}
+	blueScale, err := blueScaleForWriting(private.BlueScale)
+	if err != nil {
+		return nil, err
+	}
 
 	privateDict := cffDict{}
 
-	privateDict.setDeltaF16(opBlueValues, private.BlueValues)
-	privateDict.setDeltaF16(opOtherBlues, private.OtherBlues)
-	if math.Abs(private.BlueScale-defaultBlueScale) > 1e-6 {
-		privateDict[opBlueScale] = []any{private.BlueScale}
+	privateDict.setDelta(opBlueValues, private.BlueValues)
+	privateDict.setDelta(opOtherBlues, private.OtherBlues)
+	if math.Abs(blueScale-type1.DefaultBlueScale) > 1e-6 {
+		privateDict[opBlueScale] = []any{blueScale}
 	}
-	if private.BlueShift != defaultBlueShift {
-		privateDict[opBlueShift] = []any{private.BlueShift}
+	if private.BlueShift != type1.DefaultBlueShift {
+		privateDict.setNumber(opBlueShift, private.BlueShift)
 	}
-	if private.BlueFuzz != defaultBlueFuzz {
-		privateDict[opBlueFuzz] = []any{private.BlueFuzz}
+	if private.BlueFuzz != type1.DefaultBlueFuzz {
+		privateDict.setNumber(opBlueFuzz, private.BlueFuzz)
 	}
 	if private.StdHW != 0 {
 		privateDict[opStdHW] = []any{private.StdHW}
@@ -141,5 +150,9 @@ func (f *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) cffD
 		privateDict[opNominalWidthX] = []any{nominalWidth}
 	}
 
-	return privateDict
+	if err := privateDict.checkReals(); err != nil {
+		return nil, err
+	}
+
+	return privateDict, nil
 }

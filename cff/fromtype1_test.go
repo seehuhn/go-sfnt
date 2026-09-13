@@ -71,8 +71,8 @@ func makeTestType1() *type1.Font {
 		Outlines: &type1.Outlines{
 			Glyphs: map[string]*type1.Glyph{},
 			Private: &type1.PrivateDict{
-				BlueValues: []funit.Int16{0, 10, 700, 710},
-				OtherBlues: []funit.Int16{-210, -200},
+				BlueValues: []float64{0, 10, 700, 710},
+				OtherBlues: []float64{-210, -200},
 				BlueScale:  0.05,
 				BlueShift:  8,
 				BlueFuzz:   2,
@@ -666,9 +666,9 @@ func TestFromType1NoPrivate(t *testing.T) {
 		t.Fatalf("got %d private dicts, want 1", len(cffFont.Private))
 	}
 	want := &type1.PrivateDict{
-		BlueScale: defaultBlueScale,
-		BlueShift: defaultBlueShift,
-		BlueFuzz:  defaultBlueFuzz,
+		BlueScale: type1.DefaultBlueScale,
+		BlueShift: type1.DefaultBlueShift,
+		BlueFuzz:  type1.DefaultBlueFuzz,
 	}
 	if d := cmp.Diff(want, cffFont.Private[0]); d != "" {
 		t.Errorf("private dict differs (-want +got):\n%s", d)
@@ -680,7 +680,7 @@ func TestFromType1NoPrivate(t *testing.T) {
 func TestFromType1ZeroBlueScale(t *testing.T) {
 	F := makeTestType1()
 	F.Private = &type1.PrivateDict{
-		BlueValues: []funit.Int16{0, 10, 700, 710},
+		BlueValues: []float64{0, 10, 700, 710},
 	}
 
 	cffFont, err := FromType1(F)
@@ -688,8 +688,8 @@ func TestFromType1ZeroBlueScale(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := cffFont.Private[0].BlueScale; got != defaultBlueScale {
-		t.Errorf("got BlueScale %v, want %v", got, defaultBlueScale)
+	if got := cffFont.Private[0].BlueScale; got != type1.DefaultBlueScale {
+		t.Errorf("got BlueScale %v, want %v", got, type1.DefaultBlueScale)
 	}
 
 	// the source font must not be modified

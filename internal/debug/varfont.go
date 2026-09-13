@@ -17,6 +17,8 @@
 package debug
 
 import (
+	"time"
+
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/funit"
 
@@ -66,6 +68,12 @@ func simpleGlyph(pts ...[2]funit.Int16) *glyf.Glyph {
 	g := su.AsGlyph()
 	return &g
 }
+
+// fixtureDate is the creation and modification date both synthetic fonts
+// carry.  Without it the writer falls back to time.Now() for the unique font
+// identifier, which would put today's date in the "name" table and make the
+// committed fixtures differ from the builders the next day.
+var fixtureDate = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 // MakeVarFont builds a deterministic, self-contained TrueType variable font
 // exercising every variation table wired into [sfnt.Font].  The design is
@@ -130,6 +138,8 @@ func MakeVarFont() *sfnt.Font {
 		Subfamily:          "Regular",
 		FullName:           "QuireVar Regular",
 		FontName:           "QuireVar-Regular",
+		CreationTime:       fixtureDate,
+		ModificationTime:   fixtureDate,
 		Width:              os2.WidthNormal,
 		Weight:             os2.WeightNormal,
 		IsRegular:          true,
@@ -349,21 +359,29 @@ var (
 	}
 )
 
-// makeGvar builds the per-glyph gvar blocks.  Outline points only carry deltas;
-// the four phantom points are left at zero so advance variation comes solely
-// from HVAR.
+// makeGvar builds the per-glyph gvar blocks.  The second phantom point repeats
+// the advance deltas HVAR carries: a reader may take the advance from either
+// table, so the two have to agree for the font to render the same everywhere.
 func makeGvar() *gvar.Table {
-	// Rect (gid 1): all-points tuple, top edge rises by +200 at wght = +1.
+	// Rect (gid 1): top edge rises by +200 at wght = +1, advance +80 there and
+	// -30 at wdth = -1 (matching HVAR inner 1).
 	// 8 points (4 outline + 4 phantom); deltas are [x0..x7, y0..y7].
 	rectBlock := mustEncodeTuples([]variation.TupleVariation{
 		{
 			Peak: []variation.F2Dot14{f2(1), 0},
 			Deltas: []int32{
-				0, 0, 0, 0, 0, 0, 0, 0, // x
+				0, 0, 0, 0, 0, 80, 0, 0, // x (advance +80)
 				0, 0, 200, 200, 0, 0, 0, 0, // y (top corners +200)
 			},
 		},
-	})
+		{
+			Peak: []variation.F2Dot14{0, f2(-1)},
+			Deltas: []int32{
+				0, 0, 0, 0, 0, -30, 0, 0, // x (advance -30)
+				0, 0, 0, 0, 0, 0, 0, 0, // y
+			},
+		},
+	}, 8)
 
 	// IUP (gid 2): subset tuple touching points 0 and 2 only; points 1 and 3
 	// are filled by IUP.  Deltas are [dx0, dx2, dy0, dy2].
@@ -373,19 +391,27 @@ func makeGvar() *gvar.Table {
 			Points: []uint16{0, 2},
 			Deltas: []int32{-30, 40, 0, 150},
 		},
-	})
+	}, 8)
 
 	// Comp (gid 3): all-points tuple over 2 components + 4 phantom = 6 points;
-	// component 1's offset shifts by (+200, -100) at wght = +1.
+	// component 1's offset shifts by (+200, -100) at wght = +1.  The advance
+	// grows by +40 there and +20 at wdth = -1 (matching HVAR inner 2).
 	compBlock := mustEncodeTuples([]variation.TupleVariation{
 		{
 			Peak: []variation.F2Dot14{f2(1), 0},
 			Deltas: []int32{
-				0, 200, 0, 0, 0, 0, // x
+				0, 200, 0, 40, 0, 0, // x (advance +40)
 				0, -100, 0, 0, 0, 0, // y
 			},
 		},
-	})
+		{
+			Peak: []variation.F2Dot14{0, f2(-1)},
+			Deltas: []int32{
+				0, 0, 0, 20, 0, 0, // x (advance +20)
+				0, 0, 0, 0, 0, 0, // y
+			},
+		},
+	}, 6)
 
 	// Two (gid 4): tuple A (wght, top +100) and tuple B (an intermediate
 	// region on both axes, right edge -80 at wght=+1 & wdth=-1).
@@ -406,7 +432,7 @@ func makeGvar() *gvar.Table {
 				0, 0, 0, 0, 0, 0, 0, 0, // y
 			},
 		},
-	})
+	}, 8)
 
 	perGlyph := make([]gvar.GlyphData, 6)
 	perGlyph[VarGidRect] = gvar.GlyphData{Data: rectBlock}
@@ -417,8 +443,10 @@ func makeGvar() *gvar.Table {
 	return &gvar.Table{AxisCount: 2, PerGlyph: perGlyph}
 }
 
-func mustEncodeTuples(tuples []variation.TupleVariation) []byte {
-	data, err := variation.EncodeTupleData(tuples, 2, 2, 0, nil)
+// mustEncodeTuples serializes one glyph's tuple variations.  nPoints counts
+// the glyph's outline points (or components) plus the four phantom points.
+func mustEncodeTuples(tuples []variation.TupleVariation, nPoints int) []byte {
+	data, err := variation.EncodeTupleData(tuples, 2, 2, nPoints, nil)
 	if err != nil {
 		panic(err)
 	}

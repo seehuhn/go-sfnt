@@ -18,7 +18,6 @@ package cff
 
 import (
 	"bytes"
-	"os"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -26,8 +25,6 @@ import (
 	"seehuhn.de/go/membudget"
 
 	"seehuhn.de/go/geom/matrix"
-	"seehuhn.de/go/sfnt/header"
-	"seehuhn.de/go/sfnt/internal/testfonts"
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/variation"
 )
@@ -563,50 +560,6 @@ func TestReadCFF2MemoryBound(t *testing.T) {
 	if _, err := ReadCFF2(bytes.NewReader(data), membudget.New(1)); err == nil {
 		t.Error("tiny budget: expected error")
 	}
-}
-
-// TestReadCFF2AdobeVF reads the CFF2 table of the Adobe Variable Font
-// Prototype, gated on the external test font being available.
-func TestReadCFF2AdobeVF(t *testing.T) {
-	path := testfonts.Path(t, "AdobeVFPrototype.otf")
-	fd, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer fd.Close()
-
-	info, err := header.Read(fd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !info.Has("CFF2") {
-		t.Fatal("font has no CFF2 table")
-	}
-	r, err := info.TableReader(fd, "CFF2")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	font, err := ReadCFF2(r, membudget.New(1<<26))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if font.NumGlyphs() == 0 {
-		t.Fatal("no glyphs")
-	}
-	if font.VarStore == nil {
-		t.Error("expected a variation store")
-	}
-	nonEmpty := 0
-	for _, g := range font.Glyphs {
-		if g != nil && len(g.Cmds) > 0 {
-			nonEmpty++
-		}
-	}
-	if nonEmpty == 0 {
-		t.Error("no glyph decoded to a non-empty outline")
-	}
-	t.Logf("decoded %d glyphs, %d non-empty", font.NumGlyphs(), nonEmpty)
 }
 
 // largeTopDict builds a font whose top DICT exceeds the parser's internal

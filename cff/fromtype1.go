@@ -112,26 +112,24 @@ func FromType1(f *type1.Font) (*Font, error) {
 		encoding[code] = gidByName[name]
 	}
 
-	// CFF omits private dictionary entries which equal the default value,
-	// so a missing Type 1 private dictionary maps to the CFF defaults.
+	// CFF omits private dictionary entries which equal the default value, so
+	// a missing Type 1 private dictionary maps to the CFF defaults.
 	var private *type1.PrivateDict
 	if f.Private != nil {
 		private = clone(f.Private)
 		private.BlueValues = slices.Clone(f.Private.BlueValues)
 		private.OtherBlues = slices.Clone(f.Private.OtherBlues)
 
-		// A Type 1 private dictionary always holds effective values: the
-		// reader fills in omitted entries with their defaults.  Zero is a
-		// legal BlueShift and BlueFuzz, so these are passed through, but a
-		// BlueScale of zero is invalid and is replaced by the default.
-		if private.BlueScale <= 0 {
-			private.BlueScale = defaultBlueScale
-		}
+		// A dictionary read from a file arrives repaired, but one built
+		// through the API need not be, and the CFF writer would refuse it.
+		// This also turns an unset BlueScale into the default, which is the
+		// value the CFF reader gives for an omitted entry.
+		private.Repair()
 	} else {
 		private = &type1.PrivateDict{
-			BlueScale: defaultBlueScale,
-			BlueShift: defaultBlueShift,
-			BlueFuzz:  defaultBlueFuzz,
+			BlueScale: type1.DefaultBlueScale,
+			BlueShift: type1.DefaultBlueShift,
+			BlueFuzz:  type1.DefaultBlueFuzz,
 		}
 	}
 

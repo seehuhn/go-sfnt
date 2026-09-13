@@ -303,3 +303,99 @@ func FuzzTupleData(f *testing.F) {
 		}
 	})
 }
+
+// TestEncodeTupleAllPointsIsExplicit checks that a tuple whose deltas apply to
+// every point still stores a point-number array, namely the count zero which
+// stands for "all points".  Leaving the array out makes the tuple refer to
+// shared point numbers the block does not carry, and a reader which does not
+// assume "all points" in that case drops every delta.
+func TestEncodeTupleAllPointsIsExplicit(t *testing.T) {
+	enc, err := EncodeTupleData([]TupleVariation{
+		{Peak: []F2Dot14{f2(1.0)}, Deltas: []int32{10, -5, 3}},
+	}, 1, 1, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{
+		0x00, 0x01, // tupleVariationCount = 1, no SHARED_POINT_NUMBERS
+		0x00, 0x0A, // dataOffset = 10
+
+		0x00, 0x05, // variationDataSize = 5
+		0xA0, 0x00, // EMBEDDED_PEAK_TUPLE | PRIVATE_POINT_NUMBERS
+		0x40, 0x00, // peak = 1.0
+
+		0x00,                   // point count 0: all points
+		0x02, 0x0A, 0xFB, 0x03, // byte run of 3: 10, -5, 3
+	}
+	if diff := cmp.Diff(want, enc); diff != "" {
+		t.Errorf("encoding mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestEncodeTupleDeltaRunsPerDimension checks that delta runs restart at each
+// dimension boundary.  The deltas of a gvar tuple are the x-deltas of every
+// point followed by the y-deltas, and readers decode the two arrays
+// separately, so a run spanning the boundary leaves them short.
+func TestEncodeTupleDeltaRunsPerDimension(t *testing.T) {
+	// two points, x-deltas 0 0, y-deltas 0 7: a greedy packer would merge
+	// the three leading zeros into one run.
+	enc, err := EncodeTupleData([]TupleVariation{
+		{Peak: []F2Dot14{f2(1.0)}, Deltas: []int32{0, 0, 0, 7}},
+	}, 1, 2, 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{
+		0x00, 0x01, // tupleVariationCount = 1
+		0x00, 0x0A, // dataOffset = 10
+
+		0x00, 0x05, // variationDataSize = 5
+		0xA0, 0x00, // EMBEDDED_PEAK_TUPLE | PRIVATE_POINT_NUMBERS
+		0x40, 0x00, // peak = 1.0
+
+		0x00,       // point count 0: all points
+		0x81,       // x: run of 2 zeros
+		0x80,       // y: run of 1 zero
+		0x00, 0x07, // y: byte run of 1: 7
+	}
+	if diff := cmp.Diff(want, enc); diff != "" {
+		t.Errorf("encoding mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestEncodeTupleDeltaCount checks that a tuple is rejected unless it carries
+// one delta per point and dimension.  The count is not stored in the file: a
+// reader derives it from the point numbers and stops once it has that many, so
+// a surplus delta is dropped on the next read and a missing one sends the
+// reader past the end of the tuple's data.
+func TestEncodeTupleDeltaCount(t *testing.T) {
+	cases := []struct {
+		name   string
+		points []uint16
+		deltas []int32
+		dims   int
+		ok     bool
+	}{
+		{"all points", nil, []int32{1, 2, 3, 4}, 2, true},
+		{"all points, short", nil, []int32{1, 2, 3}, 2, false},
+		{"all points, long", nil, []int32{1, 2, 3, 4, 5}, 2, false},
+		{"listed points", []uint16{0, 1}, []int32{1, 2, 3, 4}, 2, true},
+		{"listed points, short", []uint16{0, 1}, []int32{1, 2}, 2, false},
+		{"listed points, long", []uint16{0, 1}, []int32{1, 2, 3, 4, 5, 6}, 2, false},
+		// a repeated point number gets its own delta
+		{"repeated point", []uint16{1, 1}, []int32{1, 2, 3, 4}, 2, true},
+		{"one dimension", nil, []int32{1, 2}, 1, true},
+		{"one dimension, long", nil, []int32{1, 2, 3}, 1, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tuples := []TupleVariation{
+				{Peak: []F2Dot14{f2(1.0)}, Points: c.points, Deltas: c.deltas},
+			}
+			_, err := EncodeTupleData(tuples, 1, c.dims, 2, nil)
+			if (err == nil) != c.ok {
+				t.Errorf("got error %v, want ok=%v", err, c.ok)
+			}
+		})
+	}
+}

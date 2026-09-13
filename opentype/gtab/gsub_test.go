@@ -319,3 +319,106 @@ func FuzzGsub8_1(f *testing.F) {
 		doFuzz(t, 8, 1, readGsub8_1, data)
 	})
 }
+
+// TestGsubLongSubtables checks that a GSUB subtable longer than 64 KiB
+// encodes and reads back unchanged, as long as every offset it stores fits in
+// a uint16.  Each of these subtables ends in a coverage table which carries no
+// offsets of its own, so only the offset reaching that table is bounded; the
+// table itself may run past the limit.
+func TestGsubLongSubtables(t *testing.T) {
+	// glyphs spaced two apart, so the coverage table cannot collapse them
+	// into a range and grows with the number of entries
+	gid := func(i int) glyph.ID { return glyph.ID(2*i + 1) }
+	cov := func(n int) coverage.Table {
+		c := coverage.Table{}
+		for i := range n {
+			c[gid(i)] = i
+		}
+		return c
+	}
+
+	cases := []struct {
+		name string
+		make func() Subtable
+		read func(*parser.Parser, int64) (Subtable, error)
+	}{
+		{"Gsub1_2", func() Subtable {
+			const n = 32000
+			repl := make([]glyph.ID, n)
+			for i := range repl {
+				repl[i] = gid(i) + 1
+			}
+			return &Gsub1_2{Cov: cov(n), SubstituteGlyphIDs: repl}
+		}, readGsub1_2},
+
+		{"Gsub2_1", func() Subtable {
+			const n = 10000
+			repl := make([][]glyph.ID, n)
+			for i := range repl {
+				repl[i] = []glyph.ID{gid(i) + 1}
+			}
+			return &Gsub2_1{Cov: cov(n), Repl: repl}
+		}, readGsub2_1},
+
+		{"Gsub3_1", func() Subtable {
+			const n = 10000
+			alt := make([][]glyph.ID, n)
+			for i := range alt {
+				alt[i] = []glyph.ID{gid(i) + 1}
+			}
+			return &Gsub3_1{Cov: cov(n), Alternates: alt}
+		}, readGsub3_1},
+
+		{"Gsub4_1", func() Subtable {
+			const n = 5400
+			repl := make([][]Ligature, n)
+			for i := range repl {
+				repl[i] = []Ligature{{In: []glyph.ID{gid(i) + 1}, Out: gid(i)}}
+			}
+			return &Gsub4_1{Cov: cov(n), Repl: repl}
+		}, readGsub4_1},
+
+		{"Gsub8_1", func() Subtable {
+			// the lookahead coverage reached by the last offset is the one
+			// which pushes the subtable past the limit
+			const n = 2000
+			repl := make([]glyph.ID, n)
+			for i := range repl {
+				repl[i] = gid(i) + 1
+			}
+			return &Gsub8_1{
+				Input:              cov(n),
+				Backtrack:          []coverage.Table{cov(10)},
+				Lookahead:          []coverage.Table{cov(10), cov(30000)},
+				SubstituteGlyphIDs: repl,
+			}
+		}, readGsub8_1},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			l1 := c.make()
+
+			data := l1.encode()
+			if len(data) != l1.encodeLen() {
+				t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+			}
+			if len(data) <= 0xFFFF {
+				t.Fatalf("subtable is only %d bytes, the case does not test long subtables",
+					len(data))
+			}
+
+			p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+			if err := p.Discard(2); err != nil {
+				t.Fatal(err)
+			}
+			l2, err := c.read(p, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d := cmp.Diff(l1, l2); d != "" {
+				t.Errorf("round trip (-want +got):\n%s", d)
+			}
+		})
+	}
+}

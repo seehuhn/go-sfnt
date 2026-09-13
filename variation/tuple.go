@@ -18,6 +18,7 @@ package variation
 
 import (
 	"errors"
+	"fmt"
 
 	"seehuhn.de/go/membudget"
 )
@@ -248,6 +249,11 @@ func readF2Dot14Slice(r *byteReader, n int, budget *membudget.Budget) ([]F2Dot14
 // intermediate region whenever IntermediateStart is non-nil, and stores each
 // tuple's point numbers privately.  It never emits SHARED_POINT_NUMBERS.
 //
+// dims is 2 for gvar and 1 for cvar; nPoints is the number of deltable
+// values, and every point number must be below it.  Each tuple must carry one
+// delta per point and dimension: dims*len(Points) deltas, or dims*nPoints
+// where Points is empty and the deltas apply to every point.
+//
 // shared is accepted for symmetry with the shared-tuple array; the
 // deterministic encoder does not rewrite embedded peaks into shared
 // references and so does not consult it.
@@ -255,28 +261,45 @@ func EncodeTupleData(tuples []TupleVariation, axisCount, dims, nPoints int, shar
 	if len(tuples) > tupleCountMask {
 		return nil, errors.New("variation: too many tuples")
 	}
+	if dims < 1 {
+		return nil, errors.New("variation: invalid dimension count")
+	}
 
 	var headerBuf, dataBuf []byte
 	for i := range tuples {
 		tv := &tuples[i]
 
-		// serialized data: private points (if any) then packed deltas.
-		// An empty point list cannot be distinguished from "all points" in
-		// the wire format, so treat it the same as nil.
-		hasPoints := len(tv.Points) > 0
-		var sd []byte
-		if hasPoints {
-			pb, err := encodePackedPoints(tv.Points)
-			if err != nil {
-				return nil, err
-			}
-			sd = append(sd, pb...)
-		}
-		pd, err := encodePackedDeltas(tv.Deltas)
+		// Serialized data: private point numbers, then packed deltas.  The
+		// array is always written, a nil or empty point list as the count
+		// zero which stands for "all points": omitting it would leave the
+		// tuple referring to shared point numbers the block does not carry,
+		// and a reader which does not read that as "all points" drops every
+		// delta.
+		sd, err := encodePackedPoints(tv.Points, nPoints)
 		if err != nil {
 			return nil, err
 		}
-		sd = append(sd, pd...)
+		// The number of deltas is not stored anywhere: a reader derives it
+		// from the point numbers, one delta per point and dimension, and
+		// stops once it has that many.  A tuple carrying a different number
+		// loses its surplus deltas, or runs past the end of its data.
+		per := nPoints
+		if len(tv.Points) > 0 {
+			per = len(tv.Points)
+		}
+		if len(tv.Deltas) != per*dims {
+			return nil, fmt.Errorf("variation: %d deltas for %d points in %dd",
+				len(tv.Deltas), per, dims)
+		}
+		// The deltas of each dimension form a separate packed array, so a
+		// run must not span the boundary between two of them.
+		for d := range dims {
+			pd, err := encodePackedDeltas(tv.Deltas[d*per : (d+1)*per])
+			if err != nil {
+				return nil, err
+			}
+			sd = append(sd, pd...)
+		}
 		if len(sd) > 0xFFFF {
 			return nil, errors.New("variation: tuple data too large")
 		}
@@ -293,9 +316,7 @@ func EncodeTupleData(tuples []TupleVariation, axisCount, dims, nPoints int, shar
 		if tv.IntermediateStart != nil {
 			flags |= intermediateRegion
 		}
-		if hasPoints {
-			flags |= privatePointNumber
-		}
+		flags |= privatePointNumber
 
 		headerBuf = appendU16(headerBuf, uint16(len(sd)))
 		headerBuf = appendU16(headerBuf, flags|tupleIndex)

@@ -167,6 +167,9 @@ func (f *Font) Write(w io.Writer) error {
 			// see afdko/c/shared/source/cffwrite/cffwrite_dict.c:cfwDictFillFont
 			fontDict := cffDict{}
 			fontDict.setFontMatrix(opFontMatrix, f.FontMatrices[i], false)
+			if err := fontDict.checkReals(); err != nil {
+				return err
+			}
 			// opPrivate is set below
 			fontDicts[i] = fontDict
 		}
@@ -178,10 +181,20 @@ func (f *Font) Write(w io.Writer) error {
 	privateDicts := make([]cffDict, numFonts)
 	secPrivateDicts := make([]int, numFonts)
 	for i := range privateDicts {
-		privateDicts[i] = f.makePrivateDict(i, defWidth, nomWidth)
+		var err error
+		privateDicts[i], err = f.makePrivateDict(i, defWidth, nomWidth)
+		if err != nil {
+			return err
+		}
 		// opSubrs is set below
 		secPrivateDicts[i] = len(blobs)
 		blobs = append(blobs, nil)
+	}
+
+	// The dicts hold all their content by now; the layout loop below only
+	// adds offsets.
+	if err := topDict.checkReals(); err != nil {
+		return err
 	}
 
 	// section 11: subrs INDEX

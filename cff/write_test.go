@@ -54,9 +54,9 @@ func makeLargeFont(n int) *Font {
 		Outlines: &Outlines{
 			Glyphs: glyphs,
 			Private: []*type1.PrivateDict{{
-				BlueScale: defaultBlueScale,
-				BlueShift: defaultBlueShift,
-				BlueFuzz:  defaultBlueFuzz,
+				BlueScale: type1.DefaultBlueScale,
+				BlueShift: type1.DefaultBlueShift,
+				BlueFuzz:  type1.DefaultBlueFuzz,
 			}},
 			FDSelect: fdSelectSimple,
 			Encoding: make([]glyph.ID, 256),
@@ -87,9 +87,9 @@ func TestWriteTooManyGlyphs(t *testing.T) {
 func TestWriteNameKeyedPrivateCount(t *testing.T) {
 	f := makeLargeFont(3)
 	f.Private = append(f.Private, &type1.PrivateDict{
-		BlueScale: defaultBlueScale,
-		BlueShift: defaultBlueShift,
-		BlueFuzz:  defaultBlueFuzz,
+		BlueScale: type1.DefaultBlueScale,
+		BlueShift: type1.DefaultBlueShift,
+		BlueFuzz:  type1.DefaultBlueFuzz,
 	})
 	if err := f.Write(io.Discard); err == nil {
 		t.Error("font with two private dicts: expected an error")
@@ -115,9 +115,9 @@ func makeManyFDFont(numFDs int) *Font {
 		glyphs[i] = g
 		gidToCID[i] = cid.CID(i)
 		private[i] = &type1.PrivateDict{
-			BlueScale: defaultBlueScale,
-			BlueShift: defaultBlueShift,
-			BlueFuzz:  defaultBlueFuzz,
+			BlueScale: type1.DefaultBlueScale,
+			BlueShift: type1.DefaultBlueShift,
+			BlueFuzz:  type1.DefaultBlueFuzz,
 		}
 		fontMatrices[i] = matrix.Identity
 	}

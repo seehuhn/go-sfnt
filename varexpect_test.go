@@ -16,9 +16,7 @@
 
 package sfnt
 
-//go:generate python3 ../scripts/gen-var-expect.py $QUIRE_TESTFONTS/Junicode-VF.ttf -o testdata/varexpect/junicode.json --case defaults: --case bold-narrow:wght=700,wdth=87.5,ENLA=0 --case light:wght=300 --glyph A --glyph a --glyph B --glyph b --glyph O --glyph g --glyph f --glyph eacute
-//go:generate python3 ../scripts/gen-var-expect.py $QUIRE_TESTFONTS/Elstob-VF.ttf -o testdata/varexpect/elstob.json --case defaults: --case bold-display:wght=800,opsz=18,GRAD=1,SPAC=1 --glyph A --glyph a --glyph O --glyph eacute
-//go:generate python3 ../scripts/gen-var-expect.py $QUIRE_TESTFONTS/AdobeVFPrototype.otf -o testdata/varexpect/adobevf.json --case defaults: --case bold:wght=900 --glyph A --glyph B --glyph O --glyph a --glyph g --glyph zero
+//go:generate go run ./internal/varexpect
 
 import (
 	"bytes"
@@ -33,12 +31,12 @@ import (
 	"sort"
 	"testing"
 
+	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/internal/testfonts"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -48,8 +46,7 @@ import (
 // over.
 const pointTolerance = 0.01
 
-// varExpectDoc is the JSON shape written by
-// examples/scripts/gen-var-expect.py.
+// varExpectDoc is the JSON shape written by internal/varexpect.
 type varExpectDoc struct {
 	FontToolsVersion string          `json:"fonttools_version"`
 	SourceFont       string          `json:"source_font"`
@@ -68,9 +65,60 @@ type varExpectGlyph struct {
 	GID          int                `json:"gid"`
 	AdvanceWidth int                `json:"advance_width"`
 	Contours     [][]varExpectPoint `json:"contours"`
-	// Bounds is the control-point bounding box [xMin, yMin, xMax, yMax] used
-	// for CFF/CFF2 outlines in place of Contours; nil for a mark-free glyph.
-	Bounds *[4]float64 `json:"bounds"`
+	// Segments holds the drawing segments used for CFF/CFF2 outlines in place
+	// of Contours.
+	Segments []varExpectSegment `json:"segments"`
+}
+
+// varExpectSegment is one drawing segment of a CFF/CFF2 outline, recorded as
+// ["op", x, y, ...] in the source JSON.  The operation names are fontTools
+// pen method names; closePath carries no coordinates.
+type varExpectSegment struct {
+	Op     string
+	Coords []float64
+}
+
+func (s *varExpectSegment) UnmarshalJSON(data []byte) error {
+	var raw []any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		return errors.New("sfnt: empty varexpect segment")
+	}
+	op, ok := raw[0].(string)
+	if !ok {
+		return fmt.Errorf("sfnt: malformed varexpect segment %v", raw)
+	}
+	s.Op = op
+	s.Coords = make([]float64, 0, len(raw)-1)
+	for _, v := range raw[1:] {
+		x, ok := v.(float64)
+		if !ok {
+			return fmt.Errorf("sfnt: malformed varexpect segment %v", raw)
+		}
+		s.Coords = append(s.Coords, x)
+	}
+	return nil
+}
+
+// varExpectOpName maps a path command to the fontTools pen method which draws
+// it.  CFF charstrings never yield a quadratic segment; the name is mapped all
+// the same so that one would show up as a mismatch rather than a panic.
+func varExpectOpName(c path.Command) string {
+	switch c {
+	case path.CmdMoveTo:
+		return "moveTo"
+	case path.CmdLineTo:
+		return "lineTo"
+	case path.CmdQuadTo:
+		return "qCurveTo"
+	case path.CmdCubeTo:
+		return "curveTo"
+	case path.CmdClose:
+		return "closePath"
+	}
+	return fmt.Sprintf("cmd%d", c)
 }
 
 type varExpectMetrics struct {
@@ -100,12 +148,16 @@ func (p *varExpectPoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// varExpectDir holds the synthetic source fonts and the fontTools ground
+// truth recorded from them.
+const varExpectDir = "testdata/varexpect"
+
 // TestVarExpect compares [Font.Instantiate] against fontTools'
 // varLib.instancer, using the ground truth recorded in
-// testdata/varexpect/*.json (regenerate with `go generate`, which requires
-// QUIRE_TESTFONTS to point at a directory containing the source fonts).
+// testdata/varexpect/*.json.  Regenerate with `go generate`, which needs
+// fontTools installed; the test itself does not.
 func TestVarExpect(t *testing.T) {
-	files, err := filepath.Glob("testdata/varexpect/*.json")
+	files, err := filepath.Glob(filepath.Join(varExpectDir, "*.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,19 +183,30 @@ func runVarExpectFile(t *testing.T, jsonPath string) {
 		t.Fatal(err)
 	}
 
-	fontPath := testfonts.Path(t, doc.SourceFont)
-	fontData, err := os.ReadFile(fontPath)
+	fontData, err := os.ReadFile(filepath.Join(varExpectDir, doc.SourceFont))
 	if err != nil {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(fontData)
 	if got := hex.EncodeToString(sum[:]); got != doc.SourceSHA256 {
-		t.Fatalf("source font sha256 = %s, want %s (stale testdata, re-run go generate)", got, doc.SourceSHA256)
+		t.Fatalf("source font sha256 = %s, want %s (stale ground truth, re-run go generate)", got, doc.SourceSHA256)
 	}
 
 	f, err := Read(bytes.NewReader(fontData), parser.NewBudget(int64(len(fontData))))
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Guard against a vacuous fixture: a generator which stopped recording
+	// outlines would leave every comparison below with nothing to compare.
+	outlines := 0
+	for _, c := range doc.Cases {
+		for _, g := range c.Glyphs {
+			outlines += len(g.Contours) + len(g.Segments)
+		}
+	}
+	if len(doc.Cases) == 0 || outlines == 0 {
+		t.Fatalf("%d cases and no recorded outlines; re-run go generate", len(doc.Cases))
 	}
 
 	for _, c := range doc.Cases {
@@ -201,9 +264,10 @@ func runVarExpectCase(t *testing.T, f *Font, c varExpectCase) {
 
 // checkVarExpectGlyphCFF compares one instanced CFF glyph against fontTools:
 // its advance width (design units, which equal hmtx units for the standard
-// 1000-unit setup) and its control-point bounding box.  Charstring outlines do
-// not decompose into a glyf-style point dump, so the box is the finest
-// comparison the fixture records.
+// 1000-unit setup) and every segment of its outline, coordinate for
+// coordinate.  A charstring does not decompose into a glyf-style point dump,
+// but the segments a pen is handed line up exactly with the path commands the
+// Go side yields.
 func checkVarExpectGlyphCFF(t *testing.T, outlines *cff.Outlines, gid glyph.ID, want varExpectGlyph) {
 	t.Helper()
 
@@ -214,22 +278,33 @@ func checkVarExpectGlyphCFF(t *testing.T, outlines *cff.Outlines, gid glyph.ID, 
 		t.Errorf("advance width = %d, want %d", got, want.AdvanceWidth)
 	}
 
-	bbox := outlines.Path(gid).BBox()
-	if want.Bounds == nil {
-		if !bbox.IsZero() {
-			t.Errorf("bounds = %v, want empty", bbox)
+	i := 0
+	for cmd, points := range outlines.Path(gid) {
+		if i >= len(want.Segments) {
+			t.Errorf("segment %d is %s, want the outline to end here", i, varExpectOpName(cmd))
+			return
 		}
-		return
-	}
-	got := [4]float64{
-		math.Round(bbox.LLx), math.Round(bbox.LLy),
-		math.Round(bbox.URx), math.Round(bbox.URy),
-	}
-	for i := range got {
-		if math.Abs(got[i]-want.Bounds[i]) > pointTolerance {
-			t.Errorf("bounds = %v, want %v", got, *want.Bounds)
-			break
+		w := want.Segments[i]
+		if got := varExpectOpName(cmd); got != w.Op {
+			t.Errorf("segment %d = %s, want %s", i, got, w.Op)
+			return
 		}
+		if len(points)*2 != len(w.Coords) {
+			t.Errorf("segment %d (%s) has %d points, want %d",
+				i, w.Op, len(points), len(w.Coords)/2)
+			return
+		}
+		for k, p := range points {
+			if math.Abs(p.X-w.Coords[2*k]) > pointTolerance ||
+				math.Abs(p.Y-w.Coords[2*k+1]) > pointTolerance {
+				t.Errorf("segment %d (%s) point %d = (%v, %v), want (%v, %v)",
+					i, w.Op, k, p.X, p.Y, w.Coords[2*k], w.Coords[2*k+1])
+			}
+		}
+		i++
+	}
+	if i != len(want.Segments) {
+		t.Errorf("outline has %d segments, want %d", i, len(want.Segments))
 	}
 }
 

@@ -319,7 +319,7 @@ func FuzzFloatEncoding(f *testing.F) {
 		if len(tail) != 0 {
 			t.Errorf("not all input used: % x -> % x", data, data2)
 		}
-		if math.Abs(x-y) > 1e-8*(math.Abs(x)+math.Abs(y)) {
+		if x != y {
 			t.Errorf("%g != %g", x, y)
 		}
 	})
@@ -493,4 +493,27 @@ func FuzzDict(f *testing.F) {
 			}
 		}
 	})
+}
+
+// TestEncodeFloatExact checks that a real operand survives a write and read
+// unchanged.  The encoder used to keep nine significant digits, which lost the
+// tail of any value needing more.
+func TestEncodeFloatExact(t *testing.T) {
+	for _, x := range []float64{
+		0, 1, -1, 0.5, 0.039625, 1.0 / 3.0, math.Pi, -math.Pi,
+		123456789012345.0, 1e-299, 1e300, -1e300, 2e-5, 0.00302,
+	} {
+		data := encodeFloat(x)
+		tail, got, err := decodeFloat(data)
+		if err != nil {
+			t.Errorf("%v: %v", x, err)
+			continue
+		}
+		if len(tail) != 0 {
+			t.Errorf("%v: %d bytes left over", x, len(tail))
+		}
+		if got != x {
+			t.Errorf("%v encoded as % x, read back as %v", x, data, got)
+		}
+	}
 }

@@ -1,0 +1,461 @@
+{
+  "cases": [
+    {
+      "coords": {},
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "contours": [
+            [
+              [0, 0, true],
+              [500, 0, true],
+              [500, 700, true],
+              [0, 700, true]
+            ]
+          ],
+          "gid": 0
+        },
+        "comp": {
+          "advance_width": 800,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 700, true],
+              [100, 700, true]
+            ],
+            [
+              [500, 50, true],
+              [900, 50, true],
+              [900, 850, true],
+              [500, 850, true]
+            ]
+          ],
+          "gid": 3
+        },
+        "iup": {
+          "advance_width": 700,
+          "contours": [
+            [
+              [200, 0, true],
+              [600, 0, true],
+              [600, 800, true],
+              [200, 800, true]
+            ]
+          ],
+          "gid": 2
+        },
+        "rect": {
+          "advance_width": 500,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 700, true],
+              [100, 700, true]
+            ]
+          ],
+          "gid": 1
+        },
+        "swap": {
+          "advance_width": 480,
+          "contours": [
+            [
+              [50, 0, true],
+              [450, 0, true],
+              [450, 500, true],
+              [50, 500, true]
+            ]
+          ],
+          "gid": 5
+        },
+        "two": {
+          "advance_width": 550,
+          "contours": [
+            [
+              [100, 0, true],
+              [500, 0, true],
+              [500, 600, true],
+              [100, 600, true]
+            ]
+          ],
+          "gid": 4
+        }
+      },
+      "metrics": {
+        "ascent": 800,
+        "cap_height": 700,
+        "descent": -200
+      },
+      "name": "defaults"
+    },
+    {
+      "coords": {
+        "wght": 900.0
+      },
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "contours": [
+            [
+              [0, 0, true],
+              [500, 0, true],
+              [500, 700, true],
+              [0, 700, true]
+            ]
+          ],
+          "gid": 0
+        },
+        "comp": {
+          "advance_width": 840,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 900, true],
+              [100, 900, true]
+            ],
+            [
+              [670, -50, true],
+              [1140, -50, true],
+              [1140, 900, true],
+              [670, 900, true]
+            ]
+          ],
+          "gid": 3
+        },
+        "iup": {
+          "advance_width": 700,
+          "contours": [
+            [
+              [170, 0, true],
+              [640, 0, true],
+              [640, 950, true],
+              [170, 950, true]
+            ]
+          ],
+          "gid": 2
+        },
+        "rect": {
+          "advance_width": 580,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 900, true],
+              [100, 900, true]
+            ]
+          ],
+          "gid": 1
+        },
+        "swap": {
+          "advance_width": 480,
+          "contours": [
+            [
+              [50, 0, true],
+              [450, 0, true],
+              [450, 500, true],
+              [50, 500, true]
+            ]
+          ],
+          "gid": 5
+        },
+        "two": {
+          "advance_width": 550,
+          "contours": [
+            [
+              [100, 0, true],
+              [500, 0, true],
+              [500, 700, true],
+              [100, 700, true]
+            ]
+          ],
+          "gid": 4
+        }
+      },
+      "metrics": {
+        "ascent": 850,
+        "cap_height": 700,
+        "descent": -200
+      },
+      "name": "bold"
+    },
+    {
+      "coords": {
+        "wdth": 75.0
+      },
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "contours": [
+            [
+              [0, 0, true],
+              [500, 0, true],
+              [500, 700, true],
+              [0, 700, true]
+            ]
+          ],
+          "gid": 0
+        },
+        "comp": {
+          "advance_width": 820,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 700, true],
+              [100, 700, true]
+            ],
+            [
+              [500, 50, true],
+              [900, 50, true],
+              [900, 850, true],
+              [500, 850, true]
+            ]
+          ],
+          "gid": 3
+        },
+        "iup": {
+          "advance_width": 700,
+          "contours": [
+            [
+              [200, 0, true],
+              [600, 0, true],
+              [600, 800, true],
+              [200, 800, true]
+            ]
+          ],
+          "gid": 2
+        },
+        "rect": {
+          "advance_width": 470,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 700, true],
+              [100, 700, true]
+            ]
+          ],
+          "gid": 1
+        },
+        "swap": {
+          "advance_width": 480,
+          "contours": [
+            [
+              [50, 0, true],
+              [450, 0, true],
+              [450, 500, true],
+              [50, 500, true]
+            ]
+          ],
+          "gid": 5
+        },
+        "two": {
+          "advance_width": 550,
+          "contours": [
+            [
+              [100, 0, true],
+              [500, 0, true],
+              [500, 600, true],
+              [100, 600, true]
+            ]
+          ],
+          "gid": 4
+        }
+      },
+      "metrics": {
+        "ascent": 800,
+        "cap_height": 685,
+        "descent": -200
+      },
+      "name": "narrow"
+    },
+    {
+      "coords": {
+        "wdth": 75.0,
+        "wght": 900.0
+      },
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "contours": [
+            [
+              [0, 0, true],
+              [500, 0, true],
+              [500, 700, true],
+              [0, 700, true]
+            ]
+          ],
+          "gid": 0
+        },
+        "comp": {
+          "advance_width": 860,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 900, true],
+              [100, 900, true]
+            ],
+            [
+              [670, -50, true],
+              [1140, -50, true],
+              [1140, 900, true],
+              [670, 900, true]
+            ]
+          ],
+          "gid": 3
+        },
+        "iup": {
+          "advance_width": 700,
+          "contours": [
+            [
+              [170, 0, true],
+              [640, 0, true],
+              [640, 950, true],
+              [170, 950, true]
+            ]
+          ],
+          "gid": 2
+        },
+        "rect": {
+          "advance_width": 550,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 900, true],
+              [100, 900, true]
+            ]
+          ],
+          "gid": 1
+        },
+        "swap": {
+          "advance_width": 480,
+          "contours": [
+            [
+              [50, 0, true],
+              [450, 0, true],
+              [450, 500, true],
+              [50, 500, true]
+            ]
+          ],
+          "gid": 5
+        },
+        "two": {
+          "advance_width": 550,
+          "contours": [
+            [
+              [100, 0, true],
+              [420, 0, true],
+              [420, 700, true],
+              [100, 700, true]
+            ]
+          ],
+          "gid": 4
+        }
+      },
+      "metrics": {
+        "ascent": 850,
+        "cap_height": 685,
+        "descent": -200
+      },
+      "name": "bold-narrow"
+    },
+    {
+      "coords": {
+        "wght": 700.0
+      },
+      "glyphs": {
+        ".notdef": {
+          "advance_width": 600,
+          "contours": [
+            [
+              [0, 0, true],
+              [500, 0, true],
+              [500, 700, true],
+              [0, 700, true]
+            ]
+          ],
+          "gid": 0
+        },
+        "comp": {
+          "advance_width": 832,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 860, true],
+              [100, 860, true]
+            ],
+            [
+              [636, -30, true],
+              [1092, -30, true],
+              [1092, 890, true],
+              [636, 890, true]
+            ]
+          ],
+          "gid": 3
+        },
+        "iup": {
+          "advance_width": 700,
+          "contours": [
+            [
+              [176, 0, true],
+              [632, 0, true],
+              [632, 920, true],
+              [176, 920, true]
+            ]
+          ],
+          "gid": 2
+        },
+        "rect": {
+          "advance_width": 564,
+          "contours": [
+            [
+              [100, 0, true],
+              [400, 0, true],
+              [400, 860, true],
+              [100, 860, true]
+            ]
+          ],
+          "gid": 1
+        },
+        "swap": {
+          "advance_width": 480,
+          "contours": [
+            [
+              [50, 0, true],
+              [450, 0, true],
+              [450, 500, true],
+              [50, 500, true]
+            ]
+          ],
+          "gid": 5
+        },
+        "two": {
+          "advance_width": 550,
+          "contours": [
+            [
+              [100, 0, true],
+              [500, 0, true],
+              [500, 680, true],
+              [100, 680, true]
+            ]
+          ],
+          "gid": 4
+        }
+      },
+      "metrics": {
+        "ascent": 840,
+        "cap_height": 700,
+        "descent": -200
+      },
+      "name": "mid"
+    }
+  ],
+  "fonttools_version": "4.65.0",
+  "source_font": "glyf.ttf",
+  "source_sha256": "b783e8f41bf77b197777ccb56f8ae48eea254cd600d7eea9418a114efbe52cf4"
+}

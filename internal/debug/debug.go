@@ -25,7 +25,6 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 
 	"seehuhn.de/go/geom/path"
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt"
@@ -95,11 +94,11 @@ func MakeSimpleFont() *sfnt.Font {
 	newOutlines := &cff.Outlines{
 		Private: []*type1.PrivateDict{
 			{
-				BlueValues: []funit.Int16{
-					funit.Int16(math.Round(bottomMin)),
-					funit.Int16(math.Round(bottomMax)),
-					funit.Int16(math.Round(topMin)),
-					funit.Int16(math.Round(topMax)),
+				BlueValues: []float64{
+					math.Round(bottomMin),
+					math.Round(bottomMax),
+					math.Round(topMin),
+					math.Round(topMax),
 				},
 				BlueScale: 0.039625,
 				BlueShift: 7,

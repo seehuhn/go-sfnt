@@ -71,7 +71,7 @@ func TestPackedPointsRoundTrip(t *testing.T) {
 		point130(),
 	}
 	for i, points := range cases {
-		enc, err := encodePackedPoints(points)
+		enc, err := encodePackedPoints(points, 1000)
 		if err != nil {
 			t.Errorf("case %d: %v", i, err)
 			continue

@@ -46,6 +46,19 @@ import (
 
 // TODO(voss): read https://github.com/googlefonts/gf-docs/tree/main/VerticalMetrics
 
+// The range of units per em a font file can store.
+const (
+	MinUnitsPerEm = 16
+	MaxUnitsPerEm = 16384
+)
+
+// validUnitsPerEm reports whether x units per em can be written to a font
+// file.  The value is rounded first, since that is what the writer stores.
+func validUnitsPerEm(x float64) bool {
+	r := math.Round(x)
+	return r >= MinUnitsPerEm && r <= MaxUnitsPerEm
+}
+
 // Outlines represents the glyph data of a TrueType or OpenType font.
 // This must be one of [*glyf.Outlines] or [*cff.Outlines].
 type Outlines interface {
@@ -147,6 +160,8 @@ type Font struct {
 	LicenseURL string
 	PermUse    os2.Permissions
 
+	// UnitsPerEm is the number of font design units per em square.  Values
+	// from [MinUnitsPerEm] to [MaxUnitsPerEm] can be written to a font file.
 	UnitsPerEm uint16
 
 	// metrics in font design units (UnitsPerEm)

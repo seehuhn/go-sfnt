@@ -97,9 +97,10 @@ func parsePackedPoints(r *byteReader, nPoints int, budget *membudget.Budget) ([]
 }
 
 // encodePackedPoints serializes points as a packed point-number sequence.
-// The point numbers must be non-decreasing.  A nil or empty slice encodes as
-// the single "all points" byte.
-func encodePackedPoints(points []uint16) ([]byte, error) {
+// The point numbers must be non-decreasing and below nPoints, the number of
+// deltable values.  A nil or empty slice encodes as the single "all points"
+// byte.
+func encodePackedPoints(points []uint16, nPoints int) ([]byte, error) {
 	count := len(points)
 	if count == 0 {
 		return []byte{0}, nil
@@ -112,6 +113,9 @@ func encodePackedPoints(points []uint16) ([]byte, error) {
 	deltas := make([]int, count)
 	prev := 0
 	for i, p := range points {
+		if int(p) >= nPoints {
+			return nil, errors.New("variation: point number out of range")
+		}
 		d := int(p) - prev
 		if d < 0 {
 			return nil, errors.New("variation: point numbers not ascending")

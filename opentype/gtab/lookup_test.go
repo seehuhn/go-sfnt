@@ -23,6 +23,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
@@ -322,4 +324,173 @@ func (st dummySubtable) encodeLen() int {
 
 func (st dummySubtable) encode() []byte {
 	return []byte(st)
+}
+
+// TestLookupListLayout checks the contract of [LookupList.encode] for lookup
+// lists which do not fit the 16-bit offsets their own format uses: a reader
+// gets back exactly the list which was encoded.
+//
+// How the encoder achieves this is its own business — it may reorder the
+// lookups and route subtables through extension records — but the lookup
+// types, the subtables and their order must all survive, and a second encode
+// of what the reader returns must reproduce the same bytes.
+func TestLookupListLayout(t *testing.T) {
+	cases := []struct {
+		name              string
+		lookups, subtable int
+		glyphs            int
+	}{
+		{"within reach", 2, 1, 100},
+		{"subtables out of reach of their lookup", 1, 3, 12000},
+		{"lookup tables out of reach", 6, 1, 12000},
+		{"both out of reach", 4, 2, 12000},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			want := largeLookupList(c.lookups, c.subtable, c.glyphs)
+
+			data := want.encode()
+			big := len(data) > 0xFFFF
+			if big != (c.glyphs > 1000) {
+				t.Fatalf("lookup list is %d bytes; the case does not test what it means to",
+					len(data))
+			}
+
+			got := decodeLookupList(t, data)
+			if d := cmp.Diff(want, got); d != "" {
+				t.Errorf("round trip (-want +got):\n%s", d)
+			}
+
+			if again := got.encode(); !bytes.Equal(data, again) {
+				t.Errorf("re-encoding the decoded list gives %d bytes, want the same %d",
+					len(again), len(data))
+			}
+		})
+	}
+}
+
+// TestLookupListSubtableOrder checks that reordering the layout leaves the
+// lookups and their subtables where the caller put them: a lookup list is
+// addressed by index, and applying a feature to lookup 3 must still reach the
+// third lookup after a layout which moved its bytes elsewhere in the table.
+func TestLookupListSubtableOrder(t *testing.T) {
+	// six lookups of distinct sizes, so the layout has a genuine choice about
+	// which to move and which to replace
+	ll := make(LookupList, 6)
+	for i := range ll {
+		ll[i] = &LookupTable{
+			Meta:      &LookupMetaInfo{LookupType: 1, LookupFlags: LookupFlags(i)},
+			Subtables: []Subtable{bigGsub(2000*(i+1), glyph.ID(100*i))},
+		}
+	}
+
+	data := ll.encode()
+	if len(data) <= 0xFFFF {
+		t.Fatalf("lookup list is only %d bytes", len(data))
+	}
+	got := decodeLookupList(t, data)
+
+	if len(got) != len(ll) {
+		t.Fatalf("got %d lookups, want %d", len(got), len(ll))
+	}
+	for i := range ll {
+		if got[i].Meta.LookupFlags != ll[i].Meta.LookupFlags {
+			t.Errorf("lookup %d has flags %d, want %d",
+				i, got[i].Meta.LookupFlags, ll[i].Meta.LookupFlags)
+		}
+		want := ll[i].Subtables[0].(*Gsub1_2)
+		sub, ok := got[i].Subtables[0].(*Gsub1_2)
+		if !ok {
+			t.Errorf("lookup %d holds a %T, want *Gsub1_2", i, got[i].Subtables[0])
+			continue
+		}
+		if d := cmp.Diff(want, sub); d != "" {
+			t.Errorf("lookup %d subtable (-want +got):\n%s", i, d)
+		}
+	}
+}
+
+// decodeLookupList reads back an encoded lookup list of GSUB subtables.
+func decodeLookupList(t *testing.T, data []byte) LookupList {
+	t.Helper()
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	ll, err := readLookupList(p, 0, readGsubSubtable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ll
+}
+
+// bigGsub returns a single substitution subtable covering n glyphs from first.
+// Its encoded size is a little over 4*n bytes.
+func bigGsub(n int, first glyph.ID) *Gsub1_2 {
+	cov := coverage.Table{}
+	repl := make([]glyph.ID, n)
+	for i := range repl {
+		cov[first+glyph.ID(2*i)] = i
+		repl[i] = first + glyph.ID(2*i) + 1
+	}
+	return &Gsub1_2{Cov: cov, SubstituteGlyphIDs: repl}
+}
+
+// largeLookupList builds a lookup list of the given shape.  The lookups differ
+// in size, so that the layout has to choose between them rather than finding
+// them interchangeable.
+func largeLookupList(lookups, subtables, glyphs int) LookupList {
+	ll := make(LookupList, lookups)
+	for i := range ll {
+		ss := make([]Subtable, subtables)
+		for j := range ss {
+			ss[j] = bigGsub(glyphs+100*i+10*j, glyph.ID(1))
+		}
+		ll[i] = &LookupTable{
+			Meta:      &LookupMetaInfo{LookupType: 1},
+			Subtables: ss,
+		}
+	}
+	return ll
+}
+
+// TestLookupListMovesLargestLookup covers a lookup list whose first lookup
+// dwarfs the rest: every lookup after it starts out beyond the reach of the
+// offset addressing it, yet each of its own subtables is close enough to its
+// lookup table that extension records are not called for.  Making room by
+// rearranging the layout is then the only way to encode the list, and the
+// encoder is required to find it — a lookup list of this shape is not an
+// error.
+func TestLookupListMovesLargestLookup(t *testing.T) {
+	// two subtables of just under 64 KiB each: together past the reach of an
+	// Offset16, individually within it
+	ll := LookupList{
+		&LookupTable{
+			Meta:      &LookupMetaInfo{LookupType: 1},
+			Subtables: []Subtable{bigGsub(16000, 1), bigGsub(16000, 33000)},
+		},
+		lookupOf(bigGsub(50, 1)),
+		lookupOf(bigGsub(50, 201)),
+		lookupOf(bigGsub(50, 401)),
+	}
+	first, second := ll[0].Subtables[0].encodeLen(), ll[0].Subtables[1].encodeLen()
+	if first+second <= 0xFFFF {
+		t.Fatalf("the first lookup is only %d bytes; it does not dominate", first+second)
+	}
+	if 6+first > 0xFFFF {
+		t.Fatalf("the second subtable sits at %d and would need an extension record",
+			6+first)
+	}
+
+	data := ll.encode()
+	got := decodeLookupList(t, data)
+	if d := cmp.Diff(ll, got); d != "" {
+		t.Errorf("round trip (-want +got):\n%s", d)
+	}
+}
+
+// lookupOf wraps a single subtable in a lookup table.
+func lookupOf(st Subtable) *LookupTable {
+	return &LookupTable{
+		Meta:      &LookupMetaInfo{LookupType: 1},
+		Subtables: []Subtable{st},
+	}
 }
