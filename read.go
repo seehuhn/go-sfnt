@@ -246,11 +246,15 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 
 		if numGlyphs != 0 && len(o.Glyphs) != numGlyphs {
 			return nil, errors.New("sfnt: cff2 glyph count mismatch")
-		} else if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
+		}
+		// A font without usable metrics is written out with one zero width per
+		// glyph, so the widths are materialized even when hmtx supplies none;
+		// otherwise a write/read cycle would turn the nil into zeros.
+		o.Widths = make([]float64, len(o.Glyphs))
+		if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
 			// hmtx widths are in UnitsPerEm.  Convert to CFF2 design units
 			// (which is what OutlinesCFF2.Widths holds) using each glyph's
 			// effective font matrix.
-			o.Widths = make([]float64, len(o.Glyphs))
 			for i, w := range hmtxInfo.Widths {
 				q := o.GlyphAdvanceScale(cff2Font.FontMatrix, glyph.ID(i))
 				if d := q * cff2UPM; d != 0 {
@@ -336,7 +340,10 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			return nil, errors.New("sfnt: ttf glyph count mismatch")
 		}
 
-		var widths []funit.Uint16
+		// A font without usable metrics is written out with one zero width
+		// per glyph, so the widths are materialized here rather than left
+		// nil; otherwise a write/read cycle would turn the nil into zeros.
+		widths := make([]funit.Uint16, len(ttGlyphs))
 		if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
 			widths = hmtxInfo.Widths
 		}
