@@ -140,7 +140,7 @@ func (o *Outlines) SetGlyphName(gid glyph.ID, name string) {
 // This converts CFF glyph commands to path commands.
 func (o *Outlines) Path(gid glyph.ID) path.Path {
 	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
-		return func(yield func(path.Command, []vec.Vec2) bool) {}
+		return path.Empty
 	}
 	return o.Glyphs[gid].Path()
 }

@@ -18,10 +18,13 @@ package glyf
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
+	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/geom/vec"
 	"seehuhn.de/go/postscript/funit"
 )
 
@@ -249,5 +252,146 @@ func TestGlyphInfo_AsGlyph_EmptyContours(t *testing.T) {
 
 	if simpleGlyph.NumContours != 0 {
 		t.Errorf("expected 0 contours, got %d", simpleGlyph.NumContours)
+	}
+}
+
+type pathStep struct {
+	Cmd path.Command
+	Pts []vec.Vec2
+}
+
+func collectPath(p path.Path) []pathStep {
+	var steps []pathStep
+	for cmd, pts := range p {
+		// the iterator reuses its point buffer
+		steps = append(steps, pathStep{Cmd: cmd, Pts: slices.Clone(pts)})
+	}
+	return steps
+}
+
+func on(x, y funit.Int16) Point  { return Point{X: x, Y: y, OnCurve: true} }
+func off(x, y funit.Int16) Point { return Point{X: x, Y: y} }
+
+func move(x, y float64) pathStep { return pathStep{path.CmdMoveTo, []vec.Vec2{{X: x, Y: y}}} }
+func line(x, y float64) pathStep { return pathStep{path.CmdLineTo, []vec.Vec2{{X: x, Y: y}}} }
+func quad(cx, cy, x, y float64) pathStep {
+	return pathStep{path.CmdQuadTo, []vec.Vec2{{X: cx, Y: cy}, {X: x, Y: y}}}
+}
+
+var closePath = pathStep{Cmd: path.CmdClose}
+
+// TestSimpleGlyphPath checks the conversion of TrueType contours into path
+// segments.  A contour is a closed cycle of points which may start at any
+// point of the cycle, on-curve or not.
+func TestSimpleGlyphPath(t *testing.T) {
+	tests := []struct {
+		name string
+		cc   Contour
+		want []pathStep
+	}{
+		{
+			name: "polygon",
+			cc:   Contour{on(0, 0), on(100, 0), on(0, 100)},
+			want: []pathStep{move(0, 0), line(100, 0), line(0, 100), line(0, 0), closePath},
+		},
+		{
+			// the off-curve point is a control point for the segment which
+			// closes the contour
+			name: "trailing control point",
+			cc:   Contour{on(0, 0), on(100, 0), off(50, 80)},
+			want: []pathStep{move(0, 0), line(100, 0), quad(50, 80, 0, 0), closePath},
+		},
+		{
+			// the same cycle, but the stored contour starts at the control
+			// point instead of at an on-curve point
+			name: "leading control point",
+			cc:   Contour{off(50, 80), on(0, 0), on(100, 0)},
+			want: []pathStep{move(0, 0), line(100, 0), quad(50, 80, 0, 0), closePath},
+		},
+		{
+			name: "implicit on-curve point",
+			cc:   Contour{on(0, 0), off(40, 60), off(60, 60), on(100, 0)},
+			want: []pathStep{move(0, 0), quad(40, 60, 50, 60), quad(60, 60, 100, 0), line(0, 0), closePath},
+		},
+		{
+			// with no on-curve point at all, drawing starts halfway between
+			// the last and the first point
+			name: "all control points",
+			cc:   Contour{off(0, 0), off(100, 0), off(100, 100), off(0, 100)},
+			want: []pathStep{
+				move(0, 50),
+				quad(0, 0, 50, 0),
+				quad(100, 0, 100, 50),
+				quad(100, 100, 50, 100),
+				quad(0, 100, 0, 50),
+				closePath,
+			},
+		},
+		{
+			name: "control points on both sides of the start",
+			cc:   Contour{off(0, 0), on(50, 50), off(100, 0)},
+			want: []pathStep{move(50, 50), quad(100, 0, 50, 0), quad(0, 0, 50, 50), closePath},
+		},
+		{
+			// implied on-curve points are computed in float64, so that
+			// coordinates near the ends of the int16 range do not wrap
+			name: "large coordinates",
+			cc:   Contour{off(20000, 0), off(20000, 100), on(0, 100)},
+			want: []pathStep{
+				move(0, 100),
+				quad(20000, 0, 20000, 50),
+				quad(20000, 100, 0, 100),
+				closePath,
+			},
+		},
+		{
+			name: "degenerate contour",
+			cc:   Contour{on(50, 50)},
+			want: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sd := &SimpleUnpacked{Contours: []Contour{tc.cc}}
+			if diff := cmp.Diff(tc.want, collectPath(sd.Path())); diff != "" {
+				t.Errorf("wrong path (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestSimpleGlyphPathClosed checks that a contour is traced back to its
+// starting point, wherever in the cycle the stored point list begins.
+func TestSimpleGlyphPathClosed(t *testing.T) {
+	contours := []Contour{
+		{on(0, 0), on(100, 0), on(0, 100)},
+		{on(0, 0), on(100, 0), off(50, 80)},
+		{on(0, 0), off(40, 60), off(60, 60), on(100, 0)},
+		{off(0, 0), off(100, 0), off(100, 100), off(0, 100)},
+		{off(0, 0), on(50, 50), off(100, 0), on(80, 90), off(10, 10)},
+	}
+
+	for i, cc := range contours {
+		for r := range len(cc) {
+			rotated := slices.Concat(cc[r:], cc[:r])
+			sd := &SimpleUnpacked{Contours: []Contour{rotated}}
+			steps := collectPath(sd.Path())
+
+			if len(steps) < 2 || steps[0].Cmd != path.CmdMoveTo {
+				t.Fatalf("contour %d rotation %d: path does not start with MoveTo", i, r)
+			}
+			if steps[len(steps)-1].Cmd != path.CmdClose {
+				t.Errorf("contour %d rotation %d: path does not end with Close", i, r)
+				continue
+			}
+
+			start := steps[0].Pts[0]
+			end := steps[len(steps)-2].Pts[len(steps[len(steps)-2].Pts)-1]
+			if end != start {
+				t.Errorf("contour %d rotation %d: contour ends at %v, want %v",
+					i, r, end, start)
+			}
+		}
 	}
 }

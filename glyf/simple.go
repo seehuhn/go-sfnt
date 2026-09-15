@@ -36,7 +36,7 @@ type SimpleGlyph struct {
 func (g SimpleGlyph) Path() path.Path {
 	glyphInfo, err := g.Unpack()
 	if err != nil {
-		return func(yield func(path.Command, []vec.Vec2) bool) {}
+		return path.Empty
 	}
 	return glyphInfo.Path()
 }
@@ -407,182 +407,89 @@ func (sd *SimpleUnpacked) AsGlyph() Glyph {
 
 func (sd *SimpleUnpacked) Path() path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		var buf [3]vec.Vec2
+		var buf [2]vec.Vec2
+
+		toPoint := func(p Point) vec.Vec2 {
+			return vec.Vec2{X: float64(p.X), Y: float64(p.Y)}
+		}
+
+		midpoint := func(p1, p2 Point) vec.Vec2 {
+			return vec.Vec2{
+				X: (float64(p1.X) + float64(p2.X)) / 2,
+				Y: (float64(p1.Y) + float64(p2.Y)) / 2,
+			}
+		}
 
 		for _, cc := range sd.Contours {
 			if len(cc) < 2 { // no meaningful contour
 				continue
 			}
 
-			toPoint := func(p Point) vec.Vec2 {
-				return vec.Vec2{X: float64(p.X), Y: float64(p.Y)}
-			}
-
-			midpoint := func(p1, p2 Point) vec.Vec2 {
-				return vec.Vec2{
-					X: float64(p1.X+p2.X) / 2,
-					Y: float64(p1.Y+p2.Y) / 2,
-				}
-			}
-
-			// Find first on-curve point or compute midpoint if all off-curve
-			start := 0
+			// The contour is a closed cycle of points.  Drawing starts at the
+			// first on-curve point; if there is none, it starts at the implicit
+			// on-curve point halfway between the last and the first point.
+			startIdx := -1
 			for i, pt := range cc {
 				if pt.OnCurve {
-					start = i
+					startIdx = i
 					break
 				}
 			}
 
-			// Move to start point
-			if cc[start].OnCurve {
-				buf[0] = toPoint(cc[start])
+			var startPt vec.Vec2
+			first := 0 // index of the first point drawn after the start
+			if startIdx >= 0 {
+				startPt = toPoint(cc[startIdx])
+				first = startIdx + 1
 			} else {
-				// if all points are off-curve, the TrueType spec says to
-				// start at the midpoint of the first and last point.
-				buf[0] = midpoint(cc[len(cc)-1], cc[0])
+				startPt = midpoint(cc[len(cc)-1], cc[0])
 			}
+
+			buf[0] = startPt
 			if !yield(path.CmdMoveTo, buf[:1]) {
 				return
 			}
 
-			// makeExtendedPointIterator returns a stateful iterator function.
-			// Each call to the iterator returns the next point in the "extended" sequence
-			// (which includes implicit on-curve midpoints).
-			makeExtendedPointIterator := func(
-				cc []Point,
-				toPointFunc func(Point) vec.Vec2, // Renamed to avoid conflict
-				midpointFunc func(Point, Point) vec.Vec2, // Renamed to avoid conflict
-			) func() (pt vec.Vec2, onCurve bool, ok bool) {
-
-				if len(cc) == 0 {
-					return func() (vec.Vec2, bool, bool) { return vec.Vec2{}, false, false }
-				}
-
-				// State for the closure:
-				i := 0 // Corresponds to the loop `for i := 0; i <= len(cc); i++`
-				prevPtInCC := cc[len(cc)-1]
-				prevOnCurveInCC := prevPtInCC.OnCurve
-				pendingActualPoint := false // True if an implicit point was just yielded
-
-				return func() (vec.Vec2, bool, bool) {
-					if pendingActualPoint {
-						pendingActualPoint = false
-
-						curPtOriginal := cc[i%len(cc)]
-
-						prevPtInCC = curPtOriginal
-						prevOnCurveInCC = curPtOriginal.OnCurve
-						i++
-						return toPointFunc(curPtOriginal), curPtOriginal.OnCurve, true
-					}
-
-					if i > len(cc) {
-						return vec.Vec2{}, false, false
-					}
-
-					curPtOriginal := cc[i%len(cc)]
-					curOnCurveOriginal := curPtOriginal.OnCurve
-
-					if !prevOnCurveInCC && !curOnCurveOriginal {
-						pendingActualPoint = true
-						// Note: prevPtInCC and i are NOT advanced here; they advance with the actual point.
-						return midpointFunc(prevPtInCC, curPtOriginal), true, true
-					}
-
-					prevPtInCC = curPtOriginal
-					prevOnCurveInCC = curPtOriginal.OnCurve
-					i++
-					return toPointFunc(curPtOriginal), curPtOriginal.OnCurve, true
-				}
-			}
-
-			getNextExtendedPoint := makeExtendedPointIterator(cc, toPoint, midpoint)
-
-			fillPoint := func(p *struct {
-				pt      vec.Vec2
-				onCurve bool
-				valid   bool
-			}) {
-				ptVal, onCurveVal, okVal := getNextExtendedPoint()
-				if okVal {
-					p.pt, p.onCurve, p.valid = ptVal, onCurveVal, true
-				} else {
-					p.valid = false
-				}
-			}
-
-			var p0, p1, p2 struct {
-				pt      vec.Vec2
-				onCurve bool
-				valid   bool // false if we are at the end of the stream
-			}
-
-			// Prime the lookahead buffer
-			fillPoint(&p0)
-			fillPoint(&p1)
-			fillPoint(&p2)
-
-			for p0.valid {
-				if !p0.onCurve {
-					// This should not happen, as extendedPoints always yields on-curve points
-					// or implicit midpoints which are on-curve.
-					// If it does, it's an internal error or a misunderstanding of the spec.
-					// As a fallback, treat as a line segment to the next available point.
-					if p1.valid {
-						buf[0] = p1.pt
-						if !yield(path.CmdLineTo, buf[:1]) {
-							return
-						}
-					} else if p0.pt != buf[0] { // Avoid empty line segment if p0 is the start point
-						buf[0] = p0.pt
-						if !yield(path.CmdLineTo, buf[:1]) {
-							return
-						}
-					}
-				} else if p1.valid && p1.onCurve {
-					// On-curve to on-curve: Line segment
-					buf[0] = p1.pt
-					if !yield(path.CmdLineTo, buf[:1]) {
-						return
-					}
-				} else if p1.valid && !p1.onCurve && p2.valid {
-					// On-curve to off-curve to any: Quadratic curve
-					buf[0] = p1.pt // control point
-					buf[1] = p2.pt // end point
+			var ctrl Point // pending control point
+			var haveCtrl bool
+			for k := range len(cc) {
+				pt := cc[(first+k)%len(cc)]
+				switch {
+				case pt.OnCurve && haveCtrl:
+					buf[0] = toPoint(ctrl)
+					buf[1] = toPoint(pt)
 					if !yield(path.CmdQuadTo, buf[:2]) {
 						return
 					}
-					// Advance p0 by two points (p0 becomes p2)
-					p0 = p2
-					fillPoint(&p1) // Get next point from stream for new p1
-					if !p1.valid { // Reached end after advancing p0
-						p2.valid = false
-						break
-					}
-					fillPoint(&p2) // Get next point for new p2
-					continue       // Restart loop with new p0, p1, p2
-				} else {
-					// This case should ideally not be reached if the contour is well-formed
-					// and the extendedPoints generator works correctly.
-					// It implies an on-curve point followed by an off-curve point with no subsequent point,
-					// or some other unexpected sequence.
-					// As a fallback, if p1 is valid (it must be off-curve here), draw a line to it.
-					// This is not ideal as it might misinterpret the shape, but prevents crashing.
-					if p1.valid && p1.pt != p0.pt { // p1 is off-curve
-						buf[0] = p1.pt
-						if !yield(path.CmdLineTo, buf[:1]) {
-							return
-						}
-					}
-					// If p1 is not valid, or p1.pt == p0.pt, we are at the end or have a degenerate segment.
-					// The path will be closed by CmdClose outside the loop.
-				}
+					haveCtrl = false
 
-				// Advance the lookahead buffer
-				p0 = p1
-				p1 = p2
-				fillPoint(&p2) // Get next point from stream for new p2
+				case pt.OnCurve:
+					buf[0] = toPoint(pt)
+					if !yield(path.CmdLineTo, buf[:1]) {
+						return
+					}
+
+				case haveCtrl:
+					// two consecutive control points imply an on-curve point
+					// halfway between them
+					buf[0] = toPoint(ctrl)
+					buf[1] = midpoint(ctrl, pt)
+					if !yield(path.CmdQuadTo, buf[:2]) {
+						return
+					}
+					ctrl = pt
+
+				default:
+					ctrl = pt
+					haveCtrl = true
+				}
+			}
+			if haveCtrl { // the contour ends on a curve back to the start
+				buf[0] = toPoint(ctrl)
+				buf[1] = startPt
+				if !yield(path.CmdQuadTo, buf[:2]) {
+					return
+				}
 			}
 
 			if !yield(path.CmdClose, nil) {

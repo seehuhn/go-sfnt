@@ -21,7 +21,6 @@ import (
 	"math"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/image/font/gofont/goregular"
@@ -265,16 +264,15 @@ func TestGlyphPath(t *testing.T) {
 			t.Errorf("Expected first command to be MoveTo, got %v", commands[0])
 		}
 
-		// Count MoveTo commands - ideally should be 2 (one per component)
-		// but due to the current Path() implementation issue, we'll just verify >= 1
+		// one contour per component
 		moveToCount := 0
 		for _, cmd := range commands {
 			if cmd == path.CmdMoveTo {
 				moveToCount++
 			}
 		}
-		if moveToCount == 0 {
-			t.Errorf("Expected at least one MoveTo command, got %d", moveToCount)
+		if moveToCount != 2 {
+			t.Errorf("expected 2 MoveTo commands, got %d", moveToCount)
 		}
 
 		// Should have some LineTo commands
@@ -378,74 +376,34 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 		Glyphs: Glyphs{triangle, compositeA, compositeB},
 	}
 
-	t.Run("infinite_loop_detection", func(t *testing.T) {
-		// Set a timeout to detect hanging
-		done := make(chan bool, 1)
-		var pathCommands []path.Command
-
-		go func() {
-			// Call Path() on composite A, which should detect the circular reference
-			pathA := outlines.Path(1)
-
-			// Collect commands to verify it returns something reasonable
-			for cmd := range pathA {
-				pathCommands = append(pathCommands, cmd)
-				// Limit collection to avoid infinite iteration in case of bugs
-				if len(pathCommands) > 1000 {
-					break
-				}
-			}
-			done <- true
-		}()
-
-		// Wait for completion or timeout
-		select {
-		case <-done:
-			// Good! The method returned
-			t.Logf("Path() completed successfully with %d commands", len(pathCommands))
-
-			// Should have returned some path (probably just the triangle part)
-			if len(pathCommands) == 0 {
-				t.Errorf("Expected some path commands, got none")
-			}
-
-			// Verify we get reasonable path structure
-			hasMoveTo := slices.Contains(pathCommands, path.CmdMoveTo)
-			if !hasMoveTo {
-				t.Errorf("Expected at least one MoveTo command")
-			}
-
-		case <-time.After(5 * time.Second):
-			t.Errorf("Path() method hanged - did not complete within 5 seconds")
+	// Glyph A draws B followed by a triangle at (60,0); glyph B draws A --
+	// which is already being expanded, and so contributes nothing -- followed
+	// by a triangle at (0,60).
+	t.Run("from_A", func(t *testing.T) {
+		want := []vec.Vec2{{X: 0, Y: 60}, {X: 60, Y: 0}}
+		if diff := cmp.Diff(want, contourStarts(outlines.Path(1))); diff != "" {
+			t.Errorf("wrong contour start points (-want +got):\n%s", diff)
 		}
 	})
 
-	t.Run("both_directions", func(t *testing.T) {
-		// Test calling Path() on composite B as well
-		done := make(chan bool, 1)
-		var pathCommands []path.Command
-
-		go func() {
-			pathB := outlines.Path(2)
-			for cmd := range pathB {
-				pathCommands = append(pathCommands, cmd)
-				if len(pathCommands) > 1000 {
-					break
-				}
-			}
-			done <- true
-		}()
-
-		select {
-		case <-done:
-			t.Logf("Path() on glyph B completed with %d commands", len(pathCommands))
-			if len(pathCommands) == 0 {
-				t.Errorf("Expected some path commands for glyph B, got none")
-			}
-		case <-time.After(5 * time.Second):
-			t.Errorf("Path() method on glyph B hanged - did not complete within 5 seconds")
+	// Entering the cycle at B places A's triangle under B's transformation.
+	t.Run("from_B", func(t *testing.T) {
+		want := []vec.Vec2{{X: 40, Y: 10}, {X: 0, Y: 60}}
+		if diff := cmp.Diff(want, contourStarts(outlines.Path(2))); diff != "" {
+			t.Errorf("wrong contour start points (-want +got):\n%s", diff)
 		}
 	})
+}
+
+// contourStarts returns the starting point of each contour of p.
+func contourStarts(p path.Path) []vec.Vec2 {
+	var starts []vec.Vec2
+	for cmd, pts := range p {
+		if cmd == path.CmdMoveTo {
+			starts = append(starts, pts[0])
+		}
+	}
+	return starts
 }
 
 func TestGlyphBBoxPDFCoordinates(t *testing.T) {
@@ -599,5 +557,190 @@ func TestGlyphBBox(t *testing.T) {
 	}
 	if math.Abs(bboxPDF.URy-bboxPDFExpected.URy) > 1e-6 {
 		t.Errorf("GlyphBBoxPDF.URy = %g, want %g", bboxPDF.URy, bboxPDFExpected.URy)
+	}
+}
+
+// squareGlyph returns a simple glyph containing a single square contour with
+// the given side length, anchored at the origin.
+func squareGlyph(side funit.Int16) *Glyph {
+	unpacked := &SimpleUnpacked{
+		Contours: []Contour{{
+			{X: 0, Y: 0, OnCurve: true},
+			{X: side, Y: 0, OnCurve: true},
+			{X: side, Y: side, OnCurve: true},
+			{X: 0, Y: side, OnCurve: true},
+		}},
+	}
+	return &Glyph{
+		Rect16: funit.Rect16{URx: side, URy: side},
+		Data:   unpacked.Pack(),
+	}
+}
+
+func offsetComponent(child glyph.ID, dx, dy float64) GlyphComponent {
+	c := &ComponentUnpacked{
+		Child: child,
+		Trfm:  matrix.Matrix{1, 0, 0, 1, dx, dy},
+	}
+	return c.Pack()
+}
+
+// TestPathDuplicateComponent checks that a component used more than once
+// contributes its outline every time.  Glyphs like "quotedblleft" are built
+// from two copies of a single component.
+func TestPathDuplicateComponent(t *testing.T) {
+	composite := &Glyph{
+		Rect16: funit.Rect16{URx: 250, URy: 100},
+		Data: CompositeGlyph{Components: []GlyphComponent{
+			offsetComponent(0, 0, 0),
+			offsetComponent(0, 150, 0),
+		}},
+	}
+	o := &Outlines{Glyphs: Glyphs{squareGlyph(100), composite}}
+
+	want := []vec.Vec2{{X: 0, Y: 0}, {X: 150, Y: 0}}
+	if diff := cmp.Diff(want, contourStarts(o.Path(1))); diff != "" {
+		t.Errorf("wrong contour start points (-want +got):\n%s", diff)
+	}
+}
+
+// TestPathNestedDuplicateComponent checks that the recursion state is unwound
+// correctly, so that a component reached through two different parents is
+// still drawn twice.
+func TestPathNestedDuplicateComponent(t *testing.T) {
+	inner := &Glyph{
+		Rect16: funit.Rect16{URx: 100, URy: 100},
+		Data: CompositeGlyph{Components: []GlyphComponent{
+			offsetComponent(0, 0, 0),
+		}},
+	}
+	outer := &Glyph{
+		Rect16: funit.Rect16{URx: 250, URy: 100},
+		Data: CompositeGlyph{Components: []GlyphComponent{
+			offsetComponent(1, 0, 0),
+			offsetComponent(1, 150, 0),
+		}},
+	}
+	o := &Outlines{Glyphs: Glyphs{squareGlyph(100), inner, outer}}
+
+	want := []vec.Vec2{{X: 0, Y: 0}, {X: 150, Y: 0}}
+	if diff := cmp.Diff(want, contourStarts(o.Path(2))); diff != "" {
+		t.Errorf("wrong contour start points (-want +got):\n%s", diff)
+	}
+}
+
+// TestPathCycle checks that composite glyphs which reference themselves,
+// directly or indirectly, do not send the iterator into an endless loop.
+func TestPathCycle(t *testing.T) {
+	self := &Glyph{Data: CompositeGlyph{Components: []GlyphComponent{
+		offsetComponent(0, 10, 0),
+	}}}
+	a := &Glyph{Data: CompositeGlyph{Components: []GlyphComponent{
+		offsetComponent(2, 10, 0),
+	}}}
+	b := &Glyph{Data: CompositeGlyph{Components: []GlyphComponent{
+		offsetComponent(1, 10, 0),
+	}}}
+	o := &Outlines{Glyphs: Glyphs{self, a, b}}
+
+	for gid := range glyph.ID(3) {
+		numCmds := 0
+		for range o.Path(gid) {
+			numCmds++
+		}
+		if numCmds != 0 {
+			t.Errorf("glyph %d: got %d commands, want 0", gid, numCmds)
+		}
+	}
+}
+
+// TestPathCycleWithOutline checks that breaking a cycle still draws the
+// outlines reached on the way into it.
+func TestPathCycleWithOutline(t *testing.T) {
+	composite := &Glyph{
+		Rect16: funit.Rect16{URx: 100, URy: 100},
+		Data: CompositeGlyph{Components: []GlyphComponent{
+			offsetComponent(0, 0, 0),
+			offsetComponent(1, 50, 0), // reference back to this glyph
+		}},
+	}
+	o := &Outlines{Glyphs: Glyphs{squareGlyph(100), composite}}
+
+	want := []vec.Vec2{{X: 0, Y: 0}}
+	if diff := cmp.Diff(want, contourStarts(o.Path(1))); diff != "" {
+		t.Errorf("wrong contour start points (-want +got):\n%s", diff)
+	}
+}
+
+// TestPathExpansionBudget checks that a chain of composite glyphs which each
+// reference the next one twice is not expanded exponentially.  Such a chain
+// contains no cycle, so the recursion state alone does not bound the work.
+func TestPathExpansionBudget(t *testing.T) {
+	const depth = 25
+
+	glyphs := make(Glyphs, depth+1)
+	glyphs[depth] = squareGlyph(100)
+	for i := depth - 1; i >= 0; i-- {
+		next := offsetComponent(glyph.ID(i+1), 0, 0)
+		glyphs[i] = &Glyph{
+			Rect16: funit.Rect16{URx: 100, URy: 100},
+			Data:   CompositeGlyph{Components: []GlyphComponent{next, next}},
+		}
+	}
+	o := &Outlines{Glyphs: glyphs}
+
+	numCmds := 0
+	for range o.Path(0) {
+		numCmds++
+	}
+
+	// each expanded glyph contributes a bounded number of commands
+	budget := pathBudgetPerGlyph*len(glyphs) + pathBudgetBase
+	if limit := 16 * budget; numCmds > limit {
+		t.Errorf("got %d commands, want at most %d", numCmds, limit)
+	}
+	if numCmds == 0 {
+		t.Error("no commands emitted")
+	}
+}
+
+// TestDecodeMissingComponent checks that components referring to glyphs
+// outside the font are dropped while the font is read, so that the decoded
+// glyphs are self-consistent.
+func TestDecodeMissingComponent(t *testing.T) {
+	partial := &Glyph{
+		Rect16: funit.Rect16{URx: 100, URy: 100},
+		Data: CompositeGlyph{Components: []GlyphComponent{
+			offsetComponent(0, 0, 0),
+			offsetComponent(99, 150, 0),
+		}},
+	}
+	broken := &Glyph{
+		Rect16: funit.Rect16{URx: 100, URy: 100},
+		Data: CompositeGlyph{Components: []GlyphComponent{
+			offsetComponent(99, 0, 0),
+		}},
+	}
+	in := Glyphs{squareGlyph(100), partial, broken}
+
+	out, err := Decode(in.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != len(in) {
+		t.Fatalf("got %d glyphs, want %d", len(out), len(in))
+	}
+
+	if got := out[1].Components(); !slices.Equal(got, []glyph.ID{0}) {
+		t.Errorf("glyph 1: got components %v, want [0]", got)
+	}
+	if out[2] != nil {
+		t.Errorf("glyph 2: got %v, want a blank glyph", out[2])
+	}
+
+	want := []vec.Vec2{{X: 0, Y: 0}}
+	o := &Outlines{Glyphs: out}
+	if diff := cmp.Diff(want, contourStarts(o.Path(1))); diff != "" {
+		t.Errorf("wrong contour start points (-want +got):\n%s", diff)
 	}
 }

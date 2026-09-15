@@ -163,7 +163,48 @@ func Decode(enc *Encoded) (Glyphs, error) {
 		gg[i] = g
 	}
 
+	gg.dropMissingComponents()
+
 	return gg, nil
+}
+
+// dropMissingComponents removes component references to glyphs which are not
+// part of the font.  A composite glyph left without any components becomes a
+// blank glyph.
+func (gg Glyphs) dropMissingComponents() {
+	for i, g := range gg {
+		if g == nil {
+			continue
+		}
+		d, ok := g.Data.(CompositeGlyph)
+		if !ok {
+			continue
+		}
+
+		valid := true
+		for _, comp := range d.Components {
+			if int(comp.GlyphIndex) >= len(gg) {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			continue
+		}
+
+		var kept []GlyphComponent
+		for _, comp := range d.Components {
+			if int(comp.GlyphIndex) < len(gg) {
+				kept = append(kept, comp)
+			}
+		}
+		if kept == nil {
+			gg[i] = nil
+			continue
+		}
+		d.Components = kept
+		g.Data = d
+	}
 }
 
 // decodeGlyph decodes a glyph from binary data.
@@ -293,10 +334,13 @@ func (g *Glyph) append(buf []byte) []byte {
 		buf = append(buf, d.Encoded...)
 	case CompositeGlyph:
 		for i, comp := range d.Components {
-			flags := comp.Flags
-			// set FlagMoreComponents for all but the last component
+			// the layout flags follow from the position in the list and from
+			// the presence of instructions, so any stored value is ignored
+			flags := comp.Flags &^ (FlagMoreComponents | FlagWeHaveInstructions)
 			if i < len(d.Components)-1 {
 				flags |= FlagMoreComponents
+			} else if d.Instructions != nil {
+				flags |= FlagWeHaveInstructions
 			}
 			buf = append(buf,
 				byte(flags>>8), byte(flags),
@@ -324,7 +368,7 @@ func (g *Glyph) append(buf []byte) []byte {
 // with their transformations applied.
 func (o *Outlines) Path(gid glyph.ID) path.Path {
 	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
-		return func(yield func(path.Command, []vec.Vec2) bool) {}
+		return path.Empty
 	}
 
 	if g, ok := o.Glyphs[gid].Data.(SimpleGlyph); ok {
@@ -332,9 +376,12 @@ func (o *Outlines) Path(gid glyph.ID) path.Path {
 	}
 
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-		// allocate a separate map for each call of the iterator
-		seen := make(map[glyph.ID]bool)
-		for cmd, pts := range o.Glyphs.pathRecursive(seen, gid) {
+		// allocate separate state for each call of the iterator
+		st := &pathState{
+			onPath: make(map[glyph.ID]bool),
+			budget: pathBudgetPerGlyph*len(o.Glyphs) + pathBudgetBase,
+		}
+		for cmd, pts := range o.Glyphs.pathRecursive(st, gid) {
 			if !yield(cmd, pts) {
 				return
 			}
@@ -342,15 +389,41 @@ func (o *Outlines) Path(gid glyph.ID) path.Path {
 	}
 }
 
-func (gg Glyphs) pathRecursive(seen map[glyph.ID]bool, gid glyph.ID) path.Path {
-	if int(gid) >= len(gg) || seen[gid] {
-		return func(yield func(path.Command, []vec.Vec2) bool) {}
+// pathState holds the state used while expanding one composite glyph outline.
+type pathState struct {
+	// onPath contains the composite glyphs currently being expanded, so that
+	// recursive references can be broken.  A glyph is removed again once its
+	// components have been emitted: a glyph referenced twice by the same
+	// parent contributes its outline twice.
+	onPath map[glyph.ID]bool
+
+	// budget limits the total number of glyphs expanded.
+	budget int
+}
+
+// Expanding one glyph outline is limited to
+// pathBudgetPerGlyph*len(Glyphs)+pathBudgetBase glyph expansions.  Recursion
+// is already excluded by pathState.onPath, but a chain of composite glyphs
+// which each reference the next one more than once still grows exponentially
+// with the nesting depth.
+//
+// A survey of 4401 TrueType fonts found no glyph needing more than 65
+// expansions or more than five levels of nesting, so the limit is far out of
+// reach for real fonts.
+const (
+	pathBudgetPerGlyph = 2
+	pathBudgetBase     = 1000
+)
+
+func (gg Glyphs) pathRecursive(st *pathState, gid glyph.ID) path.Path {
+	if int(gid) >= len(gg) || st.budget <= 0 {
+		return path.Empty
 	}
-	seen[gid] = true
+	st.budget--
 
 	g := gg[gid]
 	if g == nil { // blank glyph
-		return func(yield func(path.Command, []vec.Vec2) bool) {}
+		return path.Empty
 	}
 
 	switch g := g.Data.(type) {
@@ -358,14 +431,28 @@ func (gg Glyphs) pathRecursive(seen map[glyph.ID]bool, gid glyph.ID) path.Path {
 		return g.Path()
 
 	case CompositeGlyph:
-		return gg.compositePath(seen, gid, g)
+		// The iterator is evaluated lazily, so gid has to be marked while the
+		// components are emitted rather than while the path is constructed.
+		return func(yield func(path.Command, []vec.Vec2) bool) {
+			if st.onPath[gid] {
+				return
+			}
+			st.onPath[gid] = true
+			defer delete(st.onPath, gid)
+
+			for cmd, pts := range gg.compositePath(st, gid, g) {
+				if !yield(cmd, pts) {
+					return
+				}
+			}
+		}
 
 	default:
 		panic("invalid glyph data type")
 	}
 }
 
-func (gg Glyphs) compositePath(seen map[glyph.ID]bool, gid glyph.ID, g CompositeGlyph) path.Path {
+func (gg Glyphs) compositePath(st *pathState, gid glyph.ID, g CompositeGlyph) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 	componentLoop:
 		for _, comp := range g.Components {
@@ -488,7 +575,7 @@ func (gg Glyphs) compositePath(seen map[glyph.ID]bool, gid glyph.ID, g Composite
 			}
 
 			// Apply transformation to component paths
-			componentPath := gg.pathRecursive(seen, comp.GlyphIndex)
+			componentPath := gg.pathRecursive(st, comp.GlyphIndex)
 			transformedPath := componentPath.Transform(M)
 			for cmd, pts := range transformedPath {
 				if !yield(cmd, pts) {

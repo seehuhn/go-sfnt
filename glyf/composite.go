@@ -43,9 +43,12 @@ type CompositeGlyph struct {
 //
 // https://learn.microsoft.com/en-us/typography/opentype/spec/glyf#composite-glyph-description
 type GlyphComponent struct {
-	Flags      ComponentFlag // Flags controlling how the component is processed
-	GlyphIndex glyph.ID      // ID of the glyph to include as a component
-	Data       []byte        // Raw transformation data (arguments and matrix values)
+	// Flags controls how the component is processed.  FlagMoreComponents and
+	// FlagWeHaveInstructions describe the layout of the encoded glyph rather
+	// than the component, and are not stored here.
+	Flags      ComponentFlag
+	GlyphIndex glyph.ID // ID of the glyph to include as a component
+	Data       []byte   // Raw transformation data (arguments and matrix values)
 }
 
 // ComponentFlag controls how a component glyph is processed within a composite.
@@ -92,7 +95,7 @@ func (f ComponentFlag) String() string {
 		res = append(res, "UNSCALED_COMPONENT_OFFSET")
 	}
 	if f&0xE010 != 0 {
-		res = append(res, fmt.Sprintf("0x%04x", f&0xE010))
+		res = append(res, fmt.Sprintf("0x%04x", uint16(f&0xE010)))
 	}
 	return strings.Join(res, "|")
 }
@@ -176,7 +179,7 @@ func decodeGlyphComposite(data []byte) (*CompositeGlyph, error) {
 		data = data[skip:]
 
 		components = append(components, GlyphComponent{
-			Flags:      flags,
+			Flags:      flags &^ (FlagMoreComponents | FlagWeHaveInstructions),
 			GlyphIndex: glyph.ID(glyphIndex),
 			Data:       args,
 		})

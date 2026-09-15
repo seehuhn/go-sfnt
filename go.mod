@@ -7,7 +7,7 @@ require (
 	golang.org/x/image v0.44.0
 	golang.org/x/text v0.40.0
 	seehuhn.de/go/dag v1.0.0
-	seehuhn.de/go/geom v0.7.5-0.20260830195243-64cdc9580785
+	seehuhn.de/go/geom v0.7.5-0.20260914191744-4ad9af0152fb
 	seehuhn.de/go/membudget v0.7.4
-	seehuhn.de/go/postscript v0.7.5-0.20260913204131-42e4554d2cd6
+	seehuhn.de/go/postscript v0.7.5-0.20260914192439-c499ae68b522
 )

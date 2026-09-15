@@ -146,14 +146,14 @@ func (o *OutlinesCFF2) IsBlank(gid glyph.ID) bool {
 // 0's outline rather than returning an empty path.
 func (o *OutlinesCFF2) Path(gid glyph.ID) path.Path {
 	if len(o.Glyphs) == 0 {
-		return func(yield func(path.Command, []vec.Vec2) bool) {}
+		return path.Empty
 	}
 	if int(gid) >= len(o.Glyphs) {
 		gid = 0 // .notdef
 	}
 	g := o.Glyphs[gid]
 	if g == nil {
-		return func(yield func(path.Command, []vec.Vec2) bool) {}
+		return path.Empty
 	}
 	return g.Path()
 }

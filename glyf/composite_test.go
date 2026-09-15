@@ -17,6 +17,7 @@
 package glyf
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
@@ -193,5 +194,54 @@ func TestComponentUnpacked_RoundTrip(t *testing.T) {
 				t.Logf("Adjusted Expected for comparison: %+v\n", expected)
 			}
 		})
+	}
+}
+
+// TestComponentFlagString checks that unknown flag bits are rendered
+// numerically, without the String method calling itself.
+func TestComponentFlagString(t *testing.T) {
+	f := FlagUseMyMetrics | ComponentFlag(0x2010)
+	want := "USE_MY_METRICS|0x2010"
+	if got := f.String(); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestLayoutFlagsAreDerived checks that FlagMoreComponents and
+// FlagWeHaveInstructions are taken from the structure of the composite glyph
+// rather than from the stored component flags.
+func TestLayoutFlagsAreDerived(t *testing.T) {
+	c := &ComponentUnpacked{Child: 0, Trfm: matrix.Matrix{1, 0, 0, 1, 0, 0}}
+
+	first := c.Pack()
+	first.Flags |= FlagWeHaveInstructions // stale: instructions do not follow
+	last := c.Pack()
+	last.Flags |= FlagMoreComponents // stale: no further component follows
+
+	in := Glyphs{
+		&Glyph{Data: CompositeGlyph{
+			Components:   []GlyphComponent{first, last},
+			Instructions: []byte{0x42},
+		}},
+	}
+
+	out, err := Decode(in.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, ok := out[0].Data.(CompositeGlyph)
+	if !ok {
+		t.Fatalf("got %T, want a composite glyph", out[0].Data)
+	}
+	if len(d.Components) != 2 {
+		t.Fatalf("got %d components, want 2", len(d.Components))
+	}
+	for i, comp := range d.Components {
+		if comp.Flags&(FlagMoreComponents|FlagWeHaveInstructions) != 0 {
+			t.Errorf("component %d: layout flags stored in %v", i, comp.Flags)
+		}
+	}
+	if !bytes.Equal(d.Instructions, []byte{0x42}) {
+		t.Errorf("got instructions %v, want [66]", d.Instructions)
 	}
 }
