@@ -69,12 +69,11 @@ func (o *OutlinesCFF2) Instance(coords []variation.F2Dot14, widths []float64) (*
 	glyphs := make([]*Glyph, n)
 	for gid := range o.Glyphs {
 		g := o.Glyphs[gid]
-		ng := &Glyph{}
-		if g != nil {
-			sc := scalarsFor(g.VSIndex)
-			ng.Cmds = instanceCmds(g.Cmds, sc)
-			ng.HStem = instanceStems(g.HStem, sc)
-			ng.VStem = instanceStems(g.VStem, sc)
+		sc := scalarsFor(g.VSIndex)
+		ng := &Glyph{
+			Cmds:  instanceCmds(g.Cmds, sc),
+			HStem: instanceStems(g.HStem, sc),
+			VStem: instanceStems(g.VStem, sc),
 		}
 
 		var w float64

@@ -160,35 +160,11 @@ func TestOutlinesCFF2Basics(t *testing.T) {
 	if o.NumGlyphs() != 2 {
 		t.Errorf("NumGlyphs = %d, want 2", o.NumGlyphs())
 	}
-	if !o.IsBlank(0) {
-		t.Error("glyph 0 should be blank")
+	if steps := collectPath(o.Path(0)); len(steps) != 0 {
+		t.Errorf("blank glyph: got %d steps, want 0", len(steps))
 	}
-	if o.IsBlank(1) {
-		t.Error("glyph 1 should not be blank")
-	}
-	// out-of-range gid maps to .notdef (blank)
-	if !o.IsBlank(99) {
-		t.Error("out-of-range gid should map to blank .notdef")
-	}
-	// out-of-range Path maps to glyph 0 (blank -> no steps)
-	if steps := collectPath(o.Path(99)); len(steps) != 0 {
-		t.Errorf("out-of-range Path: got %d steps, want 0", len(steps))
-	}
-}
-
-// TestOutlinesCFF2Empty verifies that an OutlinesCFF2 with no glyphs (e.g.
-// the zero value) does not panic and behaves as if every glyph were blank.
-func TestOutlinesCFF2Empty(t *testing.T) {
-	o := &OutlinesCFF2{}
-
-	if !o.IsBlank(5) {
-		t.Error("IsBlank on empty Glyphs should be true")
-	}
-	if steps := collectPath(o.Path(5)); len(steps) != 0 {
-		t.Errorf("Path on empty Glyphs: got %d steps, want 0", len(steps))
-	}
-	if bbox := o.GlyphBBox(matrix.Identity, 5); !bbox.IsZero() {
-		t.Errorf("GlyphBBox on empty Glyphs: got %v, want zero rect", bbox)
+	if steps := collectPath(o.Path(1)); len(steps) == 0 {
+		t.Error("glyph 1 should have an outline")
 	}
 }
 

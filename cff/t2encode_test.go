@@ -361,3 +361,85 @@ func TestType2EncodeGlyphs(t *testing.T) {
 		t.Errorf("different (-old +new):\n%s", cmp.Diff(g1, g2))
 	}
 }
+
+// TestStemOperatorSplit tests that a stem list which cannot be expressed as a
+// single run of relative operands is split into several stem operators.  The
+// decoder restarts the prefix sum at zero for every stem operator, so the
+// boundaries between concatenated operators are not recorded in the glyph.  A
+// junction shows up as a jump which is too large for a charstring operand, and
+// the encoder has to start a new operator there.
+func TestStemOperatorSplit(t *testing.T) {
+	in := &Font{
+		FontInfo: &type1.FontInfo{
+			FontName:   "TestFont",
+			FontMatrix: matrix.Matrix{0.001, 0, 0, 0.001, 0, 0},
+		},
+		Outlines: &Outlines{
+			Private:  []*type1.PrivateDict{{}},
+			FDSelect: func(gi glyph.ID) int { return 0 },
+		},
+	}
+
+	g := &Glyph{
+		Name:  ".notdef",
+		Width: 1000,
+		// The jump from 34460 to -91 exceeds the operand range, but both
+		// edges are reachable as the first operand of a stem operator.
+		VStem: []float64{20000, 30000, 34369, 34460, -91, -182},
+	}
+	g.MoveTo(0, 0)
+	g.LineTo(100, 0)
+	in.Glyphs = append(in.Glyphs, g)
+	in.Encoding = StandardEncoding(in.Glyphs)
+
+	buf := &bytes.Buffer{}
+	if err := in.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if diff := cmp.Diff(in.Glyphs[0].VStem, out.Glyphs[0].VStem); diff != "" {
+		t.Errorf("stems differ (-old +new):\n%s", diff)
+	}
+}
+
+// TestStemOutOfRange tests that stem hints which no charstring operand can
+// express are rejected instead of being silently replaced.
+func TestStemOutOfRange(t *testing.T) {
+	cases := []struct {
+		name  string
+		vstem []float64
+	}{
+		// the first operand of a stem operator gives the edge itself
+		{"edge", []float64{40000, 40010}},
+		// the second operand of a pair gives the stem width
+		{"width", []float64{0, 40000}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			in := &Font{
+				FontInfo: &type1.FontInfo{
+					FontName:   "TestFont",
+					FontMatrix: matrix.Matrix{0.001, 0, 0, 0.001, 0, 0},
+				},
+				Outlines: &Outlines{
+					Private:  []*type1.PrivateDict{{}},
+					FDSelect: func(gi glyph.ID) int { return 0 },
+				},
+			}
+			g := &Glyph{Name: ".notdef", Width: 1000, VStem: c.vstem}
+			g.MoveTo(0, 0)
+			g.LineTo(100, 0)
+			in.Glyphs = append(in.Glyphs, g)
+			in.Encoding = StandardEncoding(in.Glyphs)
+
+			if err := in.Write(&bytes.Buffer{}); err == nil {
+				t.Error("expected an error")
+			}
+		})
+	}
+}

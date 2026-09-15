@@ -38,10 +38,7 @@ func (f *Font) EnsureGlyphNames() {
 
 	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
-		for gid, g := range f.Glyphs {
-			if g == nil {
-				continue
-			}
+		for gid := range f.Glyphs {
 			f.SetGlyphName(glyph.ID(gid), glyphNames[gid])
 		}
 	case *cff.OutlinesCFF2:
@@ -62,9 +59,6 @@ func (f *Font) MakeGlyphNames() []string {
 	switch f := f.Outlines.(type) {
 	case *cff.Outlines:
 		for gid, g := range f.Glyphs {
-			if g == nil {
-				continue
-			}
 			glyphNames[gid] = g.Name
 		}
 	case *cff.OutlinesCFF2:
@@ -92,11 +86,17 @@ func (f *Font) MakeGlyphNames() []string {
 		return glyphNames
 	}
 
+	// The cmap and GSUB tables of a malformed font can refer to glyphs which
+	// do not exist; such glyphs are skipped.
+	inRange := func(gid glyph.ID) bool {
+		return int(gid) < len(glyphNames)
+	}
+
 	if cmap, _ := f.CMapTable.GetBest(); cmap != nil {
 		a, b := cmap.CodeRange()
 		for r := a; r <= b; r++ {
 			gid := cmap.Lookup(r)
-			if glyphNames[gid] != "" {
+			if !inRange(gid) || glyphNames[gid] != "" {
 				// This includes the case of unmapped runes (gid == 0).
 				continue
 			}
@@ -115,6 +115,9 @@ func (f *Font) MakeGlyphNames() []string {
 				case *gtab.Gsub1_1:
 					for origGid := range subtable.Cov {
 						newGid := origGid + subtable.Delta
+						if !inRange(origGid) || !inRange(newGid) {
+							continue
+						}
 						if glyphNames[origGid] == "" || glyphNames[newGid] != "" {
 							continue
 						}
@@ -123,6 +126,9 @@ func (f *Font) MakeGlyphNames() []string {
 				case *gtab.Gsub1_2:
 					for origGid, idx := range subtable.Cov {
 						newGid := subtable.SubstituteGlyphIDs[idx]
+						if !inRange(origGid) || !inRange(newGid) {
+							continue
+						}
 						if glyphNames[origGid] == "" || glyphNames[newGid] != "" {
 							continue
 						}
@@ -130,10 +136,13 @@ func (f *Font) MakeGlyphNames() []string {
 					}
 				case *gtab.Gsub3_1:
 					for origGid, idx := range subtable.Cov {
-						if glyphNames[origGid] == "" {
+						if !inRange(origGid) || glyphNames[origGid] == "" {
 							continue
 						}
 						for _, newGid := range subtable.Alternates[idx] {
+							if !inRange(newGid) {
+								continue
+							}
 							if glyphNames[newGid] == "" {
 								glyphNames[newGid] = makeVariant(used, glyphNames[origGid])
 							}
@@ -142,6 +151,9 @@ func (f *Font) MakeGlyphNames() []string {
 				case *gtab.Gsub4_1:
 					var nn []string
 					for origGid, idx := range subtable.Cov {
+						if !inRange(origGid) {
+							continue
+						}
 						name := glyphNames[origGid]
 						if name == "" {
 							continue
@@ -149,8 +161,14 @@ func (f *Font) MakeGlyphNames() []string {
 						nn = append(nn[:0], name)
 					replLoop:
 						for _, lig := range subtable.Repl[idx] {
+							if !inRange(lig.Out) {
+								continue
+							}
 							nn = nn[:1]
 							for _, gid := range lig.In {
+								if !inRange(gid) {
+									continue replLoop
+								}
 								if name := glyphNames[gid]; name != "" {
 									nn = append(nn, name)
 								} else {

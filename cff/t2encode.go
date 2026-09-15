@@ -62,15 +62,29 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 			return nil, errors.New("invalid number of stems")
 		}
 		for len(stems) > 0 {
-			k := min((maxStack-extra)/2, len(stems)/2)
-			chunk := stems[:2*k]
-			stems = stems[2*k:]
+			maxVals := 2 * min((maxStack-extra)/2, len(stems)/2)
+
+			// The decoder restarts the prefix sum at zero for every stem
+			// operator, so the boundaries between concatenated operators are
+			// not recorded in the glyph.  A junction shows up as a jump which
+			// no operand can express; a new operator has to start there.
 			prev := 0.0
-			for _, x := range chunk {
-				encoded := encodeNumber(x - prev)
+			n := 0
+			for n < maxVals {
+				d := stems[n] - prev
+				if !charNumberEncodable(d) {
+					if n == 0 || n%2 != 0 {
+						// the edge is unreachable, or a pair would be split
+						return nil, errStemRange
+					}
+					break
+				}
+				encoded := encodeNumber(d)
 				header = append(header, encoded.Code)
 				prev += encoded.Val
+				n++
 			}
+			stems = stems[n:]
 
 			canOmitVStem := (i == 1 &&
 				len(stems) == 0 &&
@@ -541,3 +555,5 @@ func copyOp(data [][]byte, op t2op, args ...encodedNumber) [][]byte {
 	}
 	return res
 }
+
+var errStemRange = invalidSince("stem hint out of range")

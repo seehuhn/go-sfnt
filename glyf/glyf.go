@@ -37,12 +37,14 @@ const glyfAlign = 2
 // Outlines stores the glyph data of a TrueType font.
 type Outlines struct {
 	// Glyphs is a slice of glyph outlines in the font.
+	// Nil entries denote blank glyphs.
 	Glyphs Glyphs
 
 	// Widths contains the glyph widths, indexed by glyph ID.
 	Widths []funit.Uint16
 
-	// Names, if non-nil, contains the glyph names.
+	// Names, if non-nil, contains the glyph names.  The slice then has one
+	// entry per glyph; an empty string denotes a glyph with no name.
 	Names []string
 
 	// Tables contains the raw contents of the "cvt ", "fpgm", "prep", "gasp"
@@ -57,14 +59,6 @@ func (o *Outlines) NumGlyphs() int {
 	return len(o.Glyphs)
 }
 
-func (o *Outlines) IsBlank(gid glyph.ID) bool {
-	if int(gid) >= len(o.Glyphs) {
-		gid = 0 // .notdef
-	}
-	g := o.Glyphs[gid]
-	return g == nil
-}
-
 // GlyphMatrix returns the effective font matrix for the given glyph.  Glyf
 // outlines are always drawn on the design grid, so the top-level font matrix
 // is returned unchanged.
@@ -76,22 +70,21 @@ func (o *Outlines) GlyphMatrix(top matrix.Matrix, gid glyph.ID) matrix.Matrix {
 // (1/1000th of a font unit).
 // The font matrix fm is applied to the glyph bounding box from the font data.
 //
-// If the glyph is blank, the zero rectangle is returned.
+// For a glyph without data, the zero rectangle is returned.
 func (o *Outlines) GlyphBBoxPDF(fm matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	M := fm.Mul(matrix.Scale(1000, 1000))
 	return o.GlyphBBox(M, gid)
 }
 
 // GlyphBBox computes the bounding box of a glyph, after the matrix M has been
-// applied to the glyph outline.
+// applied to the glyph outline.  The box is the one recorded in the glyph
+// header, which need not be tight and may be non-empty even for a glyph with
+// no outline.
 //
-// If the glyph is blank, the zero rectangle is returned.
+// For a glyph without data, the zero rectangle is returned.
 func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
-	if int(gid) >= len(o.Glyphs) {
-		gid = 0 // .notdef
-	}
 	g := o.Glyphs[gid]
-	if g == nil {
+	if g == nil { // blank glyph
 		return
 	}
 
@@ -120,7 +113,7 @@ func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 
 // Glyphs contains a slice of TrueType glyph outlines.
 // This represents the information stored in the "glyf" and "loca" tables
-// of a TrueType font.
+// of a TrueType font.  A nil entry denotes a blank glyph.
 type Glyphs []*Glyph
 
 // Glyph represents a single glyph in a TrueType font.
@@ -367,7 +360,7 @@ func (g *Glyph) append(buf []byte) []byte {
 // For composite glyphs, this recursively includes all component glyphs
 // with their transformations applied.
 func (o *Outlines) Path(gid glyph.ID) path.Path {
-	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
+	if o.Glyphs[gid] == nil { // blank glyph
 		return path.Empty
 	}
 

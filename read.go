@@ -342,8 +342,10 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		}
 
 		var names []string
-		if postInfo != nil {
-			names = postInfo.Names
+		if postInfo != nil && postInfo.Names != nil {
+			names = make([]string, len(ttGlyphs))
+			// excess names are dropped, missing names are left blank
+			copy(names, postInfo.Names)
 		}
 		Outlines = &glyf.Outlines{
 			Widths: widths,

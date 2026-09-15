@@ -65,21 +65,22 @@ type Outlines interface {
 	// NumGlyphs returns the number of glyphs in the font.
 	NumGlyphs() int
 
-	// IsBlank returns true if the glyph with the given ID does not add marks to the page.
-	IsBlank(gid glyph.ID) bool
-
 	// GlyphMatrix returns the effective font matrix for the given glyph.
 	// For CID-keyed CFF fonts this composes the per-FD font matrix with the
 	// top-level matrix; otherwise the top-level matrix is returned unchanged.
 	GlyphMatrix(top matrix.Matrix, gid glyph.ID) matrix.Matrix
 
-	// GlyphBBox returns the bounding box of the glyph with the given ID,
-	// after the matrix m has been applied to the glyph outline.  The matrix
-	// must already account for any per-glyph matrix, see GlyphMatrix.
+	// GlyphBBox returns a bounding box which contains the glyph with the
+	// given ID, after the matrix m has been applied to the glyph outline.
+	// The matrix must already account for any per-glyph matrix, see
+	// GlyphMatrix.  The box need not be tight: for TrueType outlines it is
+	// the box the font records in the glyph header.  For a glyph which draws
+	// nothing, the zero rectangle is returned.
 	GlyphBBox(m matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
 
-	// GlyphBBoxPDF returns the bounding box of the glyph with the given ID
-	// in PDF glyph space units.
+	// GlyphBBoxPDF returns a bounding box which contains the glyph with the
+	// given ID, in PDF glyph space units.  The same caveats as for GlyphBBox
+	// apply.
 	GlyphBBoxPDF(m matrix.Matrix, gid glyph.ID) (bbox rect.Rect)
 
 	// Path returns the glyph outline as a path, in font design units.

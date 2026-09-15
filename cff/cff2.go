@@ -108,7 +108,10 @@ func newPrivateCFF2() *PrivateCFF2 {
 
 // OutlinesCFF2 stores the glyph data of a CFF2 font.
 type OutlinesCFF2 struct {
-	Glyphs       []*GlyphCFF2
+	// Glyphs contains the glyph outlines of the font, indexed by glyph ID.
+	// All entries must be non-nil.
+	Glyphs []*GlyphCFF2
+
 	Widths       []float64      // advance widths in design units, from hmtx; may be nil
 	Private      []*PrivateCFF2 // one per Font DICT; len >= 1
 	FDSelect     FDSelectFn
@@ -127,35 +130,10 @@ func (o *OutlinesCFF2) NumGlyphs() int {
 	return len(o.Glyphs)
 }
 
-// IsBlank returns true if the glyph with the given ID does not add marks to
-// the page.  An out-of-range ID is treated as the .notdef glyph.
-func (o *OutlinesCFF2) IsBlank(gid glyph.ID) bool {
-	if len(o.Glyphs) == 0 {
-		return true
-	}
-	if int(gid) >= len(o.Glyphs) {
-		gid = 0 // .notdef
-	}
-	return len(o.Glyphs[gid].Cmds) == 0
-}
-
 // Path returns the glyph outline as a path.Path iterator, rendering the
-// default instance (using each argument's Default value only).  An
-// out-of-range ID is treated as the .notdef glyph, per the model contract;
-// unlike CFF1's blank-path behaviour, this deliberately falls back to glyph
-// 0's outline rather than returning an empty path.
+// default instance (using each argument's Default value only).
 func (o *OutlinesCFF2) Path(gid glyph.ID) path.Path {
-	if len(o.Glyphs) == 0 {
-		return path.Empty
-	}
-	if int(gid) >= len(o.Glyphs) {
-		gid = 0 // .notdef
-	}
-	g := o.Glyphs[gid]
-	if g == nil {
-		return path.Empty
-	}
-	return g.Path()
+	return o.Glyphs[gid].Path()
 }
 
 // Path returns the default-instance glyph outline as a path.Path iterator,
@@ -214,7 +192,7 @@ func (g *GlyphCFF2) Path() path.Path {
 // matrix M has been applied to the glyph outline.  M must already include the
 // per-FD font matrix; use [OutlinesCFF2.GlyphMatrix] to compose it.
 //
-// If the glyph is blank, the zero rectangle is returned.
+// For a glyph which draws nothing, the zero rectangle is returned.
 func (o *OutlinesCFF2) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {
 	return o.Path(gid).Transform([6]float64(M)).BBox()
 }
@@ -223,7 +201,7 @@ func (o *OutlinesCFF2) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {
 // glyph space units (1/1000th of a text space unit).  The font matrix M is
 // applied to the glyph outline.
 //
-// If the glyph is blank, the zero rectangle is returned.
+// For a glyph which draws nothing, the zero rectangle is returned.
 func (o *OutlinesCFF2) GlyphBBoxPDF(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	M = o.GlyphMatrix(M, gid).Mul(matrix.Scale(1000, 1000))
 	return o.GlyphBBox(M, gid)

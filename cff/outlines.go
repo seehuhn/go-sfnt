@@ -39,6 +39,8 @@ import (
 //   - For CID-keyed fonts, ROS, GIDToCID, and FontMatrices are in use,
 //     and Encoding must be nil.
 type Outlines struct {
+	// Glyphs contains the glyph outlines of the font, indexed by glyph ID.
+	// All entries must be non-nil.
 	Glyphs []*Glyph
 
 	// Private stores the private dictionaries of the font.
@@ -139,9 +141,6 @@ func (o *Outlines) SetGlyphName(gid glyph.ID, name string) {
 // Path returns the glyph outline as a path.Path iterator.
 // This converts CFF glyph commands to path commands.
 func (o *Outlines) Path(gid glyph.ID) path.Path {
-	if int(gid) >= len(o.Glyphs) || o.Glyphs[gid] == nil {
-		return path.Empty
-	}
 	return o.Glyphs[gid].Path()
 }
 
@@ -200,7 +199,7 @@ func (g *Glyph) Path() path.Path {
 // applied to the glyph outline.  For a CID-keyed font, M must already include
 // the per-FD font matrix; use [Outlines.GlyphMatrix] to compose it.
 //
-// If the glyph is blank, the zero rectangle is returned.
+// For a glyph which draws nothing, the zero rectangle is returned.
 func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {
 	return o.Path(gid).Transform([6]float64(M)).BBox()
 }
@@ -209,7 +208,7 @@ func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {
 // (1/1000th of a text space unit).
 // The font matrix M is applied to the glyph outline.
 //
-// If the glyph is blank, the zero rectangle is returned.
+// For a glyph which draws nothing, the zero rectangle is returned.
 func (o *Outlines) GlyphBBoxPDF(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 	M = o.GlyphMatrix(M, gid).Mul(matrix.Scale(1000, 1000))
 	return o.GlyphBBox(M, gid)
@@ -248,14 +247,4 @@ func (o *Outlines) GlyphAdvanceScale(top matrix.Matrix, gid glyph.ID) float64 {
 		q -= fm[1] * fm[2] / fm[3]
 	}
 	return q
-}
-
-func (o *Outlines) IsBlank(gid glyph.ID) bool {
-	if len(o.Glyphs) == 0 {
-		return true
-	}
-	if int(gid) >= len(o.Glyphs) {
-		gid = 0 // .notdef
-	}
-	return len(o.Glyphs[gid].Cmds) == 0
 }

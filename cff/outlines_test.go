@@ -137,31 +137,6 @@ func TestPathEmptyGlyph(t *testing.T) {
 	}
 }
 
-// TestPathInvalidGID verifies that invalid glyph IDs produce no path commands.
-func TestPathInvalidGID(t *testing.T) {
-	o := &Outlines{
-		Glyphs: []*Glyph{},
-	}
-
-	var cmds []path.Command
-	for cmd := range o.Path(glyph.ID(999)) {
-		cmds = append(cmds, cmd)
-	}
-
-	if len(cmds) != 0 {
-		t.Errorf("got %d commands for invalid GID, want 0", len(cmds))
-	}
-}
-
-// TestIsBlankEmptyGlyphs verifies that IsBlank does not panic and reports
-// blank for an Outlines with no glyphs (e.g. the zero value).
-func TestIsBlankEmptyGlyphs(t *testing.T) {
-	o := &Outlines{}
-	if !o.IsBlank(5) {
-		t.Error("IsBlank on empty Glyphs should be true")
-	}
-}
-
 // TestGlyphMatrixMissingFD verifies that GlyphMatrix falls back to the
 // supplied top matrix when a malformed CID-keyed font selects an FD that
 // has no per-FD matrix, rather than panicking.
