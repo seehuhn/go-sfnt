@@ -350,6 +350,8 @@ func applyMVAR(out *Font, mv *mvar.Table, norm []variation.F2Dot14) {
 	int16Field(&out.Ascent, "hasc")
 	int16Field(&out.Descent, "hdsc")
 	int16Field(&out.LineGap, "hlgp")
+	int16Field(&out.WinAscent, "hcla")
+	int16Field(&out.WinDescent, "hcld")
 	int16Field(&out.CapHeight, "cpht")
 	int16Field(&out.XHeight, "xhgt")
 	floatField(&out.UnderlinePosition, "undo")

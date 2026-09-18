@@ -440,14 +440,31 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		}
 	}
 
+	if hmtxInfo != nil {
+		info.HheaAscent = hmtxInfo.Ascent
+		info.HheaDescent = hmtxInfo.Descent
+		info.HheaLineGap = hmtxInfo.LineGap
+	}
 	if os2Info != nil {
 		info.Ascent = os2Info.Ascent
 		info.Descent = os2Info.Descent
 		info.LineGap = os2Info.LineGap
+		info.WinAscent = os2Info.WinAscent
+		info.WinDescent = os2Info.WinDescent
 	} else if hmtxInfo != nil {
 		info.Ascent = hmtxInfo.Ascent
 		info.Descent = hmtxInfo.Descent
 		info.LineGap = hmtxInfo.LineGap
+	}
+	if info.HheaAscent == 0 && info.HheaDescent == 0 && info.HheaLineGap == 0 {
+		info.HheaAscent = info.Ascent
+		info.HheaDescent = info.Descent
+		info.HheaLineGap = info.LineGap
+	}
+	if info.WinAscent == 0 && info.WinDescent == 0 {
+		bbox := info.FontBBox()
+		info.WinAscent = clampInt16(math.Ceil(bbox.URy))
+		info.WinDescent = clampInt16(math.Ceil(-bbox.LLy))
 	}
 
 	if os2Info != nil {
