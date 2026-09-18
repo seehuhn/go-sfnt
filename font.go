@@ -166,9 +166,21 @@ type Font struct {
 	UnitsPerEm uint16
 
 	// metrics in font design units (UnitsPerEm)
-	Ascent             funit.Int16
-	Descent            funit.Int16 // negative
-	LineGap            funit.Int16 // LineGap = Leading - Ascent + Descent
+	Ascent  funit.Int16 // typographic ascender from the OS/2 table
+	Descent funit.Int16 // typographic descender from the OS/2 table; negative
+	LineGap funit.Int16 // typographic line gap from the OS/2 table
+
+	// Metrics from the hhea table.  If all three values are zero when writing,
+	// Ascent, Descent and LineGap are used instead.
+	HheaAscent  funit.Int16
+	HheaDescent funit.Int16 // negative
+	HheaLineGap funit.Int16
+
+	// Windows clipping metrics from the OS/2 table.  If both values are zero
+	// when writing, they are derived from the font bounding box.
+	WinAscent  funit.Int16
+	WinDescent funit.Int16 // positive
+
 	CapHeight          funit.Int16
 	XHeight            funit.Int16
 	UnderlinePosition  funit.Float64 // negative

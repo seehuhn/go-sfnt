@@ -340,12 +340,21 @@ func (f *Font) makeHmtx() ([]byte, []byte) {
 		}
 	}
 
+	hheaAscent := f.HheaAscent
+	hheaDescent := f.HheaDescent
+	hheaLineGap := f.HheaLineGap
+	if hheaAscent == 0 && hheaDescent == 0 && hheaLineGap == 0 {
+		hheaAscent = f.Ascent
+		hheaDescent = f.Descent
+		hheaLineGap = f.LineGap
+	}
+
 	hmtxInfo := &hmtx.Info{
 		Widths:       widths,
 		GlyphExtents: extents,
-		Ascent:       f.Ascent,
-		Descent:      f.Descent,
-		LineGap:      f.LineGap,
+		Ascent:       hheaAscent,
+		Descent:      hheaDescent,
+		LineGap:      hheaLineGap,
 		CaretAngle:   f.ItalicAngle / 180 * math.Pi,
 	}
 
@@ -387,11 +396,15 @@ func (f *Font) makeOS2() []byte {
 		}
 	}
 
-	bbox := f.FontBBox()
-	winAscent := clampInt16(math.Ceil(bbox.URy))
-	winDescent := clampInt16(math.Ceil(-bbox.LLy))
-	// TODO(voss): larger values may be needed, if GPOS rules move some
-	// glyphs outside this range.
+	winAscent := f.WinAscent
+	winDescent := f.WinDescent
+	if winAscent == 0 && winDescent == 0 {
+		bbox := f.FontBBox()
+		winAscent = clampInt16(math.Ceil(bbox.URy))
+		winDescent = clampInt16(math.Ceil(-bbox.LLy))
+		// TODO(voss): larger values may be needed, if GPOS rules move some
+		// glyphs outside this range.
+	}
 
 	os2Info := &os2.Info{
 		WeightClass: f.Weight,

@@ -211,6 +211,42 @@ func TestCIDPerFDMatrixRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSubsetPreservesVerticalMetrics checks that subsetting does not replace
+// the hhea or OS/2 Windows metrics with typographic or glyph bounding-box values.
+func TestSubsetPreservesVerticalMetrics(t *testing.T) {
+	font := ttfFixture(t)
+	font.Ascent = 800
+	font.Descent = -200
+	font.LineGap = 40
+	font.HheaAscent = 900
+	font.HheaDescent = -250
+	font.HheaLineGap = 20
+	font.WinAscent = 1000
+	font.WinDescent = 300
+
+	subset, err := font.Subset([]glyph.ID{0, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := writeReadTTF(t, subset)
+
+	if got.Ascent != font.Ascent || got.Descent != font.Descent || got.LineGap != font.LineGap {
+		t.Errorf("typographic metrics = (%d, %d, %d), want (%d, %d, %d)",
+			got.Ascent, got.Descent, got.LineGap,
+			font.Ascent, font.Descent, font.LineGap)
+	}
+	if got.HheaAscent != font.HheaAscent || got.HheaDescent != font.HheaDescent || got.HheaLineGap != font.HheaLineGap {
+		t.Errorf("hhea metrics = (%d, %d, %d), want (%d, %d, %d)",
+			got.HheaAscent, got.HheaDescent, got.HheaLineGap,
+			font.HheaAscent, font.HheaDescent, font.HheaLineGap)
+	}
+	if got.WinAscent != font.WinAscent || got.WinDescent != font.WinDescent {
+		t.Errorf("Windows metrics = (%d, %d), want (%d, %d)",
+			got.WinAscent, got.WinDescent,
+			font.WinAscent, font.WinDescent)
+	}
+}
+
 // TestIsFixedPitchCIDPerFDMatrix checks that IsFixedPitch sees through
 // per-FD font matrices: glyphs whose CFF design-unit widths differ but
 // whose text-space advances are equal must count as fixed pitch.

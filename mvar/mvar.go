@@ -19,8 +19,9 @@
 // https://learn.microsoft.com/en-us/typography/opentype/spec/mvar
 //
 // Of the tags a font may list, this library applies deltas at instancing
-// time for: hasc (Ascent), hdsc (Descent), hlgp (LineGap), cpht (CapHeight),
-// xhgt (XHeight), undo (UnderlinePosition), and unds (UnderlineThickness).
+// time for: hasc (Ascent), hdsc (Descent), hlgp (LineGap), hcla (WinAscent),
+// hcld (WinDescent), cpht (CapHeight), xhgt (XHeight),
+// undo (UnderlinePosition), and unds (UnderlineThickness).
 // All other tags round-trip through [Table] but are not applied, because the
 // corresponding table values are regenerated from Font fields on write.
 // Italic angle is not variable via MVAR: the registered value tags have no
