@@ -88,27 +88,13 @@ func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 		return
 	}
 
-	type p16 struct {
-		x, y funit.Int16
+	stored := rect.Rect{
+		LLx: float64(g.LLx),
+		LLy: float64(g.LLy),
+		URx: float64(g.URx),
+		URy: float64(g.URy),
 	}
-	first := true
-	for _, p := range []p16{{g.LLx, g.LLy}, {g.URx, g.LLy}, {g.URx, g.URy}, {g.LLx, g.URy}} {
-		q := M.Apply(vec.Vec2{X: float64(p.x), Y: float64(p.y)})
-		if first || q.X < bbox.LLx {
-			bbox.LLx = q.X
-		}
-		if first || q.X > bbox.URx {
-			bbox.URx = q.X
-		}
-		if first || q.Y < bbox.LLy {
-			bbox.LLy = q.Y
-		}
-		if first || q.Y > bbox.URy {
-			bbox.URy = q.Y
-		}
-		first = false
-	}
-	return bbox
+	return stored.Transform(M)
 }
 
 // Glyphs contains a slice of TrueType glyph outlines.
