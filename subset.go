@@ -479,6 +479,7 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 	}
 
 	remapContextualLookupIndices(res.LookupList, oldToNew)
+	res.FeatureList = remapFeatureLookupIndices(old.FeatureList, oldToNew)
 
 	return &res
 }
@@ -683,6 +684,7 @@ func (s *subsetter) SubsetGpos(old *gtab.Info) *gtab.Info {
 	}
 
 	remapContextualLookupIndices(res.LookupList, oldToNew)
+	res.FeatureList = remapFeatureLookupIndices(old.FeatureList, oldToNew)
 
 	return &res
 }
