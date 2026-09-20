@@ -24,6 +24,7 @@ import (
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/internal/clamp"
 	"seehuhn.de/go/sfnt/variation"
 )
 
@@ -64,9 +65,9 @@ type ApplyResult struct {
 // ARGS_ARE_XY_VALUES) are adjusted by the rounded component deltas, widening
 // the offset arguments from bytes to words when necessary.  Point-matching
 // components take no offset.  The composite's header bounding box is NOT
-// recomputed here, because it depends on the final child outlines; the caller
-// must instantiate the child glyphs first and recompute composite bounding
-// boxes in a second pass.
+// recomputed here, because it depends on the final child outlines; once every
+// glyph has been instanced, the caller recomputes the composite boxes with
+// [glyf.Glyphs.RecomputeCompositeBBoxes].
 //
 // budget bounds memory use.  workBudget, when non-nil, is decremented by the
 // number of active tuples times the point count; Apply returns ErrWorkLimit
@@ -239,7 +240,7 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 	}
 
 	res := &ApplyResult{
-		Advance: clampUint16(variation.OTRound(float64(aw) + dx[nBase+1] - dx[nBase])),
+		Advance: clamp.Uint16[funit.Uint16](variation.OTRound(float64(aw) + dx[nBase+1] - dx[nBase])),
 	}
 
 	switch {
@@ -248,8 +249,8 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 		for ci := range simple.Contours {
 			for pi := range simple.Contours[ci] {
 				pt := &simple.Contours[ci][pi]
-				pt.X = clampInt16(variation.OTRound(origX[p] + dx[p]))
-				pt.Y = clampInt16(variation.OTRound(origY[p] + dy[p]))
+				pt.X = clamp.Int16[funit.Int16](variation.OTRound(origX[p] + dx[p]))
+				pt.Y = clamp.Int16[funit.Int16](variation.OTRound(origY[p] + dy[p]))
 				p++
 			}
 		}
@@ -313,8 +314,8 @@ func spliceOffset(comp *glyf.GlyphComponent, ddx, ddy int) {
 	trailing := data[argLen:]
 	var buf []byte
 	if words {
-		a1 := int16(clampInt16(float64(arg1)))
-		a2 := int16(clampInt16(float64(arg2)))
+		a1 := int16(min(max(arg1, math.MinInt16), math.MaxInt16))
+		a2 := int16(min(max(arg2, math.MinInt16), math.MaxInt16))
 		buf = make([]byte, 0, 4+len(trailing))
 		buf = append(buf, byte(uint16(a1)>>8), byte(a1), byte(uint16(a2)>>8), byte(a2))
 	} else {
@@ -323,24 +324,4 @@ func spliceOffset(comp *glyf.GlyphComponent, ddx, ddy int) {
 	}
 	buf = append(buf, trailing...)
 	comp.Data = buf
-}
-
-func clampInt16(v float64) funit.Int16 {
-	if v > math.MaxInt16 {
-		return math.MaxInt16
-	}
-	if v < math.MinInt16 {
-		return math.MinInt16
-	}
-	return funit.Int16(v)
-}
-
-func clampUint16(v float64) funit.Uint16 {
-	if v > math.MaxUint16 {
-		return math.MaxUint16
-	}
-	if v < 0 {
-		return 0
-	}
-	return funit.Uint16(v)
 }

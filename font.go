@@ -37,6 +37,7 @@ import (
 	"seehuhn.de/go/sfnt/gvar"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/hvar"
+	"seehuhn.de/go/sfnt/internal/clamp"
 	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
@@ -477,7 +478,7 @@ func (f *Font) glyphHeight(gid glyph.ID) funit.Int16 {
 	if !(h > 0) { // the negated test also rejects NaN
 		return 0
 	}
-	return clampInt16(h)
+	return clamp.Int16[funit.Int16](h)
 }
 
 // measureHeight returns the height of the first of the given characters the

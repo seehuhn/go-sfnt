@@ -85,6 +85,7 @@ func main() {
 
 	// Create the glyphs
 	glyphs := createPythagorasGlyphs()
+	glyphs.RecomputeCompositeBBoxes()
 
 	widths := make([]funit.Uint16, len(glyphs))
 	for i := range widths {
@@ -221,13 +222,8 @@ func createPythagorasLevel(k int) *glyf.Glyph {
 		RoundXYToGrid: true,
 	}
 
+	// the bounding box is computed from the components once all levels exist
 	return &glyf.Glyph{
-		Rect16: funit.Rect16{
-			LLx: 0,
-			LLy: 0,
-			URx: squareSize,
-			URy: squareSize,
-		},
 		Data: glyf.CompositeGlyph{
 			Components: []glyf.GlyphComponent{
 				base.Pack(),

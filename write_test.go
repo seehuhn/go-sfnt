@@ -28,7 +28,6 @@ import (
 	"golang.org/x/text/language"
 
 	"seehuhn.de/go/geom/matrix"
-	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
@@ -117,16 +116,6 @@ func TestWriteTrueTypePDFOmitsNamelessPost(t *testing.T) {
 	}
 	if names := dst.Outlines.(*glyf.Outlines).Names; names != nil {
 		t.Errorf("expected nil glyph names, got %d entries", len(names))
-	}
-}
-
-// TestBBoxRect16RoundsOutward checks that rounding a bounding box to the
-// integer type used by the "head" table never shrinks it.
-func TestBBoxRect16RoundsOutward(t *testing.T) {
-	in := rect.Rect{LLx: 0.2, LLy: -0.7, URx: 1.2, URy: 2.3}
-	want := funit.Rect16{LLx: 0, LLy: -1, URx: 2, URy: 3}
-	if got := bboxRect16(in); got != want {
-		t.Errorf("rounded bbox = %v, want %v", got, want)
 	}
 }
 

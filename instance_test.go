@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt"
@@ -568,6 +569,65 @@ func TestInstantiateErrors(t *testing.T) {
 			t.Error("expected an error for CFF outlines")
 		}
 	})
+}
+
+// TestInstantiateCompositeChain instances a font whose composite glyphs form a
+// chain, each level referencing the next one twice.  Expanding such a chain
+// costs exponential time in its depth; recomputing the composite boxes must
+// not.  The depth is far beyond any real font.
+func TestInstantiateCompositeChain(t *testing.T) {
+	const depth = 64
+
+	square := &glyf.SimpleUnpacked{Contours: []glyf.Contour{{
+		{X: 0, Y: 0, OnCurve: true},
+		{X: 100, Y: 0, OnCurve: true},
+		{X: 100, Y: 100, OnCurve: true},
+		{X: 0, Y: 100, OnCurve: true},
+	}}}
+	base := square.AsGlyph()
+
+	glyphs := make(glyf.Glyphs, depth+1)
+	glyphs[depth] = &base
+	for i := depth - 1; i >= 0; i-- {
+		next := glyph.ID(i + 1)
+		glyphs[i] = &glyf.Glyph{
+			Data: glyf.CompositeGlyph{Components: []glyf.GlyphComponent{
+				(&glyf.ComponentUnpacked{Child: next, Trfm: matrix.Matrix{1, 0, 0, 1, 0, 0}}).Pack(),
+				(&glyf.ComponentUnpacked{Child: next, Trfm: matrix.Matrix{1, 0, 0, 1, 10, 0}}).Pack(),
+			}},
+		}
+	}
+
+	f := debug.MakeVarFont()
+	o := *f.Outlines.(*glyf.Outlines)
+	o.Glyphs = glyphs
+	o.Widths = make([]funit.Uint16, len(glyphs))
+	o.Names = nil
+	f.Outlines = &o
+	f.Gvar.PerGlyph = nil // the gvar table stays, with no per-glyph data
+
+	buf := &bytes.Buffer{}
+	if _, err := f.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
+	f, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inst, err := f.Instantiate(map[string]float64{"wght": 700})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := inst.Outlines.(*glyf.Outlines).Glyphs
+	for i := range depth {
+		want := funit.Rect16{URx: funit.Int16(100 + 10*(depth-i)), URy: 100}
+		if got[i].Rect16 != want {
+			t.Errorf("glyph %d: bbox = %+v, want %+v", i, got[i].Rect16, want)
+		}
+	}
 }
 
 // FuzzInstantiate feeds arbitrary sfnt data through Read and, for variable

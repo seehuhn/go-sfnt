@@ -25,7 +25,6 @@ import (
 	"math"
 	"time"
 
-	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/cff"
@@ -35,6 +34,7 @@ import (
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
+	"seehuhn.de/go/sfnt/internal/clamp"
 	"seehuhn.de/go/sfnt/maxp"
 	"seehuhn.de/go/sfnt/name"
 	"seehuhn.de/go/sfnt/os2"
@@ -287,18 +287,6 @@ func (f *Font) checkUnitsPerEm() error {
 	return nil
 }
 
-// bboxRect16 rounds a design-unit bounding box outwards to the integer type
-// used by the "head" table, so that the stored box still contains every glyph.
-func bboxRect16(b rect.Rect) funit.Rect16 {
-	b = b.Rounded()
-	return funit.Rect16{
-		LLx: clampInt16(b.LLx),
-		LLy: clampInt16(b.LLy),
-		URx: clampInt16(b.URx),
-		URy: clampInt16(b.URy),
-	}
-}
-
 func (f *Font) makeHead(locaFormat int16) []byte {
 	headInfo := head.Info{
 		FontRevision:  f.Version,
@@ -307,7 +295,7 @@ func (f *Font) makeHead(locaFormat int16) []byte {
 		UnitsPerEm:    f.UnitsPerEm,
 		Created:       f.CreationTime,
 		Modified:      f.ModificationTime,
-		FontBBox:      bboxRect16(f.FontBBox()),
+		FontBBox:      clamp.Rect16(f.FontBBox()),
 		IsBold:        f.IsBold,
 		IsItalic:      f.IsItalic,
 		LowestRecPPEM: 7, // TODO(voss)
@@ -388,8 +376,8 @@ func (f *Font) makeOS2() []byte {
 	}
 
 	bbox := f.FontBBox()
-	winAscent := clampInt16(math.Ceil(bbox.URy))
-	winDescent := clampInt16(math.Ceil(-bbox.LLy))
+	winAscent := clamp.Int16[funit.Int16](math.Ceil(bbox.URy))
+	winDescent := clamp.Int16[funit.Int16](math.Ceil(-bbox.LLy))
 	// TODO(voss): larger values may be needed, if GPOS rules move some
 	// glyphs outside this range.
 

@@ -29,6 +29,7 @@ import (
 	"math"
 
 	"seehuhn.de/go/membudget"
+	"seehuhn.de/go/sfnt/internal/clamp"
 	"seehuhn.de/go/sfnt/variation"
 )
 
@@ -196,7 +197,7 @@ func (t *Table) Apply(cvt []byte, coords []variation.F2Dot14) []byte {
 	out := make([]byte, len(cvt))
 	for i := range n {
 		orig := int16(u16(cvt, 2*i))
-		v := clampInt16(variation.OTRound(float64(orig) + deltas[i]))
+		v := clamp.Int16[int16](variation.OTRound(float64(orig) + deltas[i]))
 		out[2*i] = byte(uint16(v) >> 8)
 		out[2*i+1] = byte(uint16(v))
 	}
@@ -204,16 +205,6 @@ func (t *Table) Apply(cvt []byte, coords []variation.F2Dot14) []byte {
 		out[len(out)-1] = cvt[len(cvt)-1]
 	}
 	return out
-}
-
-func clampInt16(v float64) int16 {
-	if v > math.MaxInt16 {
-		return math.MaxInt16
-	}
-	if v < math.MinInt16 {
-		return math.MinInt16
-	}
-	return int16(v)
 }
 
 func u16(b []byte, i int) uint16 {

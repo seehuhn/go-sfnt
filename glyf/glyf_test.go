@@ -82,8 +82,7 @@ func BenchmarkGlyph(b *testing.B) {
 		LocaFormat: 0,
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err = Decode(enc)
 	}
 
@@ -701,6 +700,69 @@ func TestPathExpansionBudget(t *testing.T) {
 	}
 	if numCmds == 0 {
 		t.Error("no commands emitted")
+	}
+}
+
+// TestPathRotatedComponent checks that a component's 2x2 matrix and offset
+// are applied to its outline in the convention of matrix.Matrix.
+func TestPathRotatedComponent(t *testing.T) {
+	rotated := (&ComponentUnpacked{
+		Child: 0,
+		Trfm:  matrix.Rotate(math.Pi/4).Translate(10, 20),
+	}).Pack()
+	composite := &Glyph{Data: CompositeGlyph{Components: []GlyphComponent{rotated}}}
+	o := &Outlines{Glyphs: Glyphs{squareGlyph(100), composite}}
+
+	var pts []vec.Vec2
+	for _, p := range o.Path(1) {
+		pts = append(pts, p...)
+	}
+	if len(pts) < 2 {
+		t.Fatalf("got %d points, want at least 2", len(pts))
+	}
+
+	// the stored matrix entries are quantized to F2Dot14
+	q := 100 * f2dot14ToFloat(floatToF2dot14(math.Cos(math.Pi/4)))
+	want := []vec.Vec2{{X: 10, Y: 20}, {X: 10 + q, Y: 20 + q}}
+	for i, w := range want {
+		if math.Abs(pts[i].X-w.X) > 1e-9 || math.Abs(pts[i].Y-w.Y) > 1e-9 {
+			t.Errorf("point %d: got %v, want %v", i, pts[i], w)
+		}
+	}
+}
+
+// TestPathTruncatedComponent checks that a component whose data is too short
+// for its flags is skipped rather than aborting the outline.
+func TestPathTruncatedComponent(t *testing.T) {
+	truncated := GlyphComponent{Flags: FlagArgsAreXYValues | FlagArg1And2AreWords, Data: []byte{0}}
+	composite := &Glyph{Data: CompositeGlyph{Components: []GlyphComponent{
+		truncated,
+		offsetComponent(0, 150, 0),
+	}}}
+	o := &Outlines{Glyphs: Glyphs{squareGlyph(100), composite}}
+
+	want := []vec.Vec2{{X: 150, Y: 0}}
+	if diff := cmp.Diff(want, contourStarts(o.Path(1))); diff != "" {
+		t.Errorf("wrong contour start points (-want +got):\n%s", diff)
+	}
+}
+
+// TestPathCompositeStop checks that a consumer can stop a composite outline
+// after its first command.
+func TestPathCompositeStop(t *testing.T) {
+	composite := &Glyph{Data: CompositeGlyph{Components: []GlyphComponent{
+		offsetComponent(0, 0, 0),
+		offsetComponent(0, 150, 0),
+	}}}
+	o := &Outlines{Glyphs: Glyphs{squareGlyph(100), composite}}
+
+	n := 0
+	for range o.Path(1) {
+		n++
+		break
+	}
+	if n != 1 {
+		t.Errorf("got %d commands, want 1", n)
 	}
 }
 

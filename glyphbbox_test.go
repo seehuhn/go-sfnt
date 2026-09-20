@@ -26,6 +26,7 @@ import (
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/internal/clamp"
 )
 
 // TestGlyphBBoxDesignUnits checks that GlyphBBox reports a glyph's bounding
@@ -121,7 +122,7 @@ func TestFontBBoxDesignUnits(t *testing.T) {
 // TestFontBBoxIsExactOnDesignGrid checks that glyf outlines, which are drawn
 // on the design grid, are reported without rounding error whatever the units
 // per em.  Scaling through a different grid would leave the coordinates just
-// off an integer, and the outward rounding in bboxRect16 would then grow the
+// off an integer, and the outward rounding in clamp.Rect16 would then grow the
 // stored box by a whole unit.
 func TestFontBBoxIsExactOnDesignGrid(t *testing.T) {
 	want := funit.Rect16{LLx: -37, LLy: -1999, URx: 1801, URy: 1999}
@@ -136,7 +137,7 @@ func TestFontBBoxIsExactOnDesignGrid(t *testing.T) {
 			FontMatrix: emGrid(float64(unitsPerEm)),
 			Outlines:   &glyf.Outlines{Glyphs: glyf.Glyphs{g}},
 		}
-		if got := bboxRect16(f.FontBBox()); got != want {
+		if got := clamp.Rect16(f.FontBBox()); got != want {
 			t.Errorf("unitsPerEm %d: font bbox = %v, want %v",
 				unitsPerEm, got, want)
 		}

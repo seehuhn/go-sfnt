@@ -88,13 +88,7 @@ func (o *Outlines) GlyphBBox(M matrix.Matrix, gid glyph.ID) (bbox rect.Rect) {
 		return
 	}
 
-	stored := rect.Rect{
-		LLx: float64(g.LLx),
-		LLy: float64(g.LLy),
-		URx: float64(g.URx),
-		URy: float64(g.URy),
-	}
-	return stored.Transform(M)
+	return rectOf(g.Rect16).Transform(M)
 }
 
 // Glyphs contains a slice of TrueType glyph outlines.
@@ -344,7 +338,9 @@ func (g *Glyph) append(buf []byte) []byte {
 
 // Path returns the glyph outline.
 // For composite glyphs, this recursively includes all component glyphs
-// with their transformations applied.
+// with their transformations applied, with two exceptions: a component which
+// positions itself by point matching (one without [FlagArgsAreXYValues]) is
+// placed without an offset, and [FlagScaledComponentOffset] is ignored.
 func (o *Outlines) Path(gid glyph.ID) path.Path {
 	if o.Glyphs[gid] == nil { // blank glyph
 		return path.Empty
@@ -419,7 +415,7 @@ func (gg Glyphs) pathRecursive(st *pathState, gid glyph.ID) path.Path {
 			st.onPath[gid] = true
 			defer delete(st.onPath, gid)
 
-			for cmd, pts := range gg.compositePath(st, gid, g) {
+			for cmd, pts := range gg.compositePath(st, g) {
 				if !yield(cmd, pts) {
 					return
 				}
@@ -431,175 +427,22 @@ func (gg Glyphs) pathRecursive(st *pathState, gid glyph.ID) path.Path {
 	}
 }
 
-func (gg Glyphs) compositePath(st *pathState, gid glyph.ID, g CompositeGlyph) path.Path {
+// compositePath draws the components of g in order.
+//
+// TODO(voss): resolve point-matching components.  Unpack leaves their offset
+// at zero, since it depends on the components already placed.
+func (gg Glyphs) compositePath(st *pathState, g CompositeGlyph) path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
-	componentLoop:
 		for _, comp := range g.Components {
-			M := [6]float64{1, 0, 0, 1, 0, 0} // identity matrix
-
-			data := comp.Data
-			offset := 0
-
-			// Helper to safely read int16 from data
-			readInt16 := func() (float64, bool) {
-				if offset+1 >= len(data) {
-					return 0, false
-				}
-				val := uint16(data[offset])<<8 | uint16(data[offset+1])
-				offset += 2
-				return float64(int16(val)), true
+			cu, err := comp.Unpack()
+			if err != nil { // truncated component data
+				continue
 			}
-
-			// Helper to safely read int8 from data
-			readInt8 := func() (float64, bool) {
-				if offset >= len(data) {
-					return 0, false
-				}
-				val := int8(data[offset])
-				offset++
-				return float64(val), true
-			}
-
-			// Read translation/offset
-			if comp.Flags&FlagArgsAreXYValues != 0 {
-				var dx, dy float64
-				var ok bool
-				if comp.Flags&FlagArg1And2AreWords != 0 {
-					// 16-bit offsets
-					if dx, ok = readInt16(); !ok {
-						continue // skip malformed component
-					}
-					if dy, ok = readInt16(); !ok {
-						continue // skip malformed component
-					}
-				} else {
-					// 8-bit offsets
-					if dx, ok = readInt8(); !ok {
-						continue // skip malformed component
-					}
-					if dy, ok = readInt8(); !ok {
-						continue // skip malformed component
-					}
-				}
-				M[4], M[5] = dx, dy
-			} else {
-				// Point matching case - arguments are point indices
-				var ourPointIdx, theirPointIdx uint16
-				var ok bool
-				if comp.Flags&FlagArg1And2AreWords != 0 {
-					// 16-bit point indices
-					val, ok1 := readInt16()
-					if !ok1 {
-						continue // skip malformed component
-					}
-					ourPointIdx = uint16(val)
-					val, ok = readInt16()
-					if !ok {
-						continue // skip malformed component
-					}
-					theirPointIdx = uint16(val)
-				} else {
-					// 8-bit point indices
-					val, ok1 := readInt8()
-					if !ok1 {
-						continue // skip malformed component
-					}
-					ourPointIdx = uint16(val)
-					val, ok = readInt8()
-					if !ok {
-						continue // skip malformed component
-					}
-					theirPointIdx = uint16(val)
-				}
-
-				// Calculate offset from point matching
-				ourPoint, ourOk := gg.getGlyphPoint(gid, ourPointIdx)
-				theirPoint, theirOk := gg.getGlyphPoint(comp.GlyphIndex, theirPointIdx)
-				if ourOk && theirOk {
-					M[4] = ourPoint.X - theirPoint.X
-					M[5] = ourPoint.Y - theirPoint.Y
-				}
-			}
-
-			// Read scaling/transformation
-			switch {
-			case comp.Flags&FlagWeHaveAScale != 0:
-				// Uniform scaling
-				scale, ok := readInt16()
-				if !ok {
-					continue // skip malformed component
-				}
-				scale /= 16384.0
-				M[0], M[3] = scale, scale
-
-			case comp.Flags&FlagWeHaveAnXAndYScale != 0:
-				// Separate X and Y scaling
-				xScale, ok1 := readInt16()
-				yScale, ok2 := readInt16()
-				if !ok1 || !ok2 {
-					continue componentLoop // skip malformed component
-				}
-				M[0] = xScale / 16384.0
-				M[3] = yScale / 16384.0
-
-			case comp.Flags&FlagWeHaveATwoByTwo != 0:
-				// Full 2x2 transformation matrix
-				for i := range 4 {
-					val, ok := readInt16()
-					if !ok {
-						continue componentLoop // skip malformed component
-					}
-					M[i] = val / 16384.0
-				}
-			}
-
-			// Apply transformation to component paths
-			componentPath := gg.pathRecursive(st, comp.GlyphIndex)
-			transformedPath := componentPath.Transform(M)
-			for cmd, pts := range transformedPath {
+			for cmd, pts := range gg.pathRecursive(st, comp.GlyphIndex).Transform(cu.Trfm) {
 				if !yield(cmd, pts) {
 					return
 				}
 			}
 		}
-	}
-}
-
-// getGlyphPoint extracts the coordinates of a specific point from a glyph.
-// Returns the point coordinates and true if successful, or false if the
-// point index is invalid or the glyph cannot be processed.
-func (gg Glyphs) getGlyphPoint(gid glyph.ID, pointIdx uint16) (point struct{ X, Y float64 }, ok bool) {
-	if int(gid) >= len(gg) || gg[gid] == nil {
-		return point, false
-	}
-
-	g := gg[gid]
-	switch gData := g.Data.(type) {
-	case SimpleGlyph:
-		unpacked, err := gData.Unpack()
-		if err != nil {
-			return point, false
-		}
-
-		// Find the point in the contours
-		pointCount := uint16(0)
-		for _, contour := range unpacked.Contours {
-			if pointIdx < pointCount+uint16(len(contour)) {
-				pt := contour[pointIdx-pointCount]
-				return struct{ X, Y float64 }{float64(pt.X), float64(pt.Y)}, true
-			}
-			pointCount += uint16(len(contour))
-		}
-		return point, false
-
-	case CompositeGlyph:
-		// For composite glyphs, we need to collect all points from components
-		// This is more complex as it requires applying transformations.
-
-		// TODO(voss): implement this.
-		return point, false
-
-	default:
-		panic("unexpected glyph type")
 	}
 }

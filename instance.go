@@ -33,6 +33,7 @@ import (
 	"seehuhn.de/go/sfnt/fvar"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/internal/clamp"
 	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
@@ -226,7 +227,7 @@ func instanceGlyf(f *Font, out *Font, outlines *glyf.Outlines, norm []variation.
 			newGlyphs[gid] = res.Glyph
 			phantomAdvances[gid] = res.Advance
 		}
-		recomputeCompositeBBoxes(newGlyphs)
+		newGlyphs.RecomputeCompositeBBoxes()
 	} else {
 		// no gvar table: glyph outlines and advances are unaffected by the
 		// variation coordinates.
@@ -246,7 +247,7 @@ func instanceGlyf(f *Font, out *Font, outlines *glyf.Outlines, norm []variation.
 				if gid < len(outlines.Widths) {
 					base = float64(outlines.Widths[gid])
 				}
-				newWidths[gid] = clampUint16(variation.OTRound(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm)))
+				newWidths[gid] = clamp.Uint16[funit.Uint16](variation.OTRound(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm)))
 			} else {
 				newWidths[gid] = phantomAdvances[gid]
 			}
@@ -339,7 +340,7 @@ func applyMVAR(out *Font, mv *mvar.Table, norm []variation.F2Dot14) {
 	}
 	int16Field := func(field *funit.Int16, tag string) {
 		if d, ok := mv.Delta(tag, norm); ok {
-			*field = clampInt16(variation.OTRound(float64(*field) + d))
+			*field = clamp.Int16[funit.Int16](variation.OTRound(float64(*field) + d))
 		}
 	}
 	floatField := func(field *funit.Float64, tag string) {
@@ -503,133 +504,10 @@ func renderFixed(v float64) string {
 	return strconv.FormatFloat(float64(fixed)/65536, 'f', -1, 64)
 }
 
-// recomputeCompositeBBoxes updates the header bounding box of every composite
-// glyph from its instanced child outlines (gvar.Apply leaves them unchanged).
-func recomputeCompositeBBoxes(glyphs glyf.Glyphs) {
-	for gid := range glyphs {
-		g := glyphs[gid]
-		if g == nil {
-			continue
-		}
-		if _, ok := g.Data.(glyf.CompositeGlyph); !ok {
-			continue
-		}
-		if bbox, ok := compositeBBox(glyphs, glyph.ID(gid), make(map[glyph.ID]bool), 0); ok {
-			g.Rect16 = bbox
-		}
-	}
-}
-
-const maxCompositeDepth = 64
-
-// compositeBBox returns the bounding box of glyph gid, resolving composite
-// components against their instanced children.  seen and depth guard against
-// cyclic or over-deep composite references in malformed fonts.
-func compositeBBox(glyphs glyf.Glyphs, gid glyph.ID, seen map[glyph.ID]bool, depth int) (funit.Rect16, bool) {
-	if int(gid) >= len(glyphs) {
-		return funit.Rect16{}, false
-	}
-	g := glyphs[gid]
-	if g == nil {
-		return funit.Rect16{}, false
-	}
-	cg, ok := g.Data.(glyf.CompositeGlyph)
-	if !ok {
-		return g.Rect16, true // simple glyph: bbox already recomputed
-	}
-	if depth >= maxCompositeDepth || seen[gid] {
-		return g.Rect16, true // cycle or too deep: keep the existing box
-	}
-	seen[gid] = true
-	defer delete(seen, gid)
-
-	var res funit.Rect16
-	first := true
-	for _, comp := range cg.Components {
-		cu, err := comp.Unpack()
-		if err != nil {
-			continue
-		}
-		childBBox, ok := compositeBBox(glyphs, cu.Child, seen, depth+1)
-		if !ok {
-			continue
-		}
-		b := transformRect(cu, childBBox)
-		if first {
-			res = b
-			first = false
-		} else {
-			res.LLx = min(res.LLx, b.LLx)
-			res.LLy = min(res.LLy, b.LLy)
-			res.URx = max(res.URx, b.URx)
-			res.URy = max(res.URy, b.URy)
-		}
-	}
-	if first {
-		return g.Rect16, true // no usable child: keep the existing box
-	}
-	return res, true
-}
-
-// transformRect applies a component's transform to the corners of a child
-// bounding box and returns their axis-aligned bounding box.  Point-matching
-// offsets are not resolved; the transform's translation is used as stored.
-func transformRect(cu *glyf.ComponentUnpacked, r funit.Rect16) funit.Rect16 {
-	m := cu.Trfm
-	corners := [4][2]float64{
-		{float64(r.LLx), float64(r.LLy)},
-		{float64(r.URx), float64(r.LLy)},
-		{float64(r.URx), float64(r.URy)},
-		{float64(r.LLx), float64(r.URy)},
-	}
-	var minX, minY, maxX, maxY float64
-	for i, c := range corners {
-		x := m[0]*c[0] + m[2]*c[1] + m[4]
-		y := m[1]*c[0] + m[3]*c[1] + m[5]
-		if i == 0 {
-			minX, maxX, minY, maxY = x, x, y, y
-			continue
-		}
-		minX = math.Min(minX, x)
-		maxX = math.Max(maxX, x)
-		minY = math.Min(minY, y)
-		maxY = math.Max(maxY, y)
-	}
-	return funit.Rect16{
-		LLx: clampInt16(math.Round(minX)),
-		LLy: clampInt16(math.Round(minY)),
-		URx: clampInt16(math.Round(maxX)),
-		URy: clampInt16(math.Round(maxY)),
-	}
-}
-
 func clampFloat(v, lo, hi float64) float64 {
 	return math.Max(lo, math.Min(v, hi))
 }
 
 func clampInt(v, lo, hi int) int {
 	return max(lo, min(v, hi))
-}
-
-func clampInt16(v float64) funit.Int16 {
-	if math.IsNaN(v) {
-		return 0
-	}
-	if v > math.MaxInt16 {
-		return math.MaxInt16
-	}
-	if v < math.MinInt16 {
-		return math.MinInt16
-	}
-	return funit.Int16(v)
-}
-
-func clampUint16(v float64) funit.Uint16 {
-	if v > math.MaxUint16 {
-		return math.MaxUint16
-	}
-	if v < 0 {
-		return 0
-	}
-	return funit.Uint16(v)
 }
