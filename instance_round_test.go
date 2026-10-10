@@ -81,3 +81,51 @@ func TestApplyMVARClippingMetrics(t *testing.T) {
 			out.WinAscent, out.WinDescent)
 	}
 }
+
+// TestApplyMVARHheaSync checks that the hhea metrics follow the typographic
+// metrics when both were equal before instancing, and stay put otherwise.
+func TestApplyMVARHheaSync(t *testing.T) {
+	mv := &mvar.Table{
+		Store: &variation.ItemVariationStore{
+			Regions: []variation.Region{
+				{{Start: 0, Peak: 0x4000, End: 0x4000}},
+			},
+			Data: []*variation.ItemVariationData{
+				{
+					RegionIndexes: []uint16{0},
+					Deltas:        [][]int32{{20}, {-10}, {5}},
+				},
+			},
+		},
+		Records: []mvar.Record{
+			{Tag: "hasc", OuterIndex: 0, InnerIndex: 0},
+			{Tag: "hdsc", OuterIndex: 0, InnerIndex: 1},
+			{Tag: "hlgp", OuterIndex: 0, InnerIndex: 2},
+		},
+	}
+	norm := []variation.F2Dot14{0x4000}
+
+	synced := &Font{
+		Ascent: 1000, Descent: -300, LineGap: 100,
+		HheaAscent: 1000, HheaDescent: -300, HheaLineGap: 100,
+	}
+	applyMVAR(synced, mv, norm)
+	if synced.HheaAscent != 1020 || synced.HheaDescent != -310 || synced.HheaLineGap != 105 {
+		t.Errorf("synced hhea metrics = (%d, %d, %d), want (1020, -310, 105)",
+			synced.HheaAscent, synced.HheaDescent, synced.HheaLineGap)
+	}
+
+	separate := &Font{
+		Ascent: 1000, Descent: -300, LineGap: 100,
+		HheaAscent: 900, HheaDescent: -250, HheaLineGap: 20,
+	}
+	applyMVAR(separate, mv, norm)
+	if separate.Ascent != 1020 || separate.Descent != -310 || separate.LineGap != 105 {
+		t.Errorf("typographic metrics = (%d, %d, %d), want (1020, -310, 105)",
+			separate.Ascent, separate.Descent, separate.LineGap)
+	}
+	if separate.HheaAscent != 900 || separate.HheaDescent != -250 || separate.HheaLineGap != 20 {
+		t.Errorf("separate hhea metrics = (%d, %d, %d), want (900, -250, 20)",
+			separate.HheaAscent, separate.HheaDescent, separate.HheaLineGap)
+	}
+}

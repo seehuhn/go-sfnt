@@ -348,9 +348,20 @@ func applyMVAR(out *Font, mv *mvar.Table, norm []variation.F2Dot14) {
 			*field = funit.Float64(float64(*field) + d)
 		}
 	}
+	// MVAR has no tags for the hhea metrics.  Fonts commonly keep them equal
+	// to the typographic metrics, and then the hhea metrics must follow the
+	// typographic ones, as fontTools does.
+	hheaSynced := out.HheaAscent == out.Ascent &&
+		out.HheaDescent == out.Descent &&
+		out.HheaLineGap == out.LineGap
 	int16Field(&out.Ascent, "hasc")
 	int16Field(&out.Descent, "hdsc")
 	int16Field(&out.LineGap, "hlgp")
+	if hheaSynced {
+		out.HheaAscent = out.Ascent
+		out.HheaDescent = out.Descent
+		out.HheaLineGap = out.LineGap
+	}
 	int16Field(&out.WinAscent, "hcla")
 	int16Field(&out.WinDescent, "hcld")
 	int16Field(&out.CapHeight, "cpht")
