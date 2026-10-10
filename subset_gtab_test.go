@@ -44,6 +44,41 @@ func newSubsetter(keep ...glyph.ID) *subsetter {
 	return s
 }
 
+// TestSubsetGsubFeatureLookups verifies that feature lookup indices follow
+// surviving lookups when the lookup list is compacted.
+func TestSubsetGsubFeatureLookups(t *testing.T) {
+	s := newSubsetter(0, 5, 7)
+	old := &gtab.Info{
+		FeatureList: gtab.FeatureListInfo{
+			{Tag: "drop", Lookups: []gtab.LookupIndex{0}},
+			{Tag: "keep", Lookups: []gtab.LookupIndex{1, 2}},
+			{Tag: "mixd", Lookups: []gtab.LookupIndex{0, 2}},
+		},
+		LookupList: gtab.LookupList{
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gsub1_2{
+				Cov: coverage.Table{99: 0}, SubstituteGlyphIDs: []glyph.ID{199},
+			}}},
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gsub1_2{
+				Cov: coverage.Table{5: 0}, SubstituteGlyphIDs: []glyph.ID{50},
+			}}},
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gsub1_2{
+				Cov: coverage.Table{7: 0}, SubstituteGlyphIDs: []glyph.ID{70},
+			}}},
+		},
+	}
+
+	got := s.SubsetGsub(old)
+	want := [][]gtab.LookupIndex{{}, {0, 1}, {1}}
+	for i, feature := range got.FeatureList {
+		if diff := cmp.Diff(want[i], feature.Lookups, cmpopts.EquateEmpty()); diff != "" {
+			t.Errorf("feature %q lookups (-want +got):\n%s", feature.Tag, diff)
+		}
+	}
+	if diff := cmp.Diff([]gtab.LookupIndex{1, 2}, old.FeatureList[1].Lookups); diff != "" {
+		t.Errorf("source feature modified (-want +got):\n%s", diff)
+	}
+}
+
 func TestSubsetGsub1_2(t *testing.T) {
 	s := newSubsetter(0, 5, 7)
 	old := wrapLookup(1, &gtab.Gsub1_2{
@@ -113,6 +148,41 @@ func TestSubsetGsub4_1Append(t *testing.T) {
 	sub := got.LookupList[0].Subtables[0].(*gtab.Gsub4_1)
 	if len(sub.Cov) != 1 || len(sub.Repl) != 1 || len(sub.Repl[0]) != 1 {
 		t.Errorf("ligature was dropped: %+v", sub)
+	}
+}
+
+// TestSubsetGposFeatureLookups verifies the same lookup compaction for GPOS
+// features as for GSUB features.
+func TestSubsetGposFeatureLookups(t *testing.T) {
+	s := newSubsetter(0, 5, 7)
+	old := &gtab.Info{
+		FeatureList: gtab.FeatureListInfo{
+			{Tag: "drop", Lookups: []gtab.LookupIndex{0}},
+			{Tag: "keep", Lookups: []gtab.LookupIndex{1, 2}},
+			{Tag: "mixd", Lookups: []gtab.LookupIndex{0, 2}},
+		},
+		LookupList: gtab.LookupList{
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gpos1_1{
+				Cov: coverage.Table{99: 0}, Adjust: &gtab.GposValueRecord{XAdvance: 10},
+			}}},
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gpos1_1{
+				Cov: coverage.Table{5: 0}, Adjust: &gtab.GposValueRecord{XAdvance: 20},
+			}}},
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gpos1_1{
+				Cov: coverage.Table{7: 0}, Adjust: &gtab.GposValueRecord{XAdvance: 30},
+			}}},
+		},
+	}
+
+	got := s.SubsetGpos(old)
+	want := [][]gtab.LookupIndex{{}, {0, 1}, {1}}
+	for i, feature := range got.FeatureList {
+		if diff := cmp.Diff(want[i], feature.Lookups, cmpopts.EquateEmpty()); diff != "" {
+			t.Errorf("feature %q lookups (-want +got):\n%s", feature.Tag, diff)
+		}
+	}
+	if diff := cmp.Diff([]gtab.LookupIndex{1, 2}, old.FeatureList[1].Lookups); diff != "" {
+		t.Errorf("source feature modified (-want +got):\n%s", diff)
 	}
 }
 

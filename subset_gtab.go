@@ -394,6 +394,34 @@ func remapSeqLookupActions(actions []gtab.SeqLookup, oldToNew []int) []gtab.SeqL
 	return out
 }
 
+// remapFeatureLookupIndices returns a copy of old with lookup indices updated
+// to refer to the compacted lookup list.  References to removed or invalid
+// lookups are dropped.
+func remapFeatureLookupIndices(old gtab.FeatureListInfo, oldToNew []int) gtab.FeatureListInfo {
+	if old == nil {
+		return nil
+	}
+	res := make(gtab.FeatureListInfo, len(old))
+	for i, oldFeature := range old {
+		if oldFeature == nil {
+			continue
+		}
+		newFeature := *oldFeature
+		newFeature.Lookups = nil
+		for _, oldLookup := range oldFeature.Lookups {
+			if int(oldLookup) >= len(oldToNew) {
+				continue
+			}
+			newLookup := oldToNew[oldLookup]
+			if newLookup >= 0 {
+				newFeature.Lookups = append(newFeature.Lookups, gtab.LookupIndex(newLookup))
+			}
+		}
+		res[i] = &newFeature
+	}
+	return res
+}
+
 // remapContextualLookupIndices walks every contextual subtable in
 // lookupList, replacing each rule's Actions with a remapped copy.  Subtables
 // that are not contextual are left untouched.  The function mutates rule
