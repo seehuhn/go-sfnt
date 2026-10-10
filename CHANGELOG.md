@@ -5,6 +5,114 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.7.5] (2026-10-10)
+
+### Added
+- Variable fonts: `Font.Instantiate` turns a glyf or CFF2 variable font
+  into a static instance at given design coordinates, and
+  `Font.IsVariable`, `VariationAxes` and `NamedInstances` describe the
+  design space.  New packages `fvar`, `avar`, `gvar`, `cvar`, `hvar`,
+  `mvar` and `stat` read and write the variation tables, on top of the
+  shared `variation` package.
+- `Font.Instantiate` applies the `gvar`, `cvar`, `HVAR` and `MVAR`
+  deltas, resolves GSUB/GPOS `FeatureVariations`, turns GDEF/GPOS
+  `VariationIndex` device tables into static values and derives the
+  instance's PostScript name per Adobe TN #5902.  `Font.ConvertCFF2`
+  prepares the outlines of a static CFF2 font for embedding.
+- CFF2 support: reading and writing the `CFF2` table, a CFF2
+  charstring interpreter, the `OutlinesCFF2`/`FontCFF2`/
+  `PrivateCFF2`/`GlyphCFF2` data model, and
+  `OutlinesCFF2.Instance`, which collapses blends at given axis
+  coordinates into static CID-keyed CFF outlines.
+- `gtab`: GSUB/GPOS `FeatureVariations` (format 1.1) are modelled
+  (`Info.Variations`, `VariationsRaw`,
+  `FeatureVariationRecord.Matches`) instead of being dropped on
+  read; `gdef.Table` reads and writes the GDEF 1.3 item variation
+  store (`ItemVarStore`).
+- `cff.FromType1` converts a Type 1 font into a name-keyed CFF font.
+- `Outlines.SetGlyphName` and `Outlines.Clone` (also on
+  `OutlinesCFF2`) replace or clone glyphs without disturbing other
+  fonts that share them.
+- `Font.MaxFontNameLen` and `Font.CheckFontName` report the
+  PostScript-name rule that applies to a font's outlines.
+- `Font` exposes the OS/2 `UnicodeRange` bitfield alongside
+  `CodePageRange`.
+- `glyf.Glyphs.RecomputeCompositeBBoxes` recomputes composite glyph
+  bounding boxes bottom-up.
+
+### Changed
+- `Font.PostScriptName()`, `Font.Subfamily()` and `Font.FullName()`
+  are replaced by stored `FontName`, `Subfamily` and `FullName`
+  fields, repaired on read, instead of a name derived from the
+  family name and style flags; a derived name could not be told
+  apart from one the font actually carried.
+- `Font.Subset` now returns `(*Font, error)` instead of `*Font`: it
+  rejects a variable font (`ErrVariableFont`, instantiate it first)
+  and a font with CFF2 outlines, instead of silently producing a
+  broken subset.
+- `Font.FontBBox` and `Font.GlyphBBox` return `rect.Rect` in font
+  design units instead of `funit.Rect16`, composing the target scale
+  into the font matrix rather than rescaling afterwards; this fixes
+  bounding boxes that previously rounded outward incorrectly for
+  some `UnitsPerEm` values.  `Font.GlyphBBoxes` is removed in favour
+  of the per-glyph accessor, and `GlyphMatrix` joins the `Outlines`
+  interface.
+- CFF and CFF2 writers reject fonts that exceed format limits (more
+  than 65535 glyphs or glyph names, charstrings over 65535 bytes,
+  more than 256 Font DICTs, out-of-range `FDSelect` indices, a
+  name-keyed font without exactly one Private DICT) instead of
+  writing broken output; the CFF2 Private DICT is repaired on read
+  and checked against the same rule on write.
+
+### Removed
+- `Outlines.IsBlank` is removed from the `sfnt.Outlines` interface
+  and its CFF, CFF2 and glyf implementations; callers can test an
+  empty path themselves.
+
+### Fixed
+- TrueType outlines: a contour no longer loses its closing segment or
+  curve segments for some point layouts, and implied on-curve points
+  no longer wrap near the `int16` range.  A composite glyph which uses
+  the same component twice draws it twice, and a component reference
+  outside the font gives a blank glyph instead of a panic.  The
+  `MORE_COMPONENTS` and `WE_HAVE_INSTRUCTIONS` flags are derived on
+  write, and `ComponentFlag.String` no longer recurses infinitely on
+  an unknown flag bit.
+- Composite glyph bounding boxes are recomputed in time linear in the
+  glyph count, instead of exponential in the nesting depth; clamping a `float64` to a
+  fixed-width integer now maps `NaN` to zero on every platform.
+- Subsetting no longer leaves an empty `cmap` table, drops vertical
+  metrics, or leaves feature and lookup indices (including those inside
+  `FeatureVariations`) unremapped in the compacted GSUB/GPOS
+  lookup list.
+- GPOS anchors of lookup types 4, 5 and 6 are pooled like devices,
+  so a large font's anchor arrays stay within reach of an
+  `Offset16`; lookup list encoding also checks each subtable's
+  distance from its own lookup table, not only from the list start,
+  so a subtable placed too far away is no longer truncated silently.
+- `head.UnitsPerEm` outside 16-16384 is repaired from the font
+  matrix on read (falling back to 1000) and refused on write, since
+  an unusable value spreads infinities through every glyph metric.
+- hhea and Windows OS/2 metric fallbacks are shared between `Read`
+  and `Write`, so a round trip no longer changes them, and
+  `Font.Instantiate` carries the MVAR ascender/descender/line-gap
+  deltas over to the hhea fields when they already match the OS/2
+  typographic metrics.
+- `OutlinesCFF2.Path`/`IsBlank` (sharing a bug with the CFF1
+  `Outlines.IsBlank`) no longer panic on a font with no glyphs, and
+  `OutlinesCFF2.GlyphMatrix` no longer discards a single Font DICT's
+  matrix when `FDSelect` is nil.
+- A font whose `hhea` table cannot be read now gets zero advance
+  widths on read instead of `nil`, so a read-write-read cycle
+  agrees with itself.
+- The `post` table is padded on read when it lists fewer glyph
+  names than the font has glyphs; `MakeGlyphNames` ignores
+  out-of-range glyph IDs from `cmap`/GSUB instead of panicking; and
+  a CFF stem hint whose junction no operand can express is rejected
+  instead of being silently clamped.
+- `parser.ReadBytes` returns an error instead of panicking when the
+  requested size exceeds its internal buffer.
+
 ## [v0.7.4] (2026-06-25)
 
 ### Added
