@@ -44,7 +44,6 @@ import (
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
 	"seehuhn.de/go/sfnt/hvar"
-	"seehuhn.de/go/sfnt/internal/clamp"
 	"seehuhn.de/go/sfnt/kern"
 	"seehuhn.de/go/sfnt/maxp"
 	"seehuhn.de/go/sfnt/mvar"
@@ -459,16 +458,9 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		info.Descent = hmtxInfo.Descent
 		info.LineGap = hmtxInfo.LineGap
 	}
-	if info.HheaAscent == 0 && info.HheaDescent == 0 && info.HheaLineGap == 0 {
-		info.HheaAscent = info.Ascent
-		info.HheaDescent = info.Descent
-		info.HheaLineGap = info.LineGap
-	}
-	if info.WinAscent == 0 && info.WinDescent == 0 {
-		bbox := info.FontBBox()
-		info.WinAscent = clamp.Int16[funit.Int16](math.Ceil(bbox.URy))
-		info.WinDescent = clamp.Int16[funit.Int16](math.Ceil(-bbox.LLy))
-	}
+	// make the write-time fallbacks explicit so that a round trip is stable
+	info.HheaAscent, info.HheaDescent, info.HheaLineGap = info.hheaMetrics()
+	info.WinAscent, info.WinDescent = info.winMetrics()
 
 	if os2Info != nil {
 		info.CapHeight = os2Info.CapHeight

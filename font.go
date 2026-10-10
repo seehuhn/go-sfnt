@@ -166,19 +166,22 @@ type Font struct {
 	// from [MinUnitsPerEm] to [MaxUnitsPerEm] can be written to a font file.
 	UnitsPerEm uint16
 
-	// metrics in font design units (UnitsPerEm)
-	Ascent  funit.Int16 // typographic ascender from the OS/2 table
-	Descent funit.Int16 // typographic descender from the OS/2 table; negative
-	LineGap funit.Int16 // typographic line gap from the OS/2 table
+	// Typographic metrics from the OS/2 table, in font design units.
+	// LineGap = Leading - Ascent + Descent.
+	Ascent  funit.Int16
+	Descent funit.Int16 // negative
+	LineGap funit.Int16
 
-	// Metrics from the hhea table.  If all three values are zero when writing,
-	// Ascent, Descent and LineGap are used instead.
+	// Metrics from the hhea table.  Fonts constructed in memory may leave
+	// all three values zero, in which case the typographic metrics are
+	// written in their place.
 	HheaAscent  funit.Int16
 	HheaDescent funit.Int16 // negative
 	HheaLineGap funit.Int16
 
-	// Windows clipping metrics from the OS/2 table.  If both values are zero
-	// when writing, they are derived from the font bounding box.
+	// Windows clipping metrics from the OS/2 table.  Fonts constructed in
+	// memory may leave both values zero, in which case the values are
+	// derived from the font bounding box when writing.
 	WinAscent  funit.Int16
 	WinDescent funit.Int16 // positive
 
@@ -294,6 +297,29 @@ func (f *Font) AsCFF2() *cff.FontCFF2 {
 // boxes.
 func (f *Font) FontBBox() rect.Rect {
 	return f.fontBBox(float64(f.UnitsPerEm))
+}
+
+// hheaMetrics returns the ascent, descent and line gap for the hhea table,
+// falling back to the typographic metrics when the hhea values are unset.
+func (f *Font) hheaMetrics() (ascent, descent, lineGap funit.Int16) {
+	if f.HheaAscent == 0 && f.HheaDescent == 0 && f.HheaLineGap == 0 {
+		return f.Ascent, f.Descent, f.LineGap
+	}
+	return f.HheaAscent, f.HheaDescent, f.HheaLineGap
+}
+
+// winMetrics returns the Windows ascent and descent for the OS/2 table,
+// deriving them from the font bounding box when the values are unset.
+func (f *Font) winMetrics() (ascent, descent funit.Int16) {
+	if f.WinAscent == 0 && f.WinDescent == 0 {
+		// TODO(voss): larger values may be needed, if GPOS rules move some
+		// glyphs outside this range.
+		bbox := f.FontBBox()
+		ascent = clamp.Int16[funit.Int16](math.Ceil(bbox.URy))
+		descent = clamp.Int16[funit.Int16](math.Ceil(-bbox.LLy))
+		return ascent, descent
+	}
+	return f.WinAscent, f.WinDescent
 }
 
 // FontBBoxPDF returns the font bounding box in PDF glyph space units.
