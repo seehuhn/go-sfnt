@@ -26,6 +26,7 @@ import (
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
@@ -209,6 +210,76 @@ func TestCIDPerFDMatrixRoundTrip(t *testing.T) {
 			t.Errorf("gid %d: GlyphWidthPDF = %g, want %g", gid, got, want)
 		}
 	}
+}
+
+// TestSubsetCMap checks that cmap subtables retain mappings for included glyphs,
+// remap their glyph IDs, and survive an OpenType round trip.
+func TestSubsetCMap(t *testing.T) {
+	key4 := cmap.Key{PlatformID: 3, EncodingID: 1}
+	key12 := cmap.Key{PlatformID: 3, EncodingID: 10}
+
+	font := ttfFixture(t)
+	font.CMapTable = cmap.Table{
+		key4: cmap.Format4{
+			'A': 3,
+			'B': 7,
+			'C': 9,
+			'D': 11,
+		}.Encode(0),
+		key12: cmap.Format12{
+			0x1F600: 7,
+			0x1F601: 9,
+			0x1F602: 11,
+		}.Encode(0),
+	}
+
+	subset, err := font.Subset([]glyph.ID{0, 9, 3, 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(t *testing.T, font *Font) {
+		t.Helper()
+		if len(font.CMapTable) != 2 {
+			t.Fatalf("got %d cmap subtables, want 2", len(font.CMapTable))
+		}
+
+		format4, err := font.CMapTable.Get(key4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for char, want := range map[rune]glyph.ID{
+			'A': 2,
+			'B': 3,
+			'C': 1,
+			'D': 0,
+		} {
+			if got := format4.Lookup(char); got != want {
+				t.Errorf("format 4 lookup %U = %d, want %d", char, got, want)
+			}
+		}
+
+		format12, err := font.CMapTable.Get(key12)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for char, want := range map[rune]glyph.ID{
+			0x1F600: 3,
+			0x1F601: 1,
+			0x1F602: 0,
+		} {
+			if got := format12.Lookup(char); got != want {
+				t.Errorf("format 12 lookup %U = %d, want %d", char, got, want)
+			}
+		}
+	}
+
+	t.Run("subset", func(t *testing.T) {
+		check(t, subset)
+	})
+	t.Run("round trip", func(t *testing.T) {
+		check(t, writeReadTTF(t, subset))
+	})
 }
 
 // TestIsFixedPitchCIDPerFDMatrix checks that IsFixedPitch sees through
