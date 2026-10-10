@@ -52,3 +52,32 @@ func TestApplyMVARNegativeHalfTie(t *testing.T) {
 		t.Errorf("Ascent = %d, want 0 (otRound(-0.5)=0); math.Round would give -1", out.Ascent)
 	}
 }
+
+// TestApplyMVARClippingMetrics checks the MVAR tags for OS/2 Windows metrics.
+func TestApplyMVARClippingMetrics(t *testing.T) {
+	mv := &mvar.Table{
+		Store: &variation.ItemVariationStore{
+			Regions: []variation.Region{
+				{{Start: 0, Peak: 0x4000, End: 0x4000}},
+			},
+			Data: []*variation.ItemVariationData{
+				{
+					RegionIndexes: []uint16{0},
+					Deltas:        [][]int32{{20}, {-10}},
+				},
+			},
+		},
+		Records: []mvar.Record{
+			{Tag: "hcla", OuterIndex: 0, InnerIndex: 0},
+			{Tag: "hcld", OuterIndex: 0, InnerIndex: 1},
+		},
+	}
+	out := &Font{WinAscent: 1000, WinDescent: 300}
+
+	applyMVAR(out, mv, []variation.F2Dot14{0x4000})
+
+	if out.WinAscent != 1020 || out.WinDescent != 290 {
+		t.Errorf("Windows metrics = (%d, %d), want (1020, 290)",
+			out.WinAscent, out.WinDescent)
+	}
+}
