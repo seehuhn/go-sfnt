@@ -79,6 +79,46 @@ func TestSubsetGsubFeatureLookups(t *testing.T) {
 	}
 }
 
+// TestSubsetGsubFeatureVariations verifies that lookup indices in
+// FeatureVariations substitutions follow the compacted lookup list.
+func TestSubsetGsubFeatureVariations(t *testing.T) {
+	s := newSubsetter(0, 5, 7)
+	old := &gtab.Info{
+		FeatureList: gtab.FeatureListInfo{
+			{Tag: "rvrn", Lookups: []gtab.LookupIndex{1}},
+		},
+		LookupList: gtab.LookupList{
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gsub1_2{
+				Cov: coverage.Table{99: 0}, SubstituteGlyphIDs: []glyph.ID{199},
+			}}},
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gsub1_2{
+				Cov: coverage.Table{5: 0}, SubstituteGlyphIDs: []glyph.ID{50},
+			}}},
+			{Meta: &gtab.LookupMetaInfo{LookupType: 1}, Subtables: []gtab.Subtable{&gtab.Gsub1_2{
+				Cov: coverage.Table{7: 0}, SubstituteGlyphIDs: []glyph.ID{70},
+			}}},
+		},
+		Variations: []gtab.FeatureVariationRecord{
+			{Substitutions: []gtab.FeatureSubstitution{
+				{FeatureIndex: 0, Lookups: []gtab.LookupIndex{0, 2}},
+			}},
+		},
+	}
+
+	got := s.SubsetGsub(old)
+	want := []gtab.FeatureVariationRecord{
+		{Substitutions: []gtab.FeatureSubstitution{
+			{FeatureIndex: 0, Lookups: []gtab.LookupIndex{1}},
+		}},
+	}
+	if diff := cmp.Diff(want, got.Variations); diff != "" {
+		t.Errorf("variations (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]gtab.LookupIndex{0, 2}, old.Variations[0].Substitutions[0].Lookups); diff != "" {
+		t.Errorf("source variations modified (-want +got):\n%s", diff)
+	}
+}
+
 func TestSubsetGsub1_2(t *testing.T) {
 	s := newSubsetter(0, 5, 7)
 	old := wrapLookup(1, &gtab.Gsub1_2{

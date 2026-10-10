@@ -394,6 +394,22 @@ func remapSeqLookupActions(actions []gtab.SeqLookup, oldToNew []int) []gtab.SeqL
 	return out
 }
 
+// remapLookupIndices returns the lookup indices from old which survive the
+// compaction described by oldToNew, translated to the new lookup list.
+// Removed or invalid lookups are dropped.
+func remapLookupIndices(old []gtab.LookupIndex, oldToNew []int) []gtab.LookupIndex {
+	var res []gtab.LookupIndex
+	for _, oldLookup := range old {
+		if int(oldLookup) >= len(oldToNew) {
+			continue
+		}
+		if newLookup := oldToNew[oldLookup]; newLookup >= 0 {
+			res = append(res, gtab.LookupIndex(newLookup))
+		}
+	}
+	return res
+}
+
 // remapFeatureLookupIndices returns a copy of old with lookup indices updated
 // to refer to the compacted lookup list.  References to removed or invalid
 // lookups are dropped.
@@ -407,17 +423,28 @@ func remapFeatureLookupIndices(old gtab.FeatureListInfo, oldToNew []int) gtab.Fe
 			continue
 		}
 		newFeature := *oldFeature
-		newFeature.Lookups = nil
-		for _, oldLookup := range oldFeature.Lookups {
-			if int(oldLookup) >= len(oldToNew) {
-				continue
-			}
-			newLookup := oldToNew[oldLookup]
-			if newLookup >= 0 {
-				newFeature.Lookups = append(newFeature.Lookups, gtab.LookupIndex(newLookup))
+		newFeature.Lookups = remapLookupIndices(oldFeature.Lookups, oldToNew)
+		res[i] = &newFeature
+	}
+	return res
+}
+
+// remapFeatureVariations returns a copy of old with the lookup indices in
+// every feature substitution updated to refer to the compacted lookup list.
+func remapFeatureVariations(old []gtab.FeatureVariationRecord, oldToNew []int) []gtab.FeatureVariationRecord {
+	if old == nil {
+		return nil
+	}
+	res := make([]gtab.FeatureVariationRecord, len(old))
+	for i, rec := range old {
+		res[i] = rec
+		res[i].Substitutions = make([]gtab.FeatureSubstitution, len(rec.Substitutions))
+		for j, sub := range rec.Substitutions {
+			res[i].Substitutions[j] = gtab.FeatureSubstitution{
+				FeatureIndex: sub.FeatureIndex,
+				Lookups:      remapLookupIndices(sub.Lookups, oldToNew),
 			}
 		}
-		res[i] = &newFeature
 	}
 	return res
 }
