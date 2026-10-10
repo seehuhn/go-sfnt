@@ -19,6 +19,10 @@ package sfnt
 import (
 	"testing"
 
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/hvar"
 	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/variation"
 )
@@ -127,5 +131,42 @@ func TestApplyMVARHheaSync(t *testing.T) {
 	if separate.HheaAscent != 900 || separate.HheaDescent != -250 || separate.HheaLineGap != 20 {
 		t.Errorf("separate hhea metrics = (%d, %d, %d), want (900, -250, 20)",
 			separate.HheaAscent, separate.HheaDescent, separate.HheaLineGap)
+	}
+}
+
+// TestInstanceCFF2HVARHalfTie checks that an HVAR delta of +0.5 is added to
+// the stored "hmtx" width, rather than to a value reconstructed from the
+// design width which may fall just short of it.  At a scale of 0.001 and
+// 1000 units per em, 4007 design units convert back to 4006.9999999999995.
+func TestInstanceCFF2HVARHalfTie(t *testing.T) {
+	f := &Font{
+		UnitsPerEm: 1000,
+		FontMatrix: matrix.Matrix{0.001, 0, 0, 0.001, 0, 0},
+		Hvar: &hvar.Table{
+			Store: &variation.ItemVariationStore{
+				Regions: []variation.Region{
+					{{Start: 0, Peak: 0x4000, End: 0x4000}},
+				},
+				Data: []*variation.ItemVariationData{
+					{RegionIndexes: []uint16{0}, Deltas: [][]int32{{1}}},
+				},
+			},
+		},
+	}
+	outlines := &cff.OutlinesCFF2{
+		Glyphs:   []*cff.GlyphCFF2{{}},
+		Widths:   []float64{4007},
+		Private:  []*cff.PrivateCFF2{{}},
+		FDSelect: func(glyph.ID) int { return 0 },
+	}
+
+	// coord 0.5 against peak 1.0 gives scalar 0.5, so the delta is +0.5
+	out := &Font{}
+	err := instanceCFF2(f, out, outlines, []variation.F2Dot14{0x2000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := out.Outlines.(*cff.Outlines).Glyphs[0].Width; got != 4008 {
+		t.Errorf("advance = %v, want 4008 (otRound(4007.5))", got)
 	}
 }

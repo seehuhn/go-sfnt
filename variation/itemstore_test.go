@@ -179,6 +179,61 @@ func TestItemVariationStoreRoundTrip(t *testing.T) {
 	}
 }
 
+// TestReadRegionsWithoutAxes checks that a region list with regions but no
+// axes is rejected, while an empty one without axes is accepted.
+func TestReadRegionsWithoutAxes(t *testing.T) {
+	store := func(regionCount byte) []byte {
+		return []byte{
+			0x00, 0x01, // format
+			0x00, 0x00, 0x00, 0x08, // variationRegionListOffset = 8
+			0x00, 0x00, // itemVariationDataCount = 0
+			0x00, 0x00, // axisCount = 0
+			0x00, regionCount, // regionCount
+		}
+	}
+
+	p := parser.New(bytes.NewReader(store(3)), parser.NewBudget(12))
+	if _, err := ReadItemVariationStore(p, 0); err == nil {
+		t.Error("regions without axes accepted")
+	}
+
+	s := decodeStore(t, store(0))
+	if s.Regions != nil {
+		t.Errorf("got regions %v, want none", s.Regions)
+	}
+}
+
+// TestReadItemDataWithoutColumns checks that the rows of an
+// ItemVariationData without region columns are dropped, and that the result
+// survives a write/read cycle.
+func TestReadItemDataWithoutColumns(t *testing.T) {
+	data := []byte{
+		0x00, 0x01, // format
+		0x00, 0x00, 0x00, 0x00, // variationRegionListOffset = 0
+		0x00, 0x01, // itemVariationDataCount = 1
+		0x00, 0x00, 0x00, 0x0C, // itemVariationDataOffsets[0] = 12
+
+		// ItemVariationData at offset 12
+		0xFF, 0xFF, // itemCount = 65535
+		0x00, 0x00, // wordDeltaCount = 0
+		0x00, 0x00, // regionIndexCount = 0
+	}
+	s := decodeStore(t, data)
+
+	want := &ItemVariationStore{Data: []*ItemVariationData{{}}}
+	if diff := cmp.Diff(want, s); diff != "" {
+		t.Errorf("store mismatch (-want +got):\n%s", diff)
+	}
+	if got := s.Evaluate(0, 1000, []F2Dot14{f2(0.5)}); got != 0 {
+		t.Errorf("Evaluate = %v, want 0", got)
+	}
+
+	again := decodeStore(t, s.Encode())
+	if diff := cmp.Diff(s, again); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
 func FuzzItemVariationStore(f *testing.F) {
 	f.Add(handStore)
 	f.Add(handStoreLong)

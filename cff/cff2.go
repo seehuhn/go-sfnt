@@ -17,7 +17,6 @@
 package cff
 
 import (
-	"math"
 	"slices"
 
 	"seehuhn.de/go/geom/matrix"
@@ -234,12 +233,7 @@ func (o *OutlinesCFF2) FDMatrix(fd int, top matrix.Matrix) matrix.Matrix {
 //
 // Multiply by 1000 to obtain PDF glyph space units.
 func (o *OutlinesCFF2) GlyphAdvanceScale(top matrix.Matrix, gid glyph.ID) float64 {
-	fm := o.GlyphMatrix(top, gid)
-	q := fm[0]
-	if math.Abs(fm[3]) > 1e-6 {
-		q -= fm[1] * fm[2] / fm[3]
-	}
-	return q
+	return advanceScale(o.GlyphMatrix(top, gid))
 }
 
 // Clone returns a copy of the font which can be modified without changing the

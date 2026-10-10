@@ -298,3 +298,35 @@ func TestWriteCFF2TooManyFontDICTs(t *testing.T) {
 		t.Error("expected an error")
 	}
 }
+
+// fontWithMatrices returns a font with two glyphs and the given font
+// matrices.  If fds is nil the font is name-keyed, otherwise it is CID-keyed
+// with glyph i using FD i.
+func fontWithMatrices(top matrix.Matrix, fds []matrix.Matrix) *Font {
+	f := makeLargeFont(2)
+	f.FontInfo.FontMatrix = top
+	if fds != nil {
+		f.Glyphs[1].Name = ""
+		f.Private = []*type1.PrivateDict{{}, {}}
+		f.FDSelect = func(gid glyph.ID) int { return int(gid) }
+		f.FontMatrices = fds
+		f.ROS = &cid.SystemInfo{Registry: "Test", Ordering: "Test"}
+		f.GIDToCID = []cid.CID{0, 1}
+		f.Encoding = nil
+	}
+	return f
+}
+
+// writeRead writes f and reads it back.
+func writeRead(t *testing.T, f *Font) *Font {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	if err := f.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Read(bytes.NewReader(buf.Bytes()), membudget.New(int64(10*buf.Len())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}

@@ -248,11 +248,9 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			// hmtx widths are in UnitsPerEm.  Convert to CFF2 design units
 			// (which is what OutlinesCFF2.Widths holds) using each glyph's
 			// effective font matrix.
-			for i, w := range hmtxInfo.Widths {
+			for i, h := range hmtxInfo.Widths {
 				q := o.GlyphAdvanceScale(cff2Font.FontMatrix, glyph.ID(i))
-				if d := q * cff2UPM; d != 0 {
-					o.Widths[i] = float64(w) / d
-				}
+				o.Widths[i] = advanceFromHmtx(h, q, cff2UPM)
 			}
 		}
 	case dir.ScalerType == header.ScalerTypeCFF:
@@ -270,26 +268,25 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 
 		if numGlyphs != 0 && len(cffInfo.Glyphs) != numGlyphs {
 			return nil, errors.New("sfnt: cff glyph count mismatch")
-		} else if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
-			// hmtx widths are in UnitsPerEm.  Convert to CFF design units
-			// (which is what cff.Glyph.Width holds) using each glyph's effective
-			// font matrix.  For the typical case (UnitsPerEm == 1/FontMatrix[0])
-			// this is a no-op.
-			upm := deriveUnitsPerEm(cffInfo.Outlines, cffInfo.FontInfo, headInfo)
-			for i, w := range hmtxInfo.Widths {
-				q := cffInfo.Outlines.GlyphAdvanceScale(cffInfo.FontInfo.FontMatrix, glyph.ID(i))
-				if d := q * upm; d != 0 {
-					cffInfo.Glyphs[i].Width = float64(w) / d
-				}
-			}
 		}
 
-		// advance widths are stored unsigned in hmtx; snap a negative
-		// CFF charstring width to zero so it survives a write/read cycle
-		for _, g := range cffInfo.Glyphs {
-			if g.Width < 0 {
-				g.Width = 0
+		// The hmtx table is where an OpenType font keeps its advance widths,
+		// and the writer always stores them there, in units of UnitsPerEm.
+		// Every width is taken through that representation, so that the
+		// widths survive a write/read cycle.  The charstring widths are used
+		// only where the table is missing, as in a font embedded in a PDF
+		// file; one the table cannot hold, a negative one for example, is
+		// dropped.
+		upm := deriveUnitsPerEm(cffInfo.Outlines, cffInfo.FontInfo, headInfo)
+		for i, g := range cffInfo.Glyphs {
+			q := cffInfo.Outlines.GlyphAdvanceScale(cffInfo.FontInfo.FontMatrix, glyph.ID(i))
+			var h funit.Uint16
+			if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
+				h = hmtxInfo.Widths[i]
+			} else {
+				h, _ = hmtxAdvance(g.Width*q, upm)
 			}
+			g.Width = advanceFromHmtx(h, q, upm)
 		}
 	case dir.ScalerType == header.ScalerTypeTrueType, dir.ScalerType == header.ScalerTypeApple:
 		if headInfo == nil {
@@ -793,12 +790,15 @@ func getCFFVersion(fontInfo *type1.FontInfo) (head.Version, bool) {
 // glyph matrix m, a zero matrix standing for "no matrix available".  A value a
 // font file cannot store is skipped, since every glyph metric is measured in
 // these units.  Fallback is the conventional 1000.
+//
+// The result is a whole number, since the widths read are converted using the
+// value the font will be written with.
 func unitsPerEmFrom(headInfo *head.Info, m matrix.Matrix) float64 {
 	if headInfo != nil && validUnitsPerEm(float64(headInfo.UnitsPerEm)) {
 		return float64(headInfo.UnitsPerEm)
 	}
 	if m[0] != 0 && validUnitsPerEm(1/m[0]) {
-		return 1 / m[0]
+		return math.Round(1 / m[0])
 	}
 	return 1000
 }

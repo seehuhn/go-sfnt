@@ -21,6 +21,10 @@ import (
 	"math"
 	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+
+	"seehuhn.de/go/geom/matrix"
 )
 
 // constK returns a regionCount function that reports k regions for every
@@ -515,5 +519,32 @@ func TestEncodeFloatExact(t *testing.T) {
 		if got != x {
 			t.Errorf("%v encoded as % x, read back as %v", x, data, got)
 		}
+	}
+}
+
+// TestFontMatrixNearDefault checks that a font matrix close to the one a
+// reader assumes in the absence of the FontMatrix entry is written out, rather
+// than omitted and read back as the default.  A font with 1001 units per em,
+// for example, has a matrix which differs from the default by only 10^-6.
+func TestFontMatrixNearDefault(t *testing.T) {
+	cases := []struct {
+		name string
+		top  matrix.Matrix
+		fds  []matrix.Matrix
+	}{
+		{"name-keyed", matrix.Scale(1.0/1001, 1.0/1001), nil},
+		{"CID-keyed top", matrix.Scale(1.000001, 1.000001), []matrix.Matrix{matrix.Scale(0.001, 0.001), matrix.Scale(0.001, 0.001)}},
+		{"CID-keyed FD", matrix.Identity, []matrix.Matrix{matrix.Scale(0.001, 0.001), matrix.Scale(1.0/1001, 1.0/1001)}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := writeRead(t, fontWithMatrices(c.top, c.fds))
+			if got.FontInfo.FontMatrix != c.top {
+				t.Errorf("top matrix: got %v, want %v", got.FontInfo.FontMatrix, c.top)
+			}
+			if diff := cmp.Diff(c.fds, got.FontMatrices); diff != "" {
+				t.Errorf("FD matrices (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

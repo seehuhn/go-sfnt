@@ -198,8 +198,11 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 		glyphs[gid] = g
 	}
 
+	fontMatrix := getFontMatrixCFF2(topDict, defaultFontMatrix)
+	repairFontMatrices(&fontMatrix, fontMatrices, defaultFontMatrix, matrix.Identity)
+
 	return &FontCFF2{
-		FontMatrix: getFontMatrixCFF2(topDict, defaultFontMatrix),
+		FontMatrix: fontMatrix,
 		OutlinesCFF2: &OutlinesCFF2{
 			Glyphs:       glyphs,
 			Private:      privates,

@@ -273,24 +273,25 @@ func instanceGlyf(f *Font, out *Font, outlines *glyf.Outlines, norm []variation.
 // receiver) is unchanged, so the rendering transform matches the CFF2 font.
 func instanceCFF2(f *Font, out *Font, outlines *cff.OutlinesCFF2, norm []variation.F2Dot14) error {
 	// advance widths in design units; HVAR overrides the static widths when
-	// present.  outlines.Widths is already in design units (read.go divides
-	// the hmtx width by GlyphAdvanceScale(gid)*UnitsPerEm), but HVAR deltas
-	// are in raw hmtx/UnitsPerEm units, so the delta needs the same
-	// conversion before it can be added to the design-unit base.
+	// present.  outlines.Widths is in design units, but HVAR deltas are in
+	// hmtx (UnitsPerEm) units, so the delta is applied to the hmtx width and
+	// the result, rounded and kept within the hmtx range as for a font with
+	// TrueType outlines, is converted back to design units.
 	var widths []float64
 	if f.Hvar != nil {
 		widths = make([]float64, len(outlines.Glyphs))
 		upm := float64(f.UnitsPerEm)
 		for gid := range widths {
+			q := outlines.GlyphAdvanceScale(f.FontMatrix, glyph.ID(gid))
+			// the hmtx width, rounded as the writer does; for a width read
+			// from a file, this also undoes the conversion error
 			var base float64
 			if gid < len(outlines.Widths) {
-				base = outlines.Widths[gid]
+				base = math.Round(outlines.Widths[gid] * q * upm)
 			}
 			delta := f.Hvar.AdvanceDelta(glyph.ID(gid), norm)
-			if d := outlines.GlyphAdvanceScale(f.FontMatrix, glyph.ID(gid)) * upm; d != 0 {
-				delta /= d
-			}
-			widths[gid] = variation.OTRound(base + delta)
+			h := clamp.Uint16[funit.Uint16](variation.OTRound(base + delta))
+			widths[gid] = advanceFromHmtx(h, q, upm)
 		}
 	}
 

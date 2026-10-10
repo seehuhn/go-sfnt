@@ -60,6 +60,36 @@ func validUnitsPerEm(x float64) bool {
 	return r >= MinUnitsPerEm && r <= MaxUnitsPerEm
 }
 
+// hmtxAdvance returns the value the "hmtx" table stores for an advance width
+// of w text space units, in a font with upm units per em.  The second result
+// is false if the rounded value does not fit the table's unsigned 16-bit
+// field.
+func hmtxAdvance(w, upm float64) (funit.Uint16, bool) {
+	h := math.Round(w * upm)
+	if !(h >= 0 && h <= math.MaxUint16) { // the negated test also rejects NaN
+		return 0, false
+	}
+	return funit.Uint16(h), true
+}
+
+// advanceFromHmtx converts the "hmtx" advance width h of a CFF or CFF2 glyph
+// to the glyph design units the outlines hold.  The glyph's design units map
+// to text space units by the factor q (see [cff.Outlines.GlyphAdvanceScale]),
+// and upm is the units per em of the font.
+//
+// The writer turns the width back into h, and the result is checked against
+// that, so that a font read from a file survives a write/read cycle.  Where
+// the font matrix leaves no design width which the writer would turn into h,
+// the width is dropped and 0 is returned.
+func advanceFromHmtx(h funit.Uint16, q, upm float64) float64 {
+	w := float64(h) / (q * upm)
+	// w*q is the text space width, computed as [Font.WidthsPDF] does
+	if back, ok := hmtxAdvance(w*q, upm); !ok || back != h {
+		return 0
+	}
+	return w
+}
+
 // Outlines represents the glyph data of a TrueType or OpenType font.
 // This must be one of [*glyf.Outlines] or [*cff.Outlines].
 type Outlines interface {

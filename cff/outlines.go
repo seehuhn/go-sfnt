@@ -241,10 +241,55 @@ func (o *Outlines) FDMatrix(fd int, top matrix.Matrix) matrix.Matrix {
 //
 // Multiply by 1000 to obtain PDF glyph space units.
 func (o *Outlines) GlyphAdvanceScale(top matrix.Matrix, gid glyph.ID) float64 {
-	fm := o.GlyphMatrix(top, gid)
+	return advanceScale(o.GlyphMatrix(top, gid))
+}
+
+// advanceScale returns the factor which converts an advance width in glyph
+// design units to text space units, for a glyph whose effective font matrix
+// is fm.
+func advanceScale(fm matrix.Matrix) float64 {
 	q := fm[0]
 	if math.Abs(fm[3]) > 1e-6 {
 		q -= fm[1] * fm[2] / fm[3]
 	}
 	return q
+}
+
+// usableFontMatrix reports whether fm, the effective font matrix of a glyph,
+// has finite entries and a finite advance scale.  Each entry a font file gives
+// is finite, but composing a per-FD matrix with the top-level matrix can
+// overflow, and so can the shear correction in [advanceScale].  A glyph whose
+// matrix fails the test has neither a usable outline nor a usable advance
+// width.
+func usableFontMatrix(fm matrix.Matrix) bool {
+	for _, x := range fm {
+		if math.IsInf(x, 0) || math.IsNaN(x) {
+			return false
+		}
+	}
+	q := advanceScale(fm)
+	return !math.IsInf(q, 0) && !math.IsNaN(q)
+}
+
+// repairFontMatrices replaces font matrices read from a file which leave a
+// glyph without a usable effective font matrix (see [usableFontMatrix]).  The
+// top-level matrix top is composed with each of the per-FD matrices fds, or
+// used on its own if there are none; a matrix which is replaced gets the value
+// a reader assumes when the matrix is absent, topDefault or fdDefault.
+//
+// The top-level matrix is at fault if it fails even with the default per-FD
+// matrix.  Otherwise, a failing composition is the fault of the per-FD matrix.
+func repairFontMatrices(top *matrix.Matrix, fds []matrix.Matrix, topDefault, fdDefault matrix.Matrix) {
+	probe := *top
+	if len(fds) > 0 {
+		probe = fdDefault.Mul(*top)
+	}
+	if !usableFontMatrix(probe) {
+		*top = topDefault
+	}
+	for i, fd := range fds {
+		if !usableFontMatrix(fd.Mul(*top)) {
+			fds[i] = fdDefault
+		}
+	}
 }

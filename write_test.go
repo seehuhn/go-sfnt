@@ -29,6 +29,8 @@ import (
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/postscript/type1"
+	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
@@ -344,4 +346,40 @@ func patchUnitsPerEm(t *testing.T, body []byte, upm uint16) []byte {
 	}
 	binary.BigEndian.PutUint16(res[rec.Offset+18:], upm)
 	return res
+}
+
+// TestWriteRejectsWidth checks that the writer refuses an advance width the
+// "hmtx" table cannot hold, instead of storing a different width.
+func TestWriteRejectsWidth(t *testing.T) {
+	cases := []struct {
+		width float64
+		ok    bool
+	}{
+		{0, true},
+		{500, true},
+		{65535, true},
+		{65535.4, true},
+		{65535.5, false},
+		{-0.4, true},
+		{-0.5, false},
+		{-500, false},
+	}
+	for _, c := range cases {
+		glyphs := []*cff.Glyph{cff.NewGlyph(".notdef", c.width)}
+		font := &Font{
+			FontName:   "Test",
+			UnitsPerEm: 1000,
+			FontMatrix: matrix.Matrix{0.001, 0, 0, 0.001, 0, 0},
+			Outlines: &cff.Outlines{
+				Glyphs:   glyphs,
+				Private:  []*type1.PrivateDict{{}},
+				FDSelect: func(glyph.ID) int { return 0 },
+				Encoding: cff.StandardEncoding(glyphs),
+			},
+		}
+		_, err := font.Write(io.Discard)
+		if (err == nil) != c.ok {
+			t.Errorf("width %g: got error %v, want ok=%v", c.width, err, c.ok)
+		}
+	}
 }

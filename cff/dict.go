@@ -542,23 +542,17 @@ func (d cffDict) setNumber(op dictOp, x float64) {
 	d[op] = []any{numberOperand(x)}
 }
 
+// setFontMatrix stores a FontMatrix operand.  The entry is omitted only for
+// the matrix a reader assumes in its absence, since any other matrix, even one
+// close to it, would not be read back unchanged.
 func (d cffDict) setFontMatrix(op dictOp, fm matrix.Matrix, isCIDKeyed bool) {
-	needed := false
-	for i, xi := range fm {
-		var def float64
-		if isCIDKeyed {
-			def = matrix.Identity[i]
-		} else {
-			def = defaultFontMatrix[i]
-		}
-		// the negated comparison also counts a NaN as needing the entry,
-		// so that the writer refuses it rather than omitting the matrix
-		if !(math.Abs(xi-def) <= 1e-5) {
-			needed = true
-			break
-		}
+	def := defaultFontMatrix
+	if isCIDKeyed {
+		def = matrix.Identity
 	}
-	if !needed {
+	// a NaN compares unequal, so that the writer refuses it rather than
+	// omitting the matrix
+	if fm == def {
 		return
 	}
 

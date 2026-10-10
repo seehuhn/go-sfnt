@@ -49,6 +49,9 @@ type ItemVariationData struct {
 // ReadItemVariationStore reads a format 1 item variation store located at
 // the absolute file position pos.  Allocations are charged against the
 // parser's budget.
+//
+// An ItemVariationData subtable without region columns is read without rows,
+// since its rows carry no deltas.
 func ReadItemVariationStore(p *parser.Parser, pos int64) (*ItemVariationStore, error) {
 	if err := p.SeekPos(pos); err != nil {
 		return nil, err
@@ -121,6 +124,12 @@ func readRegionList(p *parser.Parser, pos int64) ([]Region, error) {
 	}
 	if regionCount == 0 {
 		return nil, nil
+	}
+	// The axis count must match the one in 'fvar', which is at least 1 in a
+	// variable font.  Regions without axes would also occupy no space in the
+	// file, so that their number would not be bounded by the input size.
+	if axisCount == 0 {
+		return nil, errors.New("variation: variation regions without axes")
 	}
 
 	// each region axis is 3 int16 values
@@ -197,6 +206,14 @@ func readItemVariationData(p *parser.Parser, pos int64, regionCount int) (*ItemV
 			return nil, errors.New("variation: region index out of range")
 		}
 		regionIndexes[i] = idx
+	}
+
+	// Rows without columns hold no deltas and occupy no space in the file, so
+	// that their number is not bounded by the input size.  They are dropped:
+	// [ItemVariationStore.Evaluate] yields 0 for a missing row, as it does
+	// for an empty one.
+	if regionIndexCount == 0 {
+		return &ItemVariationData{}, nil
 	}
 
 	wideBytes, narrowBytes := 2, 1

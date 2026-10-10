@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
@@ -214,6 +215,11 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Font, error) {
 	}
 
 	cff.FontInfo.FontMatrix = topDict.getFontMatrix(opFontMatrix, isCIDKeyed)
+	topDefault := defaultFontMatrix
+	if isCIDKeyed {
+		topDefault = matrix.Identity
+	}
+	repairFontMatrices(&cff.FontInfo.FontMatrix, cff.FontMatrices, topDefault, defaultFontMatrix)
 
 	// read the list of glyph names
 	charsetOffs := topDict.getInt(opCharset, 0)
