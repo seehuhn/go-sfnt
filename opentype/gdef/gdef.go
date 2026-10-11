@@ -132,7 +132,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 			}
 		}
 		markGlyphSetCount := uint16(buf[2])<<8 | uint16(buf[3])
-		coverageOffsets, err := membudget.AllocSlice[uint32](p.Budget, int(markGlyphSetCount))
+		coverageOffsets, err := p.Budget.AllocSlice[uint32](int(markGlyphSetCount))
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +143,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 			}
 		}
 
-		table.MarkGlyphSets, err = membudget.AllocSlice[coverage.Set](p.Budget, int(markGlyphSetCount))
+		table.MarkGlyphSets, err = p.Budget.AllocSlice[coverage.Set](int(markGlyphSetCount))
 		if err != nil {
 			return nil, err
 		}

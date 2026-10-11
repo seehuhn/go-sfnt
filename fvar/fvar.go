@@ -113,7 +113,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 	t := &Table{}
 
 	if axisCount > 0 {
-		t.Axes, err = membudget.AllocSlice[Axis](budget, axisCount)
+		t.Axes, err = budget.AllocSlice[Axis](axisCount)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +143,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 	}
 
 	if instanceCount > 0 {
-		t.Instances, err = membudget.AllocSlice[Instance](budget, instanceCount)
+		t.Instances, err = budget.AllocSlice[Instance](instanceCount)
 		if err != nil {
 			return nil, err
 		}
@@ -164,7 +164,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 			PostScriptNameID: noNameID,
 		}
 		if axisCount > 0 {
-			inst.Coordinates, err = membudget.AllocSlice[float64](budget, axisCount)
+			inst.Coordinates, err = budget.AllocSlice[float64](axisCount)
 			if err != nil {
 				return nil, err
 			}

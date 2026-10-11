@@ -169,7 +169,7 @@ func (p *Parser) ReadUint16Slice() ([]uint16, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := membudget.AllocSlice[uint16](p.Budget, int(n))
+	res, err := p.Budget.AllocSlice[uint16](int(n))
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func (p *Parser) ReadUint16Slice() ([]uint16, error) {
 // ReadInt16Slice reads a sequence of n int16 values.  The allocated slice
 // is charged against p.Budget.
 func (p *Parser) ReadInt16Slice(n int) ([]int16, error) {
-	res, err := membudget.AllocSlice[int16](p.Budget, n)
+	res, err := p.Budget.AllocSlice[int16](n)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (p *Parser) ReadBytes(n int) ([]byte, error) {
 // in bufferSize-sized chunks. Use this for file-controlled sizes that may
 // exceed the internal buffer.
 func (p *Parser) ReadBlob(n int) ([]byte, error) {
-	buf, err := membudget.AllocSlice[byte](p.Budget, n)
+	buf, err := p.Budget.AllocSlice[byte](n)
 	if err != nil {
 		return nil, err
 	}

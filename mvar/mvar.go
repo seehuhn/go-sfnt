@@ -114,7 +114,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 	}
 
 	if recordCount > 0 {
-		t.Records, err = membudget.AllocSlice[Record](budget, recordCount)
+		t.Records, err = budget.AllocSlice[Record](recordCount)
 		if err != nil {
 			return nil, err
 		}

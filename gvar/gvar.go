@@ -118,7 +118,7 @@ func Decode(data []byte, budget *membudget.Budget) (*Table, error) {
 		return nil, errShortTable
 	}
 
-	offsets, err := membudget.AllocSlice[int](budget, nOffsets)
+	offsets, err := budget.AllocSlice[int](nOffsets)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func Decode(data []byte, budget *membudget.Budget) (*Table, error) {
 		if sharedTuplesOffset+need > len(data) {
 			return nil, errShortTable
 		}
-		t.SharedTuples, err = membudget.AllocSlice[[]variation.F2Dot14](budget, sharedTupleCount)
+		t.SharedTuples, err = budget.AllocSlice[[]variation.F2Dot14](sharedTupleCount)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +157,7 @@ func Decode(data []byte, budget *membudget.Budget) (*Table, error) {
 			if axisCount == 0 {
 				continue
 			}
-			tup, err := membudget.AllocSlice[variation.F2Dot14](budget, axisCount)
+			tup, err := budget.AllocSlice[variation.F2Dot14](axisCount)
 			if err != nil {
 				return nil, err
 			}
@@ -170,7 +170,7 @@ func Decode(data []byte, budget *membudget.Budget) (*Table, error) {
 	}
 
 	if glyphCount > 0 {
-		t.PerGlyph, err = membudget.AllocSlice[GlyphData](budget, glyphCount)
+		t.PerGlyph, err = budget.AllocSlice[GlyphData](glyphCount)
 		if err != nil {
 			return nil, err
 		}

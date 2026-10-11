@@ -20,7 +20,6 @@ import (
 	"errors"
 	"math"
 
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -70,7 +69,7 @@ func ReadItemVariationStore(p *parser.Parser, pos int64) (*ItemVariationStore, e
 	if err := checkCount(p, dataCount, 4); err != nil {
 		return nil, err
 	}
-	dataOffsets, err := membudget.AllocSlice[uint32](p.Budget, dataCount)
+	dataOffsets, err := p.Budget.AllocSlice[uint32](dataCount)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +91,7 @@ func ReadItemVariationStore(p *parser.Parser, pos int64) (*ItemVariationStore, e
 	if dataCount == 0 {
 		return s, nil
 	}
-	s.Data, err = membudget.AllocSlice[*ItemVariationData](p.Budget, dataCount)
+	s.Data, err = p.Budget.AllocSlice[*ItemVariationData](dataCount)
 	if err != nil {
 		return nil, err
 	}
@@ -140,12 +139,12 @@ func readRegionList(p *parser.Parser, pos int64) ([]Region, error) {
 		return nil, err
 	}
 
-	regions, err := membudget.AllocSlice[Region](p.Budget, regionCount)
+	regions, err := p.Budget.AllocSlice[Region](regionCount)
 	if err != nil {
 		return nil, err
 	}
 	for i := range regions {
-		axes, err := membudget.AllocSlice[RegionAxis](p.Budget, axisCount)
+		axes, err := p.Budget.AllocSlice[RegionAxis](axisCount)
 		if err != nil {
 			return nil, err
 		}
@@ -192,7 +191,7 @@ func readItemVariationData(p *parser.Parser, pos int64, regionCount int) (*ItemV
 	}
 	var regionIndexes []uint16
 	if regionIndexCount > 0 {
-		regionIndexes, err = membudget.AllocSlice[uint16](p.Budget, regionIndexCount)
+		regionIndexes, err = p.Budget.AllocSlice[uint16](regionIndexCount)
 		if err != nil {
 			return nil, err
 		}
@@ -231,7 +230,7 @@ func readItemVariationData(p *parser.Parser, pos int64, regionCount int) (*ItemV
 
 	var deltas [][]int32
 	if itemCount > 0 {
-		deltas, err = membudget.AllocSlice[[]int32](p.Budget, itemCount)
+		deltas, err = p.Budget.AllocSlice[[]int32](itemCount)
 		if err != nil {
 			return nil, err
 		}
@@ -239,7 +238,7 @@ func readItemVariationData(p *parser.Parser, pos int64, regionCount int) (*ItemV
 	for i := range deltas {
 		var row []int32
 		if regionIndexCount > 0 {
-			row, err = membudget.AllocSlice[int32](p.Budget, regionIndexCount)
+			row, err = p.Budget.AllocSlice[int32](regionIndexCount)
 			if err != nil {
 				return nil, err
 			}

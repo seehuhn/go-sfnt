@@ -17,7 +17,6 @@
 package gtab
 
 import (
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/markarray"
@@ -96,7 +95,7 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			Reason:    "GPOS6.1 table too large",
 		}
 	}
-	offsets, err := membudget.AllocSlice[uint16](p.Budget, int(numOffsets))
+	offsets, err := p.Budget.AllocSlice[uint16](int(numOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -107,12 +106,12 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	mark2Array, err := membudget.AllocSlice[[]*anchor.Table](p.Budget, int(mark2Count))
+	mark2Array, err := p.Budget.AllocSlice[[]*anchor.Table](int(mark2Count))
 	if err != nil {
 		return nil, err
 	}
 	for i := range mark2Array {
-		row, err := membudget.AllocSlice[*anchor.Table](p.Budget, markClassCount)
+		row, err := p.Budget.AllocSlice[*anchor.Table](markClassCount)
 		if err != nil {
 			return nil, err
 		}

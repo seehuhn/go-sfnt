@@ -166,7 +166,7 @@ func TestApplyComposite(t *testing.T) {
 		Data:       []byte{b8(3), b8(4)},
 	}
 	composite := &glyf.Glyph{
-		Rect16: funit.Rect16{LLx: 0, LLy: 0, URx: 500, URy: 700},
+		LLx: 0, LLy: 0, URx: 500, URy: 700,
 		Data: glyf.CompositeGlyph{
 			Components: []glyf.GlyphComponent{comp0, comp1, comp2},
 		},
@@ -301,8 +301,8 @@ func TestApplyNegativeHalfTie(t *testing.T) {
 			Data:       []byte{b8(0), b8(0)},
 		}
 		composite := &glyf.Glyph{
-			Rect16: funit.Rect16{LLx: 0, LLy: 0, URx: 500, URy: 700},
-			Data:   glyf.CompositeGlyph{Components: []glyf.GlyphComponent{comp0}},
+			LLx: 0, LLy: 0, URx: 500, URy: 700,
+			Data: glyf.CompositeGlyph{Components: []glyf.GlyphComponent{comp0}},
 		}
 		glyphs := glyf.Glyphs{composite}
 		widths := []funit.Uint16{300}

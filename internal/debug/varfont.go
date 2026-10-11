@@ -107,8 +107,8 @@ func MakeVarFont() *sfnt.Font {
 	}).Pack()
 	comp := &glyf.Glyph{
 		// union of Rect (100,0)-(400,700) and IUP+(300,50) (500,50)-(900,850)
-		Rect16: funit.Rect16{LLx: 100, LLy: 0, URx: 900, URy: 850},
-		Data:   glyf.CompositeGlyph{Components: []glyf.GlyphComponent{comp0, comp1}},
+		LLx: 100, LLy: 0, URx: 900, URy: 850,
+		Data: glyf.CompositeGlyph{Components: []glyf.GlyphComponent{comp0, comp1}},
 	}
 
 	glyphs := glyf.Glyphs{notdef, rect, iup, comp, two, swap}

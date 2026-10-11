@@ -91,7 +91,7 @@ func Decode(data []byte, axisCount, cvtCount int, budget *membudget.Budget) (*Ta
 	// build the block variation.DecodeTupleData expects: it starts at the
 	// tupleVariationCount field and measures dataOffset relative to that
 	// same position, 4 bytes later than the cvar table's own convention.
-	sub, err := membudget.AllocSlice[byte](budget, len(data)-4)
+	sub, err := budget.AllocSlice[byte](len(data) - 4)
 	if err != nil {
 		return nil, err
 	}

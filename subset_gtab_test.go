@@ -331,9 +331,9 @@ func TestSubsetGpos5_1(t *testing.T) {
 		MarkCov: coverage.Table{10: 0, 11: 1, 12: 2},
 		LigCov:  coverage.Table{20: 0, 21: 1},
 		MarkArray: []markarray.Record{
-			{Class: 0, Table: anchor.Table{X: 1, Y: 2}},
-			{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
-			{Class: 0, Table: anchor.Table{X: 5, Y: 6}},
+			{Class: 0, X: 1, Y: 2},
+			{Class: 1, X: 3, Y: 4},
+			{Class: 0, X: 5, Y: 6},
 		},
 		LigArray: [][][]*anchor.Table{
 			// ligature 20: 2 components × 2 mark classes
@@ -393,7 +393,7 @@ func TestSubsetGpos5_1AllMarksDropped(t *testing.T) {
 	old := wrapLookup(5, &gtab.Gpos5_1{
 		MarkCov:   coverage.Table{10: 0},
 		LigCov:    coverage.Table{20: 0},
-		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		MarkArray: []markarray.Record{{Class: 0, X: 1, Y: 2}},
 		LigArray:  [][][]*anchor.Table{{{{X: 3, Y: 4}}}},
 	})
 	got := s.SubsetGpos(old)
@@ -407,7 +407,7 @@ func TestSubsetGpos5_1AllLigsDropped(t *testing.T) {
 	old := wrapLookup(5, &gtab.Gpos5_1{
 		MarkCov:   coverage.Table{10: 0},
 		LigCov:    coverage.Table{20: 0},
-		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		MarkArray: []markarray.Record{{Class: 0, X: 1, Y: 2}},
 		LigArray:  [][][]*anchor.Table{{{{X: 3, Y: 4}}}},
 	})
 	got := s.SubsetGpos(old)

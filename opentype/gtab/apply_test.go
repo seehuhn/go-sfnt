@@ -125,7 +125,7 @@ func TestLigatureMarkToLigature(t *testing.T) {
 		MarkCov: coverage.Table{m: 0},
 		LigCov:  coverage.Table{lig: 0},
 		MarkArray: []markarray.Record{
-			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
+			{Class: 0, X: 5, Y: 5},
 		},
 		LigArray: [][][]*anchor.Table{
 			{

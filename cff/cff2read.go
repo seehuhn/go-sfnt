@@ -185,7 +185,7 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 		}
 	}
 
-	glyphs, err := membudget.AllocSlice[*GlyphCFF2](p.Budget, nGlyphs)
+	glyphs, err := p.Budget.AllocSlice[*GlyphCFF2](nGlyphs)
 	if err != nil {
 		return nil, err
 	}

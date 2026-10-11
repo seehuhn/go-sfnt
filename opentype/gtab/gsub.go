@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"slices"
 
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/parser"
@@ -242,7 +241,7 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 
 	sequenceCount := len(sequenceOffsets)
-	repl, err := membudget.AllocSlice[[]glyph.ID](p.Budget, sequenceCount)
+	repl, err := p.Budget.AllocSlice[[]glyph.ID](sequenceCount)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +390,7 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 
 	alternateSetCount := len(alternateSetOffsets)
-	alt, err := membudget.AllocSlice[[]glyph.ID](p.Budget, alternateSetCount)
+	alt, err := p.Budget.AllocSlice[[]glyph.ID](alternateSetCount)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +403,7 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		if err != nil {
 			return nil, err
 		}
-		alt[i], err = membudget.AllocSlice[glyph.ID](p.Budget, int(glyphCount))
+		alt[i], err = p.Budget.AllocSlice[glyph.ID](int(glyphCount))
 		if err != nil {
 			return nil, err
 		}
@@ -544,7 +543,7 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		ligatureSetOffsets = ligatureSetOffsets[:len(cov)]
 	}
 
-	repl, err := membudget.AllocSlice[[]Ligature](p.Budget, len(ligatureSetOffsets))
+	repl, err := p.Budget.AllocSlice[[]Ligature](len(ligatureSetOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -559,7 +558,7 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			return nil, err
 		}
 
-		repl[i], err = membudget.AllocSlice[Ligature](p.Budget, len(ligatureOffsets))
+		repl[i], err = p.Budget.AllocSlice[Ligature](len(ligatureOffsets))
 		if err != nil {
 			return nil, err
 		}
@@ -582,7 +581,7 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 					Reason:    "ligature with zero component count",
 				}
 			}
-			componentGlyphIDs, err := membudget.AllocSlice[glyph.ID](p.Budget, int(componentCount)-1)
+			componentGlyphIDs, err := p.Budget.AllocSlice[glyph.ID](int(componentCount) - 1)
 			if err != nil {
 				return nil, err
 			}
@@ -798,7 +797,7 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	backtrack, err := membudget.AllocSlice[coverage.Table](p.Budget, len(backtrackCoverageOffsets))
+	backtrack, err := p.Budget.AllocSlice[coverage.Table](len(backtrackCoverageOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -808,7 +807,7 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			return nil, err
 		}
 	}
-	lookahead, err := membudget.AllocSlice[coverage.Table](p.Budget, len(lookaheadCoverageOffsets))
+	lookahead, err := p.Budget.AllocSlice[coverage.Table](len(lookaheadCoverageOffsets))
 	if err != nil {
 		return nil, err
 	}

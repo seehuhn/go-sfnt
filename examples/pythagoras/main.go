@@ -166,12 +166,10 @@ func createSquareGlyph() *glyf.Glyph {
 	}
 
 	return &glyf.Glyph{
-		Rect16: funit.Rect16{
-			LLx: 0,
-			LLy: 0,
-			URx: unitsPerEm,
-			URy: unitsPerEm,
-		},
+		LLx:  0,
+		LLy:  0,
+		URx:  unitsPerEm,
+		URy:  unitsPerEm,
 		Data: squareUnpacked.Pack(),
 	}
 }

@@ -21,7 +21,6 @@ import (
 	"maps"
 	"slices"
 
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/classdef"
@@ -206,7 +205,7 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	coverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	valueFormat := uint16(buf[2])<<8 | uint16(buf[3])
 	valueCount := int(buf[4])<<8 | int(buf[5])
-	valueRecords, err := membudget.AllocSlice[*GposValueRecord](p.Budget, valueCount)
+	valueRecords, err := p.Budget.AllocSlice[*GposValueRecord](valueCount)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +348,7 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	valueFormat2 := uint16(buf[4])<<8 | uint16(buf[5])
 	pairSetCount := int(buf[6])<<8 | int(buf[7])
 
-	pairSetOffsets, err := membudget.AllocSlice[uint16](p.Budget, pairSetCount)
+	pairSetOffsets, err := p.Budget.AllocSlice[uint16](pairSetCount)
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +370,7 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		cov.Prune(len(pairSetOffsets))
 	}
 
-	adjust, err := membudget.AllocSlice[map[glyph.ID]*PairAdjust](p.Budget, len(pairSetOffsets))
+	adjust, err := p.Budget.AllocSlice[map[glyph.ID]*PairAdjust](len(pairSetOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -626,7 +625,7 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			Reason:    "GPOS2.1 table too large",
 		}
 	}
-	records, err := membudget.AllocSlice[*PairAdjust](p.Budget, numRecords)
+	records, err := p.Budget.AllocSlice[*PairAdjust](numRecords)
 	if err != nil {
 		return nil, err
 	}
@@ -659,7 +658,7 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	adjust, err := membudget.AllocSlice[[]*PairAdjust](p.Budget, int(class1Count))
+	adjust, err := p.Budget.AllocSlice[[]*PairAdjust](int(class1Count))
 	if err != nil {
 		return nil, err
 	}
@@ -852,7 +851,7 @@ func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	coverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	entryExitCount := int(buf[2])<<8 | int(buf[3])
 
-	offsets, err := membudget.AllocSlice[uint16](p.Budget, 2*entryExitCount)
+	offsets, err := p.Budget.AllocSlice[uint16](2 * entryExitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -863,7 +862,7 @@ func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	records, err := membudget.AllocSlice[EntryExitRecord](p.Budget, entryExitCount)
+	records, err := p.Budget.AllocSlice[EntryExitRecord](entryExitCount)
 	if err != nil {
 		return nil, err
 	}

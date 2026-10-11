@@ -693,10 +693,8 @@ func (p *parser) readGpos4() *gtab.LookupTable {
 			y := p.readInt16()
 			markArray = append(markArray, markarray.Record{
 				Class: class,
-				Table: anchor.Table{
-					X: x,
-					Y: y,
-				},
+				X:     x,
+				Y:     y,
 			})
 			p.optional(itemSemicolon)
 			p.optional(itemEOL)

@@ -41,7 +41,7 @@ func parsePackedDeltas(r *byteReader, needed int, budget *membudget.Budget) ([]i
 	if needed <= 0 {
 		return nil, nil
 	}
-	deltas, err := membudget.AllocSlice[int32](budget, needed)
+	deltas, err := budget.AllocSlice[int32](needed)
 	if err != nil {
 		return nil, err
 	}

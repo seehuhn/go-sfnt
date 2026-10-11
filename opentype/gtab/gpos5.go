@@ -17,7 +17,6 @@
 package gtab
 
 import (
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/markarray"
@@ -90,7 +89,7 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 	// Array of offsets to LigatureAttach tables.  Offsets are from beginning
 	// of LigatureArray table, ordered by ligatureCoverage index.
-	offsets, err := membudget.AllocSlice[uint16](p.Budget, int(ligCount))
+	offsets, err := p.Budget.AllocSlice[uint16](int(ligCount))
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +100,7 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	ligArray, err := membudget.AllocSlice[[][]*anchor.Table](p.Budget, int(ligCount))
+	ligArray, err := p.Budget.AllocSlice[[][]*anchor.Table](int(ligCount))
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +122,7 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 				Reason:    "GPOS5.1 table too large",
 			}
 		}
-		anchorOffsets, err := membudget.AllocSlice[uint16](p.Budget, int(numAnchorOffsets))
+		anchorOffsets, err := p.Budget.AllocSlice[uint16](int(numAnchorOffsets))
 		if err != nil {
 			return nil, err
 		}
@@ -134,12 +133,12 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			}
 		}
 
-		ligAttach, err := membudget.AllocSlice[[]*anchor.Table](p.Budget, int(componentCount))
+		ligAttach, err := p.Budget.AllocSlice[[]*anchor.Table](int(componentCount))
 		if err != nil {
 			return nil, err
 		}
 		for j := range ligAttach {
-			row, err := membudget.AllocSlice[*anchor.Table](p.Budget, markClassCount)
+			row, err := p.Budget.AllocSlice[*anchor.Table](markClassCount)
 			if err != nil {
 				return nil, err
 			}

@@ -72,7 +72,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Info, error) {
 
 		var names []string
 
-		info.Names, err = membudget.AllocSlice[string](p.Budget, numGlyphs)
+		info.Names, err = p.Budget.AllocSlice[string](numGlyphs)
 		if err != nil {
 			return nil, err
 		}

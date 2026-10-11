@@ -125,7 +125,7 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 	}
 
 	// interpolation weights and the active-tuple work charge
-	scalars, err := membudget.AllocSlice[float64](budget, len(tuples))
+	scalars, err := budget.AllocSlice[float64](len(tuples))
 	if err != nil {
 		return nil, err
 	}
@@ -145,11 +145,11 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 	}
 
 	// accumulated deltas across all tuples
-	dx, err := membudget.AllocSlice[float64](budget, nPoints)
+	dx, err := budget.AllocSlice[float64](nPoints)
 	if err != nil {
 		return nil, err
 	}
-	dy, err := membudget.AllocSlice[float64](budget, nPoints)
+	dy, err := budget.AllocSlice[float64](nPoints)
 	if err != nil {
 		return nil, err
 	}
@@ -157,11 +157,11 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 	// original coordinates, needed for IUP of simple glyphs
 	var origX, origY []float64
 	if simple != nil {
-		origX, err = membudget.AllocSlice[float64](budget, nPoints)
+		origX, err = budget.AllocSlice[float64](nPoints)
 		if err != nil {
 			return nil, err
 		}
-		origY, err = membudget.AllocSlice[float64](budget, nPoints)
+		origY, err = budget.AllocSlice[float64](nPoints)
 		if err != nil {
 			return nil, err
 		}
@@ -180,15 +180,15 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 	var touched []bool
 	for i := range tuples {
 		if scalars[i] != 0 && tuples[i].Points != nil {
-			tdx, err = membudget.AllocSlice[float64](budget, nPoints)
+			tdx, err = budget.AllocSlice[float64](nPoints)
 			if err != nil {
 				return nil, err
 			}
-			tdy, err = membudget.AllocSlice[float64](budget, nPoints)
+			tdy, err = budget.AllocSlice[float64](nPoints)
 			if err != nil {
 				return nil, err
 			}
-			touched, err = membudget.AllocSlice[bool](budget, nPoints)
+			touched, err = budget.AllocSlice[bool](nPoints)
 			if err != nil {
 				return nil, err
 			}

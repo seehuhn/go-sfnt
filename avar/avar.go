@@ -72,7 +72,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 
 	t := &Table{}
 	if axisCount > 0 {
-		t.SegmentMaps, err = membudget.AllocSlice[SegmentMap](budget, axisCount)
+		t.SegmentMaps, err = budget.AllocSlice[SegmentMap](axisCount)
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +89,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 		if n == 0 {
 			continue
 		}
-		seg, err := membudget.AllocSlice[AxisValueMap](budget, n)
+		seg, err := budget.AllocSlice[AxisValueMap](n)
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +116,7 @@ func readRaw(p *parser.Parser, budget *membudget.Budget) (*Table, error) {
 	if size < 0 {
 		return nil, errors.New("avar: negative size")
 	}
-	raw, err := membudget.AllocSlice[byte](budget, int(size))
+	raw, err := budget.AllocSlice[byte](int(size))
 	if err != nil {
 		return nil, err
 	}

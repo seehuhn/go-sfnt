@@ -25,7 +25,6 @@ package device
 import (
 	"fmt"
 
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -93,7 +92,7 @@ func Read(p *parser.Parser, pos int64) (*Table, error) {
 		bitsPerDelta := int(1) << uint(deltaFormat)
 		deltasPerWord := 16 / bitsPerDelta
 		wordsNeeded := (count + deltasPerWord - 1) / deltasPerWord
-		words, err := membudget.AllocSlice[uint16](p.Budget, wordsNeeded)
+		words, err := p.Budget.AllocSlice[uint16](wordsNeeded)
 		if err != nil {
 			return nil, err
 		}
@@ -104,7 +103,7 @@ func Read(p *parser.Parser, pos int64) (*Table, error) {
 			}
 			words[i] = w
 		}
-		deltas, err := membudget.AllocSlice[int8](p.Budget, count)
+		deltas, err := p.Budget.AllocSlice[int8](count)
 		if err != nil {
 			return nil, err
 		}

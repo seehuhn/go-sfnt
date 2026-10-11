@@ -213,12 +213,10 @@ func decodeGlyph(data []byte) (*Glyph, error) {
 	}
 
 	g := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: funit.Int16(data[2])<<8 | funit.Int16(data[3]),
-			LLy: funit.Int16(data[4])<<8 | funit.Int16(data[5]),
-			URx: funit.Int16(data[6])<<8 | funit.Int16(data[7]),
-			URy: funit.Int16(data[8])<<8 | funit.Int16(data[9]),
-		},
+		LLx:  funit.Int16(data[2])<<8 | funit.Int16(data[3]),
+		LLy:  funit.Int16(data[4])<<8 | funit.Int16(data[5]),
+		URx:  funit.Int16(data[6])<<8 | funit.Int16(data[7]),
+		URy:  funit.Int16(data[8])<<8 | funit.Int16(data[9]),
 		Data: glyphData,
 	}
 	return g, nil

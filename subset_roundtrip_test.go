@@ -247,9 +247,9 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 			MarkCov: coverage.Table{10: 0, 11: 1, 12: 2},
 			BaseCov: coverage.Table{20: 0, 21: 1, 22: 2},
 			MarkArray: []markarray.Record{
-				{Class: 0, Table: anchor.Table{X: 1, Y: 2}},
-				{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
-				{Class: 0, Table: anchor.Table{X: 5, Y: 6}},
+				{Class: 0, X: 1, Y: 2},
+				{Class: 1, X: 3, Y: 4},
+				{Class: 0, X: 5, Y: 6},
 			},
 			BaseArray: [][]*anchor.Table{
 				{{X: 10, Y: 11}, {X: 12, Y: 13}},
@@ -267,9 +267,9 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 			MarkCov: coverage.Table{10: 0, 11: 1, 12: 2},
 			LigCov:  coverage.Table{20: 0, 21: 1},
 			MarkArray: []markarray.Record{
-				{Class: 0, Table: anchor.Table{X: 1, Y: 2}},
-				{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
-				{Class: 0, Table: anchor.Table{X: 5, Y: 6}},
+				{Class: 0, X: 1, Y: 2},
+				{Class: 1, X: 3, Y: 4},
+				{Class: 0, X: 5, Y: 6},
 			},
 			LigArray: [][][]*anchor.Table{
 				{
@@ -291,9 +291,9 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 			Mark1Cov: coverage.Table{10: 0, 11: 1, 12: 2},
 			Mark2Cov: coverage.Table{20: 0, 21: 1, 22: 2},
 			Mark1Array: []markarray.Record{
-				{Class: 0, Table: anchor.Table{X: 1, Y: 2}},
-				{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
-				{Class: 0, Table: anchor.Table{X: 5, Y: 6}},
+				{Class: 0, X: 1, Y: 2},
+				{Class: 1, X: 3, Y: 4},
+				{Class: 0, X: 5, Y: 6},
 			},
 			Mark2Array: [][]*anchor.Table{
 				{{X: 10, Y: 11}, {X: 12, Y: 13}},

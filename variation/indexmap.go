@@ -19,7 +19,6 @@ package variation
 import (
 	"errors"
 
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -76,7 +75,7 @@ func ReadDeltaSetIndexMap(p *parser.Parser, pos int64) (*DeltaSetIndexMap, error
 	if mapCount == 0 {
 		return m, nil
 	}
-	m.Map, err = membudget.AllocSlice[uint32](p.Budget, mapCount)
+	m.Map, err = p.Budget.AllocSlice[uint32](mapCount)
 	if err != nil {
 		return nil, err
 	}

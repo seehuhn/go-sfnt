@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/variation"
 )
@@ -124,7 +123,7 @@ func readFeatureVariations(p *parser.Parser, pos int64, numFeatures, numLookups 
 	}
 
 	type rawRecord struct{ cs, fts uint32 }
-	rawRecords, err := membudget.AllocSlice[rawRecord](p.Budget, int(count))
+	rawRecords, err := p.Budget.AllocSlice[rawRecord](int(count))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -139,7 +138,7 @@ func readFeatureVariations(p *parser.Parser, pos int64, numFeatures, numLookups 
 		}
 	}
 
-	result, err := membudget.AllocSlice[FeatureVariationRecord](p.Budget, int(count))
+	result, err := p.Budget.AllocSlice[FeatureVariationRecord](int(count))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,7 +172,7 @@ func readVariationsRaw(p *parser.Parser, pos int64) ([]FeatureVariationRecord, [
 	if n <= 0 {
 		return nil, nil, errors.New("gtab: empty FeatureVariations table")
 	}
-	raw, err := membudget.AllocSlice[byte](p.Budget, int(n))
+	raw, err := p.Budget.AllocSlice[byte](int(n))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -200,7 +199,7 @@ func readConditionSet(p *parser.Parser, pos int64) ([]Condition, error) {
 	if count == 0 {
 		return nil, nil
 	}
-	offsets, err := membudget.AllocSlice[uint32](p.Budget, int(count))
+	offsets, err := p.Budget.AllocSlice[uint32](int(count))
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +209,7 @@ func readConditionSet(p *parser.Parser, pos int64) ([]Condition, error) {
 			return nil, err
 		}
 	}
-	conds, err := membudget.AllocSlice[Condition](p.Budget, int(count))
+	conds, err := p.Budget.AllocSlice[Condition](int(count))
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +273,7 @@ func readFeatureTableSubstitution(p *parser.Parser, pos int64, numFeatures, numL
 		feat uint16
 		off  uint32
 	}
-	rawSubs, err := membudget.AllocSlice[rawSub](p.Budget, int(count))
+	rawSubs, err := p.Budget.AllocSlice[rawSub](int(count))
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +287,7 @@ func readFeatureTableSubstitution(p *parser.Parser, pos int64, numFeatures, numL
 			return nil, err
 		}
 	}
-	result, err := membudget.AllocSlice[FeatureSubstitution](p.Budget, int(count))
+	result, err := p.Budget.AllocSlice[FeatureSubstitution](int(count))
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +343,7 @@ func readAlternateFeature(p *parser.Parser, pos int64) ([]LookupIndex, error) {
 	if count == 0 {
 		return nil, nil
 	}
-	lookups, err := membudget.AllocSlice[LookupIndex](p.Budget, int(count))
+	lookups, err := p.Budget.AllocSlice[LookupIndex](int(count))
 	if err != nil {
 		return nil, err
 	}

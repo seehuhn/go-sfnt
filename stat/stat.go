@@ -174,7 +174,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 			return nil, errors.New("stat: design axes out of bounds")
 		}
 
-		t.DesignAxes, err = membudget.AllocSlice[DesignAxis](budget, designAxisCount)
+		t.DesignAxes, err = budget.AllocSlice[DesignAxis](designAxisCount)
 		if err != nil {
 			return nil, err
 		}
@@ -204,7 +204,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 		if err := p.SeekPos(offsetToAxisValueOffsets); err != nil {
 			return nil, err
 		}
-		offs, err := membudget.AllocSlice[uint16](budget, axisValueCount)
+		offs, err := budget.AllocSlice[uint16](axisValueCount)
 		if err != nil {
 			return nil, err
 		}
@@ -215,7 +215,7 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 			}
 		}
 
-		axisValues, err := membudget.AllocSlice[AxisValue](budget, axisValueCount)
+		axisValues, err := budget.AllocSlice[AxisValue](axisValueCount)
 		if err != nil {
 			return nil, err
 		}
@@ -305,7 +305,7 @@ func readAxisValue(p *parser.Parser, pos int64) (AxisValue, error) {
 		}
 		var values []AxisValueEntry
 		if axisCount > 0 {
-			values, err = membudget.AllocSlice[AxisValueEntry](p.Budget, axisCount)
+			values, err = p.Budget.AllocSlice[AxisValueEntry](axisCount)
 			if err != nil {
 				return nil, err
 			}

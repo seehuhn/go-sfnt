@@ -53,7 +53,7 @@ func parsePackedPoints(r *byteReader, nPoints int, budget *membudget.Budget) ([]
 	if count > r.remaining() {
 		return nil, errShortTupleData
 	}
-	points, err := membudget.AllocSlice[uint16](budget, count)
+	points, err := budget.AllocSlice[uint16](count)
 	if err != nil {
 		return nil, err
 	}

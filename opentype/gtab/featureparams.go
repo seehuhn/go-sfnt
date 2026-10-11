@@ -17,7 +17,6 @@
 package gtab
 
 import (
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -166,7 +165,7 @@ func readFeatureParams(p *parser.Parser, pos int64, tag string) (FeatureParams, 
 		if pos+14+3*int64(charCount) > p.Size() {
 			return nil, nil
 		}
-		chars, err := membudget.AllocSlice[rune](p.Budget, charCount)
+		chars, err := p.Budget.AllocSlice[rune](charCount)
 		if err != nil {
 			return nil, err
 		}

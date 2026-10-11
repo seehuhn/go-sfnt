@@ -130,15 +130,15 @@ func DecodeTupleData(data []byte, axisCount, dims, nPoints int, allowSharedPoint
 		return nil, errShortTupleData
 	}
 
-	tuples, err := membudget.AllocSlice[TupleVariation](budget, count)
+	tuples, err := budget.AllocSlice[TupleVariation](count)
 	if err != nil {
 		return nil, err
 	}
-	sizes, err := membudget.AllocSlice[int](budget, count)
+	sizes, err := budget.AllocSlice[int](count)
 	if err != nil {
 		return nil, err
 	}
-	private, err := membudget.AllocSlice[bool](budget, count)
+	private, err := budget.AllocSlice[bool](count)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +229,7 @@ func readF2Dot14Slice(r *byteReader, n int, budget *membudget.Budget) ([]F2Dot14
 	if n == 0 {
 		return nil, nil
 	}
-	s, err := membudget.AllocSlice[F2Dot14](budget, n)
+	s, err := budget.AllocSlice[F2Dot14](n)
 	if err != nil {
 		return nil, err
 	}

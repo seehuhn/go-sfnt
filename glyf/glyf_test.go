@@ -34,12 +34,10 @@ import (
 
 func TestGlyphBBoxPDF(t *testing.T) {
 	g := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: -16,
-			LLy: -16,
-			URx: 128,
-			URy: 128,
-		},
+		LLx: -16,
+		LLy: -16,
+		URx: 128,
+		URy: 128,
 	}
 	O := &Outlines{
 		Glyphs: []*Glyph{g},
@@ -157,12 +155,10 @@ func TestGlyphPath(t *testing.T) {
 	}
 
 	square := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: 0,
-			LLy: 0,
-			URx: 100,
-			URy: 100,
-		},
+		LLx:  0,
+		LLy:  0,
+		URx:  100,
+		URy:  100,
 		Data: squareUnpacked.Pack(),
 	}
 	comp1 := &ComponentUnpacked{
@@ -179,12 +175,10 @@ func TestGlyphPath(t *testing.T) {
 	}
 
 	composite := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: 0,
-			LLy: 0,
-			URx: 250,
-			URy: 100,
-		},
+		LLx: 0,
+		LLy: 0,
+		URx: 250,
+		URy: 100,
 		Data: CompositeGlyph{
 			Components: []GlyphComponent{
 				comp1.Pack(),
@@ -312,12 +306,10 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 	}
 
 	triangle := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: 0,
-			LLy: 0,
-			URx: 50,
-			URy: 50,
-		},
+		LLx:  0,
+		LLy:  0,
+		URx:  50,
+		URy:  50,
 		Data: triangleUnpacked.Pack(),
 	}
 	compA := &ComponentUnpacked{
@@ -334,12 +326,10 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 	}
 
 	compositeA := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: 0,
-			LLy: 0,
-			URx: 110,
-			URy: 50,
-		},
+		LLx: 0,
+		LLy: 0,
+		URx: 110,
+		URy: 50,
 		Data: CompositeGlyph{
 			Components: []GlyphComponent{
 				compA.Pack(),
@@ -358,12 +348,10 @@ func TestGlyphPathInfiniteLoop(t *testing.T) {
 	}
 
 	compositeB := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: 0,
-			LLy: 0,
-			URx: 100,
-			URy: 110,
-		},
+		LLx: 0,
+		LLy: 0,
+		URx: 100,
+		URy: 110,
 		Data: CompositeGlyph{
 			Components: []GlyphComponent{
 				compB.Pack(),
@@ -407,12 +395,10 @@ func contourStarts(p path.Path) []vec.Vec2 {
 
 func TestGlyphBBoxPDFCoordinates(t *testing.T) {
 	square := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: 100,
-			LLy: 200,
-			URx: 300,
-			URy: 400,
-		},
+		LLx:  100,
+		LLy:  200,
+		URx:  300,
+		URy:  400,
 		Data: nil,
 	}
 
@@ -529,12 +515,10 @@ func TestGlyphBBoxPDFCoordinates(t *testing.T) {
 func TestGlyphBBox(t *testing.T) {
 	// Test that GlyphBBox and GlyphBBoxPDF give consistent results
 	g := &Glyph{
-		Rect16: funit.Rect16{
-			LLx: 100,
-			LLy: 200,
-			URx: 300,
-			URy: 400,
-		},
+		LLx: 100,
+		LLy: 200,
+		URx: 300,
+		URy: 400,
 	}
 	outlines := &Outlines{
 		Glyphs: []*Glyph{g},
@@ -571,8 +555,8 @@ func squareGlyph(side funit.Int16) *Glyph {
 		}},
 	}
 	return &Glyph{
-		Rect16: funit.Rect16{URx: side, URy: side},
-		Data:   unpacked.Pack(),
+		URx: side, URy: side,
+		Data: unpacked.Pack(),
 	}
 }
 
@@ -589,7 +573,7 @@ func offsetComponent(child glyph.ID, dx, dy float64) GlyphComponent {
 // from two copies of a single component.
 func TestPathDuplicateComponent(t *testing.T) {
 	composite := &Glyph{
-		Rect16: funit.Rect16{URx: 250, URy: 100},
+		URx: 250, URy: 100,
 		Data: CompositeGlyph{Components: []GlyphComponent{
 			offsetComponent(0, 0, 0),
 			offsetComponent(0, 150, 0),
@@ -608,13 +592,13 @@ func TestPathDuplicateComponent(t *testing.T) {
 // still drawn twice.
 func TestPathNestedDuplicateComponent(t *testing.T) {
 	inner := &Glyph{
-		Rect16: funit.Rect16{URx: 100, URy: 100},
+		URx: 100, URy: 100,
 		Data: CompositeGlyph{Components: []GlyphComponent{
 			offsetComponent(0, 0, 0),
 		}},
 	}
 	outer := &Glyph{
-		Rect16: funit.Rect16{URx: 250, URy: 100},
+		URx: 250, URy: 100,
 		Data: CompositeGlyph{Components: []GlyphComponent{
 			offsetComponent(1, 0, 0),
 			offsetComponent(1, 150, 0),
@@ -657,7 +641,7 @@ func TestPathCycle(t *testing.T) {
 // outlines reached on the way into it.
 func TestPathCycleWithOutline(t *testing.T) {
 	composite := &Glyph{
-		Rect16: funit.Rect16{URx: 100, URy: 100},
+		URx: 100, URy: 100,
 		Data: CompositeGlyph{Components: []GlyphComponent{
 			offsetComponent(0, 0, 0),
 			offsetComponent(1, 50, 0), // reference back to this glyph
@@ -682,8 +666,8 @@ func TestPathExpansionBudget(t *testing.T) {
 	for i := depth - 1; i >= 0; i-- {
 		next := offsetComponent(glyph.ID(i+1), 0, 0)
 		glyphs[i] = &Glyph{
-			Rect16: funit.Rect16{URx: 100, URy: 100},
-			Data:   CompositeGlyph{Components: []GlyphComponent{next, next}},
+			URx: 100, URy: 100,
+			Data: CompositeGlyph{Components: []GlyphComponent{next, next}},
 		}
 	}
 	o := &Outlines{Glyphs: glyphs}
@@ -771,14 +755,14 @@ func TestPathCompositeStop(t *testing.T) {
 // glyphs are self-consistent.
 func TestDecodeMissingComponent(t *testing.T) {
 	partial := &Glyph{
-		Rect16: funit.Rect16{URx: 100, URy: 100},
+		URx: 100, URy: 100,
 		Data: CompositeGlyph{Components: []GlyphComponent{
 			offsetComponent(0, 0, 0),
 			offsetComponent(99, 150, 0),
 		}},
 	}
 	broken := &Glyph{
-		Rect16: funit.Rect16{URx: 100, URy: 100},
+		URx: 100, URy: 100,
 		Data: CompositeGlyph{Components: []GlyphComponent{
 			offsetComponent(99, 0, 0),
 		}},

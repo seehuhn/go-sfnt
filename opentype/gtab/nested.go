@@ -17,7 +17,6 @@
 package gtab
 
 import (
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
@@ -32,7 +31,7 @@ type SeqLookup struct {
 }
 
 func readNested(p *parser.Parser, seqLookupCount int) ([]SeqLookup, error) {
-	res, err := membudget.AllocSlice[SeqLookup](p.Budget, seqLookupCount)
+	res, err := p.Budget.AllocSlice[SeqLookup](seqLookupCount)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +80,7 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		seqRuleSetOffsets = seqRuleSetOffsets[:len(cov)]
 	}
 
-	rulesOuter, err := membudget.AllocSlice[[]*SeqRule](p.Budget, len(seqRuleSetOffsets))
+	rulesOuter, err := p.Budget.AllocSlice[[]*SeqRule](len(seqRuleSetOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +104,7 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		if err != nil {
 			return nil, err
 		}
-		res.Rules[i], err = membudget.AllocSlice[*SeqRule](p.Budget, len(seqRuleOffsets))
+		res.Rules[i], err = p.Budget.AllocSlice[*SeqRule](len(seqRuleOffsets))
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +126,7 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 				}
 			}
 			seqLookupCount := int(buf[2])<<8 | int(buf[3])
-			inputSequence, err := membudget.AllocSlice[glyph.ID](p.Budget, glyphCount-1)
+			inputSequence, err := p.Budget.AllocSlice[glyph.ID](glyphCount - 1)
 			if err != nil {
 				return nil, err
 			}
@@ -329,7 +328,7 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}
 	seqRuleSetCount := len(classSeqRuleSetOffsets)
 
-	rulesOuter, err := membudget.AllocSlice[[]*ClassSeqRule](p.Budget, seqRuleSetCount)
+	rulesOuter, err := p.Budget.AllocSlice[[]*ClassSeqRule](seqRuleSetCount)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +352,7 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		if err != nil {
 			return nil, err
 		}
-		res.Rules[i], err = membudget.AllocSlice[*ClassSeqRule](p.Budget, len(seqRuleOffsets))
+		res.Rules[i], err = p.Budget.AllocSlice[*ClassSeqRule](len(seqRuleOffsets))
 		if err != nil {
 			return nil, err
 		}
@@ -375,7 +374,7 @@ func readSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 				}
 			}
 			seqLookupCount := int(buf[2])<<8 | int(buf[3])
-			inputSequence, err := membudget.AllocSlice[uint16](p.Budget, glyphCount-1)
+			inputSequence, err := p.Budget.AllocSlice[uint16](glyphCount - 1)
 			if err != nil {
 				return nil, err
 			}
@@ -569,7 +568,7 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 	seqLookupCount := int(buf[2])<<8 | int(buf[3])
-	coverageOffsets, err := membudget.AllocSlice[uint16](p.Budget, glyphCount)
+	coverageOffsets, err := p.Budget.AllocSlice[uint16](glyphCount)
 	if err != nil {
 		return nil, err
 	}
@@ -585,7 +584,7 @@ func readSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	cov, err := membudget.AllocSlice[coverage.Set](p.Budget, glyphCount)
+	cov, err := p.Budget.AllocSlice[coverage.Set](glyphCount)
 	if err != nil {
 		return nil, err
 	}
@@ -726,7 +725,7 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 	total := 6 + 2*len(chainedSeqRuleSetOffsets)
 	total += cov.EncodeLen()
 
-	rules, err := membudget.AllocSlice[[]*ChainedSeqRule](p.Budget, len(chainedSeqRuleSetOffsets))
+	rules, err := p.Budget.AllocSlice[[]*ChainedSeqRule](len(chainedSeqRuleSetOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -754,7 +753,7 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 		}
 		ruleSetSize := 2 + 2*len(chainedSeqRuleOffsets)
 
-		rules[i], err = membudget.AllocSlice[*ChainedSeqRule](p.Budget, len(chainedSeqRuleOffsets))
+		rules[i], err = p.Budget.AllocSlice[*ChainedSeqRule](len(chainedSeqRuleOffsets))
 		if err != nil {
 			return nil, err
 		}
@@ -778,7 +777,7 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 					Reason:    "invalid input glyph count in ChainedSeqContext1",
 				}
 			}
-			inputSequence, err := membudget.AllocSlice[glyph.ID](p.Budget, int(inputGlyphCount)-1)
+			inputSequence, err := p.Budget.AllocSlice[glyph.ID](int(inputGlyphCount) - 1)
 			if err != nil {
 				return nil, err
 			}
@@ -1079,7 +1078,7 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 		chainedClassSeqRuleSetOffsets = chainedClassSeqRuleSetOffsets[:numClasses]
 	}
 
-	rules, err := membudget.AllocSlice[[]*ChainedClassSeqRule](p.Budget, len(chainedClassSeqRuleSetOffsets))
+	rules, err := p.Budget.AllocSlice[[]*ChainedClassSeqRule](len(chainedClassSeqRuleSetOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -1099,7 +1098,7 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 			return nil, err
 		}
 
-		rules[i], err = membudget.AllocSlice[*ChainedClassSeqRule](p.Budget, len(chainedClassSeqRuleOffsets))
+		rules[i], err = p.Budget.AllocSlice[*ChainedClassSeqRule](len(chainedClassSeqRuleOffsets))
 		if err != nil {
 			return nil, err
 		}
@@ -1123,7 +1122,7 @@ func readChainedSeqContext2(p *parser.Parser, subtablePos int64) (Subtable, erro
 					Reason:    "invalid input glyph count in ChainedSeqContext2",
 				}
 			}
-			inputSequence, err := membudget.AllocSlice[uint16](p.Budget, int(inputGlyphCount)-1)
+			inputSequence, err := p.Budget.AllocSlice[uint16](int(inputGlyphCount) - 1)
 			if err != nil {
 				return nil, err
 			}
@@ -1444,7 +1443,7 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 		return nil, err
 	}
 
-	backtrackCov, err := membudget.AllocSlice[coverage.Set](p.Budget, len(backtrackCoverageOffsets))
+	backtrackCov, err := p.Budget.AllocSlice[coverage.Set](len(backtrackCoverageOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -1455,7 +1454,7 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 		}
 	}
 
-	inputCov, err := membudget.AllocSlice[coverage.Set](p.Budget, len(inputCoverageOffsets))
+	inputCov, err := p.Budget.AllocSlice[coverage.Set](len(inputCoverageOffsets))
 	if err != nil {
 		return nil, err
 	}
@@ -1466,7 +1465,7 @@ func readChainedSeqContext3(p *parser.Parser, subtablePos int64) (Subtable, erro
 		}
 	}
 
-	lookaheadCov, err := membudget.AllocSlice[coverage.Set](p.Budget, len(lookaheadCoverageOffsets))
+	lookaheadCov, err := p.Budget.AllocSlice[coverage.Set](len(lookaheadCoverageOffsets))
 	if err != nil {
 		return nil, err
 	}

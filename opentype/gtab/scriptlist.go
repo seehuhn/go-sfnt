@@ -20,7 +20,6 @@ import (
 	"sort"
 
 	"golang.org/x/text/language"
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -189,7 +188,7 @@ func readLangSysTable(p *parser.Parser, pos int64) (*Features, error) {
 		}
 	}
 
-	featureIndices, err := membudget.AllocSlice[FeatureIndex](p.Budget, int(featureIndexCount))
+	featureIndices, err := p.Budget.AllocSlice[FeatureIndex](int(featureIndexCount))
 	if err != nil {
 		return nil, err
 	}

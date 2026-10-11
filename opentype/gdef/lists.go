@@ -19,7 +19,6 @@ package gdef
 import (
 	"fmt"
 
-	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/opentype/coverage"
@@ -50,7 +49,7 @@ func readAttachList(p *parser.Parser, pos int64) (*AttachList, error) {
 	coverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	glyphCount := int(buf[2])<<8 | int(buf[3])
 
-	offsets, err := membudget.AllocSlice[uint16](p.Budget, glyphCount)
+	offsets, err := p.Budget.AllocSlice[uint16](glyphCount)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +70,7 @@ func readAttachList(p *parser.Parser, pos int64) (*AttachList, error) {
 		cov.Prune(len(offsets))
 	}
 
-	points, err := membudget.AllocSlice[[]uint16](p.Budget, len(offsets))
+	points, err := p.Budget.AllocSlice[[]uint16](len(offsets))
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +85,7 @@ func readAttachList(p *parser.Parser, pos int64) (*AttachList, error) {
 		if err != nil {
 			return nil, err
 		}
-		pts, err := membudget.AllocSlice[uint16](p.Budget, int(pointCount))
+		pts, err := p.Budget.AllocSlice[uint16](int(pointCount))
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +183,7 @@ func readLigCaretList(p *parser.Parser, pos int64) (*LigCaretList, error) {
 	coverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	ligGlyphCount := int(buf[2])<<8 | int(buf[3])
 
-	offsets, err := membudget.AllocSlice[uint16](p.Budget, ligGlyphCount)
+	offsets, err := p.Budget.AllocSlice[uint16](ligGlyphCount)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +204,7 @@ func readLigCaretList(p *parser.Parser, pos int64) (*LigCaretList, error) {
 		cov.Prune(len(offsets))
 	}
 
-	carets, err := membudget.AllocSlice[[]CaretValue](p.Budget, len(offsets))
+	carets, err := p.Budget.AllocSlice[[]CaretValue](len(offsets))
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +220,7 @@ func readLigCaretList(p *parser.Parser, pos int64) (*LigCaretList, error) {
 		if err != nil {
 			return nil, err
 		}
-		caretOffsets, err := membudget.AllocSlice[uint16](p.Budget, int(caretCount))
+		caretOffsets, err := p.Budget.AllocSlice[uint16](int(caretCount))
 		if err != nil {
 			return nil, err
 		}
@@ -231,7 +230,7 @@ func readLigCaretList(p *parser.Parser, pos int64) (*LigCaretList, error) {
 				return nil, err
 			}
 		}
-		row, err := membudget.AllocSlice[CaretValue](p.Budget, int(caretCount))
+		row, err := p.Budget.AllocSlice[CaretValue](int(caretCount))
 		if err != nil {
 			return nil, err
 		}

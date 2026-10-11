@@ -105,10 +105,8 @@ func TestGpos4_1(t *testing.T) {
 		MarkArray: []markarray.Record{
 			{
 				Class: 0,
-				Table: anchor.Table{
-					X: 1,
-					Y: 2,
-				},
+				X:     1,
+				Y:     2,
 			},
 		},
 		BaseArray: [][]*anchor.Table{
@@ -144,7 +142,7 @@ func TestGpos4_1VariableAnchors(t *testing.T) {
 		MarkCov: coverage.Table{1: 0},
 		BaseCov: coverage.Table{2: 0},
 		MarkArray: []markarray.Record{
-			{Class: 0, Table: anchor.Table{X: 1, Y: 2, ContourPoint: &cp}},
+			{Class: 0, X: 1, Y: 2, ContourPoint: &cp},
 		},
 		BaseArray: [][]*anchor.Table{
 			{{X: 3, Y: 4, XDev: &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1}}},
@@ -217,7 +215,7 @@ func TestGpos4_1Apply(t *testing.T) {
 		MarkCov: coverage.Table{markGID: 0},
 		BaseCov: coverage.Table{baseGID: 0},
 		MarkArray: []markarray.Record{
-			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
+			{Class: 0, X: 5, Y: 5},
 		},
 		BaseArray: [][]*anchor.Table{
 			{{X: 200, Y: 300}}, // base index 0, class 0
@@ -261,8 +259,8 @@ func TestGpos5_1(t *testing.T) {
 		MarkCov: coverage.Table{10: 0, 11: 1},
 		LigCov:  coverage.Table{20: 0, 21: 1},
 		MarkArray: []markarray.Record{
-			{Class: 0, Table: anchor.Table{X: 1, Y: 2}},
-			{Class: 1, Table: anchor.Table{X: 3, Y: 4}},
+			{Class: 0, X: 1, Y: 2},
+			{Class: 1, X: 3, Y: 4},
 		},
 		LigArray: [][][]*anchor.Table{
 			// ligature 20: two components, two mark classes
@@ -318,7 +316,7 @@ func TestGpos5_1Apply(t *testing.T) {
 		MarkCov: coverage.Table{markGID: 0},
 		LigCov:  coverage.Table{ligGID: 0},
 		MarkArray: []markarray.Record{
-			{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
+			{Class: 0, X: 5, Y: 5},
 		},
 		LigArray: [][][]*anchor.Table{
 			{
@@ -404,7 +402,7 @@ func TestGpos6_1Apply(t *testing.T) {
 			Mark1Cov: coverage.Table{attMark: 0},
 			Mark2Cov: coverage.Table{baseMark: 0},
 			Mark1Array: []markarray.Record{
-				{Class: 0, Table: anchor.Table{X: 5, Y: 5}},
+				{Class: 0, X: 5, Y: 5},
 			},
 			Mark2Array: [][]*anchor.Table{
 				{mark2Anchor}, // mark2 index 0, class 0
@@ -639,24 +637,18 @@ func FuzzGpos4_1(f *testing.F) {
 		MarkArray: []markarray.Record{
 			{
 				Class: 0,
-				Table: anchor.Table{
-					X: -32768,
-					Y: 0,
-				},
+				X:     -32768,
+				Y:     0,
 			},
 			{
 				Class: 1,
-				Table: anchor.Table{
-					X: 32767,
-					Y: 0,
-				},
+				X:     32767,
+				Y:     0,
 			},
 			{
 				Class: 0,
-				Table: anchor.Table{
-					X: -1,
-					Y: 1,
-				},
+				X:     -1,
+				Y:     1,
 			},
 		},
 		BaseArray: [][]*anchor.Table{
@@ -698,24 +690,18 @@ func FuzzGpos5_1(f *testing.F) {
 		MarkArray: []markarray.Record{
 			{
 				Class: 0,
-				Table: anchor.Table{
-					X: -32768,
-					Y: 0,
-				},
+				X:     -32768,
+				Y:     0,
 			},
 			{
 				Class: 1,
-				Table: anchor.Table{
-					X: 32767,
-					Y: 0,
-				},
+				X:     32767,
+				Y:     0,
 			},
 			{
 				Class: 0,
-				Table: anchor.Table{
-					X: -1,
-					Y: 1,
-				},
+				X:     -1,
+				Y:     1,
 			},
 		},
 		// ligatures of one, two and three components; nil entries leave a
@@ -759,24 +745,18 @@ func FuzzGpos6_1(f *testing.F) {
 		Mark1Array: []markarray.Record{
 			{
 				Class: 0,
-				Table: anchor.Table{
-					X: -32768,
-					Y: 0,
-				},
+				X:     -32768,
+				Y:     0,
 			},
 			{
 				Class: 1,
-				Table: anchor.Table{
-					X: 32767,
-					Y: 0,
-				},
+				X:     32767,
+				Y:     0,
 			},
 			{
 				Class: 0,
-				Table: anchor.Table{
-					X: -1,
-					Y: 1,
-				},
+				X:     -1,
+				Y:     1,
 			},
 		},
 		Mark2Array: [][]*anchor.Table{
@@ -810,7 +790,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 		l := &Gpos4_1{
 			MarkCov:   coverage.Table{1: 0},
 			BaseCov:   coverage.Table{2: 0, 3: 1},
-			MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
+			MarkArray: []markarray.Record{{Class: 0, X: 1}},
 			BaseArray: [][]*anchor.Table{
 				{{X: 1}, {X: 2}}, // width 2
 				{{X: 3}},         // width 1 — inconsistent
@@ -823,7 +803,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 		l := &Gpos4_1{
 			MarkCov:   coverage.Table{1: 0},
 			BaseCov:   coverage.Table{2: 0},
-			MarkArray: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
+			MarkArray: []markarray.Record{{Class: 5, X: 1}},
 			BaseArray: [][]*anchor.Table{{{X: 1}}}, // markClassCount = 1
 		}
 		assertPanics(t, func() { _ = l.encodeLen() })
@@ -833,7 +813,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 		l := &Gpos5_1{
 			MarkCov:   coverage.Table{1: 0},
 			LigCov:    coverage.Table{2: 0, 3: 1},
-			MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
+			MarkArray: []markarray.Record{{Class: 0, X: 1}},
 			LigArray: [][][]*anchor.Table{
 				{{{X: 1}, {X: 2}}}, // width 2
 				{{{X: 3}}},         // width 1 — inconsistent
@@ -846,7 +826,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 		l := &Gpos5_1{
 			MarkCov:   coverage.Table{1: 0},
 			LigCov:    coverage.Table{2: 0},
-			MarkArray: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
+			MarkArray: []markarray.Record{{Class: 5, X: 1}},
 			LigArray:  [][][]*anchor.Table{{{{X: 1}}}}, // markClassCount = 1
 		}
 		assertPanics(t, func() { _ = l.encodeLen() })
@@ -856,7 +836,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 		l := &Gpos6_1{
 			Mark1Cov:   coverage.Table{1: 0},
 			Mark2Cov:   coverage.Table{2: 0, 3: 1},
-			Mark1Array: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1}}},
+			Mark1Array: []markarray.Record{{Class: 0, X: 1}},
 			Mark2Array: [][]*anchor.Table{
 				{{X: 1}, {X: 2}}, // width 2
 				{{X: 3}},         // width 1 — inconsistent
@@ -869,7 +849,7 @@ func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
 		l := &Gpos6_1{
 			Mark1Cov:   coverage.Table{1: 0},
 			Mark2Cov:   coverage.Table{2: 0},
-			Mark1Array: []markarray.Record{{Class: 5, Table: anchor.Table{X: 1}}},
+			Mark1Array: []markarray.Record{{Class: 5, X: 1}},
 			Mark2Array: [][]*anchor.Table{{{X: 1}}}, // markClassCount = 1
 		}
 		assertPanics(t, func() { _ = l.encodeLen() })
@@ -1073,7 +1053,7 @@ func TestAnchorPoolDeduplicates(t *testing.T) {
 	l1 := &Gpos4_1{
 		MarkCov:   coverage.Table{1000: 0},
 		BaseCov:   baseCov,
-		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		MarkArray: []markarray.Record{{Class: 0, X: 1, Y: 2}},
 		BaseArray: baseArray,
 	}
 
@@ -1151,7 +1131,7 @@ func TestAnchorPoolDeduplicatesLig(t *testing.T) {
 	l1 := &Gpos5_1{
 		MarkCov:   coverage.Table{1000: 0},
 		LigCov:    coverage.Table{1: 0},
-		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		MarkArray: []markarray.Record{{Class: 0, X: 1, Y: 2}},
 		LigArray:  [][][]*anchor.Table{lig},
 	}
 
@@ -1192,7 +1172,7 @@ func TestAnchorPoolDeduplicatesMark2(t *testing.T) {
 	l1 := &Gpos6_1{
 		Mark1Cov:   coverage.Table{1000: 0},
 		Mark2Cov:   mark2Cov,
-		Mark1Array: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		Mark1Array: []markarray.Record{{Class: 0, X: 1, Y: 2}},
 		Mark2Array: mark2Array,
 	}
 
@@ -1236,7 +1216,7 @@ func TestGpos5_1LigArrayTooLong(t *testing.T) {
 	l := &Gpos5_1{
 		MarkCov:   coverage.Table{60000: 0},
 		LigCov:    ligCov,
-		MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+		MarkArray: []markarray.Record{{Class: 0, X: 1, Y: 2}},
 		LigArray:  ligArray,
 	}
 
@@ -1273,7 +1253,7 @@ func TestPoolsCheckOffsetsWhenSizing(t *testing.T) {
 		l := &Gpos4_1{
 			MarkCov:   coverage.Table{60000: 0},
 			BaseCov:   baseCov,
-			MarkArray: []markarray.Record{{Class: 0, Table: anchor.Table{X: 1, Y: 2}}},
+			MarkArray: []markarray.Record{{Class: 0, X: 1, Y: 2}},
 			BaseArray: baseArray,
 		}
 

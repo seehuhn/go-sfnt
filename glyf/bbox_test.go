@@ -29,8 +29,8 @@ import (
 // so that a test can only pass if the box was recomputed.
 func compositeOf(components ...GlyphComponent) *Glyph {
 	return &Glyph{
-		Rect16: funit.Rect16{LLx: -1, LLy: -1, URx: 1, URy: 1},
-		Data:   CompositeGlyph{Components: components},
+		LLx: -1, LLy: -1, URx: 1, URy: 1,
+		Data: CompositeGlyph{Components: components},
 	}
 }
 
@@ -160,8 +160,8 @@ func TestCompositeBBoxRotated(t *testing.T) {
 // stay exact.
 func TestCompositeBBoxSaturation(t *testing.T) {
 	full := &Glyph{
-		Rect16: funit.Rect16{LLx: -32768, LLy: -32768, URx: 32767, URy: 32767},
-		Data:   SimpleGlyph{NumContours: 0, Encoded: []byte{0, 0}},
+		LLx: -32768, LLy: -32768, URx: 32767, URy: 32767,
+		Data: SimpleGlyph{NumContours: 0, Encoded: []byte{0, 0}},
 	}
 	scaled := (&ComponentUnpacked{
 		Child: 0,
