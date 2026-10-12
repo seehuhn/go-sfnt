@@ -185,7 +185,10 @@ func TestWriteFDSelectRange(t *testing.T) {
 // dict and must be a valid number.
 func TestSelectWidthsUniform(t *testing.T) {
 	f := makeLargeFont(3)
-	def, nom := f.selectWidths()
+	def, nom, err := selectWidths(f.Glyphs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if def != 100 {
 		t.Errorf("got default width %v, want 100", def)
 	}
@@ -329,4 +332,157 @@ func writeRead(t *testing.T, f *Font) *Font {
 		t.Fatal(err)
 	}
 	return res
+}
+
+// TestSelectWidths checks the choice of defaultWidthX and nominalWidthX.
+func TestSelectWidths(t *testing.T) {
+	cases := []struct {
+		name   string
+		widths []float64
+		def    float64
+		nom    float64
+	}{
+		{
+			// the two remaining widths both lie within 107 of 593
+			name:   "mode",
+			widths: []float64{500, 500, 600, 700},
+			def:    500,
+			nom:    593,
+		},
+		{
+			name:   "default tie",
+			widths: []float64{600, 500},
+			def:    500,
+			nom:    493,
+		},
+		{
+			// the fractional widths need the long operand regardless
+			name:   "fractional widths are not defaults",
+			widths: []float64{500.5, 500.5, 500.5, 7},
+			def:    7,
+			nom:    0,
+		},
+		{
+			name:   "no integer widths",
+			widths: []float64{600.5, 500.5},
+			def:    0,
+			nom:    0,
+		},
+		{
+			// 0 is out of range, so the nearest admissible value is used
+			name:   "no integer widths, wide spread",
+			widths: []float64{40000.5, 40100.5},
+			def:    0,
+			nom:    7333,
+		},
+		{
+			// the fractional widths must not pull the nominal width away
+			// from the integer width 800
+			name:   "fractional widths not scored",
+			widths: []float64{700, 700, 800, 500.5, 500.5, 500.5},
+			def:    700,
+			nom:    693,
+		},
+		{
+			// one-byte counts tie; 4893 has two widths within 1131
+			name:   "two-byte tie-break",
+			widths: []float64{100, 100, 100, 1000, 5000, 5300},
+			def:    100,
+			nom:    4893,
+		},
+		{
+			name:   "all default",
+			widths: []float64{100, 100},
+			def:    100,
+			nom:    0,
+		},
+		{
+			// the nominal width must be at least 70000-32767
+			name:   "wide spread",
+			widths: []float64{0, 0, 70000, 32800},
+			def:    0,
+			nom:    37233,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			glyphs := make([]*Glyph, len(c.widths))
+			for i, w := range c.widths {
+				glyphs[i] = &Glyph{Width: w}
+			}
+			def, nom, err := selectWidths(glyphs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if def != c.def || nom != c.nom {
+				t.Errorf("got default %v, nominal %v, want %v, %v", def, nom, c.def, c.nom)
+			}
+		})
+	}
+}
+
+// TestSelectWidthsError checks that widths the charstrings cannot hold are
+// rejected.
+func TestSelectWidthsError(t *testing.T) {
+	cases := []struct {
+		name   string
+		widths []float64
+	}{
+		{"off the grid", []float64{0.3}},
+		{"too large", []float64{1 << 31}},
+		{"infinite", []float64{math.Inf(1)}},
+		{"NaN", []float64{math.NaN()}},
+		{"spread too far", []float64{0, 0, 1, 70000}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			glyphs := make([]*Glyph, len(c.widths))
+			for i, w := range c.widths {
+				glyphs[i] = &Glyph{Width: w}
+			}
+			if _, _, err := selectWidths(glyphs); err == nil {
+				t.Error("expected an error")
+			}
+		})
+	}
+}
+
+// TestWritePerFDWidths checks that defaultWidthX and nominalWidthX are
+// chosen per private dictionary, so that the glyphs of one dictionary do
+// not constrain the widths of another.
+func TestWritePerFDWidths(t *testing.T) {
+	f := makeManyFDFont(4)
+	widths := []float64{0, 100000, 100100.5, 100200}
+	fds := []int{0, 1, 1, 1}
+	for i, g := range f.Glyphs {
+		g.Width = widths[i]
+	}
+	f.FDSelect = func(gid glyph.ID) int { return fds[gid] }
+
+	buf := &bytes.Buffer{}
+	if err := f.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Read(bytes.NewReader(buf.Bytes()), membudget.New(1<<26))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, g := range out.Glyphs {
+		if g.Width != widths[i] {
+			t.Errorf("glyph %d: got width %v, want %v", i, g.Width, widths[i])
+		}
+	}
+}
+
+// TestWriteRejectsCoordinate checks that an outline coordinate outside the
+// range of a charstring number is reported, instead of being stored wrongly.
+func TestWriteRejectsCoordinate(t *testing.T) {
+	f := makeLargeFont(2)
+	if err := f.Write(io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	f.Glyphs[1].LineTo(70000, 0)
+	if err := f.Write(io.Discard); err == nil {
+		t.Error("expected an error")
+	}
 }

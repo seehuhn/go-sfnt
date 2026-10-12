@@ -109,6 +109,13 @@ func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 	return f.Glyphs[gid].Width * (q * 1000)
 }
 
+// RoundWidths rounds the advance width of every glyph with [RoundWidth].
+func (f *Font) RoundWidths() {
+	for _, g := range f.Glyphs {
+		g.Width = RoundWidth(g.Width)
+	}
+}
+
 func (f *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) (cffDict, error) {
 	private := f.Private[idx]
 
@@ -144,10 +151,10 @@ func (f *Font) makePrivateDict(idx int, defaultWidth, nominalWidth float64) (cff
 	}
 
 	if defaultWidth != 0 {
-		privateDict[opDefaultWidthX] = []any{defaultWidth}
+		privateDict.setNumber(opDefaultWidthX, defaultWidth)
 	}
 	if nominalWidth != 0 {
-		privateDict[opNominalWidthX] = []any{nominalWidth}
+		privateDict.setNumber(opNominalWidthX, nominalWidth)
 	}
 
 	if err := privateDict.checkReals(); err != nil {

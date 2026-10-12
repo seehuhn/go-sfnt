@@ -678,7 +678,7 @@ func (d cffDict) readPrivate(p *parser.Parser, strings *cffStrings) (*privateInf
 
 	info := &privateInfo{
 		private:      private,
-		defaultWidth: privateDict.getFloat(opDefaultWidthX, 0),
+		defaultWidth: repairWidth(privateDict.getFloat(opDefaultWidthX, 0)),
 		nominalWidth: privateDict.getFloat(opNominalWidthX, 0),
 		subrs:        subrs,
 	}

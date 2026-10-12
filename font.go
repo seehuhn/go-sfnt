@@ -77,12 +77,14 @@ func hmtxAdvance(w, upm float64) (funit.Uint16, bool) {
 // to text space units by the factor q (see [cff.Outlines.GlyphAdvanceScale]),
 // and upm is the units per em of the font.
 //
-// The writer turns the width back into h, and the result is checked against
-// that, so that a font read from a file survives a write/read cycle.  Where
-// the font matrix leaves no design width which the writer would turn into h,
-// the width is dropped and 0 is returned.
+// The result is a width the CFF writer stores unchanged and turns back into
+// h, so that a font read from a file survives a write/read cycle.  Where the
+// font matrix leaves no such width, the width is dropped and 0 is returned.
 func advanceFromHmtx(h funit.Uint16, q, upm float64) float64 {
-	w := float64(h) / (q * upm)
+	w := cff.RoundWidth(float64(h) / (q * upm))
+	if !cff.ValidWidth(w) {
+		return 0
+	}
 	// w*q is the text space width, computed as [Font.WidthsPDF] does
 	if back, ok := hmtxAdvance(w*q, upm); !ok || back != h {
 		return 0

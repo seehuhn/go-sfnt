@@ -66,7 +66,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			return
 		}
 		if isPresent {
-			res.Width = stack[0] + info.nominalWidth
+			res.Width = repairWidth(stack[0] + info.nominalWidth)
 			copy(stack, stack[1:])
 			stack = stack[:len(stack)-1]
 		}

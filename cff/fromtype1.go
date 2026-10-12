@@ -89,7 +89,7 @@ func FromType1(f *type1.Font) (*Font, error) {
 	// measured along the glyph space x-axis, which the font matrix maps to a
 	// vector of length hypot(m[0], m[1]), so this is half an em wide.  The
 	// matrix is not singular, so the length is non-zero.
-	notdefWidth := 0.5 / math.Hypot(m[0], m[1])
+	notdefWidth := RoundWidth(0.5 / math.Hypot(m[0], m[1]))
 
 	glyphs := make([]*Glyph, len(glyphNames))
 	gidByName := make(map[string]glyph.ID, len(glyphNames))
@@ -148,7 +148,7 @@ func FromType1(f *type1.Font) (*Font, error) {
 // convertGlyph fills in the width, stem hints and outline of dst from the
 // Type 1 glyph src.
 func convertGlyph(dst *Glyph, src *type1.Glyph) {
-	dst.Width = src.WidthX
+	dst.Width = RoundWidth(src.WidthX)
 	dst.HStem = convertStems(src.HStem)
 	dst.VStem = convertStems(src.VStem)
 

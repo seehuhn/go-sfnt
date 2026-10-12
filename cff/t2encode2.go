@@ -207,10 +207,11 @@ func encodeStemsCFF2(buf *bytes.Buffer, edges []Blend, op t2op) error {
 	return nil
 }
 
-// charNumberEncodable reports whether v fits a CFF2 charstring number operand
-// (int16 or 16.16 fixed).
+// charNumberEncodable reports whether v fits a charstring number operand
+// (int16 or 16.16 fixed) after rounding to the nearest multiple of 2^-16.
 func charNumberEncodable(v float64) bool {
-	return v >= -32768 && v < 32768 && !math.IsNaN(v)
+	r := math.Round(v * 65536)
+	return r >= math.MinInt32 && r <= math.MaxInt32 // false for NaN
 }
 
 // charOperandInRange reports whether every component of a re-differenced

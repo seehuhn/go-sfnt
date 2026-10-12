@@ -358,9 +358,9 @@ func TestWriteRejectsWidth(t *testing.T) {
 		{0, true},
 		{500, true},
 		{65535, true},
-		{65535.4, true},
+		{65535.25, true},
 		{65535.5, false},
-		{-0.4, true},
+		{-0.25, true},
 		{-0.5, false},
 		{-500, false},
 	}

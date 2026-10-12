@@ -272,21 +272,23 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 
 		// The hmtx table is where an OpenType font keeps its advance widths,
 		// and the writer always stores them there, in units of UnitsPerEm.
-		// Every width is taken through that representation, so that the
-		// widths survive a write/read cycle.  The charstring widths are used
-		// only where the table is missing, as in a font embedded in a PDF
-		// file; one the table cannot hold, a negative one for example, is
-		// dropped.
+		// A charstring width is kept if the writer would turn it into the
+		// hmtx width, so that fractional widths survive; otherwise the hmtx
+		// width is authoritative.  Where the table is missing, as in a font
+		// embedded in a PDF file, the hmtx width is the one the writer would
+		// store, and a charstring width the table cannot hold, a negative
+		// one for example, is dropped.
 		upm := deriveUnitsPerEm(cffInfo.Outlines, cffInfo.FontInfo, headInfo)
 		for i, g := range cffInfo.Glyphs {
 			q := cffInfo.Outlines.GlyphAdvanceScale(cffInfo.FontInfo.FontMatrix, glyph.ID(i))
-			var h funit.Uint16
+			h, ok := hmtxAdvance(g.Width*q, upm)
 			if hmtxInfo != nil && len(hmtxInfo.Widths) > 0 {
+				ok = ok && h == hmtxInfo.Widths[i]
 				h = hmtxInfo.Widths[i]
-			} else {
-				h, _ = hmtxAdvance(g.Width*q, upm)
 			}
-			g.Width = advanceFromHmtx(h, q, upm)
+			if !ok {
+				g.Width = advanceFromHmtx(h, q, upm)
+			}
 		}
 	case dir.ScalerType == header.ScalerTypeTrueType, dir.ScalerType == header.ScalerTypeApple:
 		if headInfo == nil {

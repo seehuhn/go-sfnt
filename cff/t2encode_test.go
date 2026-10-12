@@ -296,7 +296,11 @@ func TestType2EncodeNumber(t *testing.T) {
 	// charstring, and then use the decoder to this charstring.
 	info := &decodeInfo{budget: parser.NewBudget(0)}
 	for _, test := range cases {
-		enc := encodeNumber(test)
+		enc, ok := encodeNumber(test)
+		if !ok {
+			t.Errorf("%f: not encodable", test)
+			continue
+		}
 
 		if math.Abs(enc.Val-test) > 0.5/65536 {
 			t.Errorf("%f != %f", enc.Val, test)
@@ -441,5 +445,32 @@ func TestStemOutOfRange(t *testing.T) {
 				t.Error("expected an error")
 			}
 		})
+	}
+}
+
+// TestEncodeNumberRange checks the limits of the charstring number
+// encodings.
+func TestEncodeNumberRange(t *testing.T) {
+	cases := []struct {
+		x  float64
+		ok bool
+	}{
+		{32767, true},
+		{32767 + 65535.0/65536, true},
+		{32768, false},
+		{-32768, true},
+		{-32768 - 1.0/65536, false},
+		{70000, false},
+		{math.Inf(1), false},
+		{math.NaN(), false},
+	}
+	for _, c := range cases {
+		enc, ok := encodeNumber(c.x)
+		if ok != c.ok {
+			t.Errorf("%g: got ok=%v, want %v", c.x, ok, c.ok)
+		}
+		if ok && math.Abs(enc.Val-c.x) > 0.5/65536 {
+			t.Errorf("%g: encoded as %g", c.x, enc.Val)
+		}
 	}
 }

@@ -761,7 +761,7 @@ func TestWidthRoundTrip(t *testing.T) {
 		{
 			name: "fractional charstring widths",
 			spec: widthFile{matrix: scale(0.001), widths: []float64{500.25, 667.75}},
-			want: []float64{500, 668},
+			want: []float64{500.25, 667.75},
 		},
 		{
 			name: "negative charstring width",
@@ -773,7 +773,7 @@ func TestWidthRoundTrip(t *testing.T) {
 			// the hmtx table against the "head" units per em
 			name: "matrix inconsistent with head",
 			spec: widthFile{matrix: scale(0.001), widths: []float64{500, 501}, upm: 2048},
-			want: []float64{500, 1026 / 2.048},
+			want: []float64{500, 501},
 		},
 		{
 			name: "matrix inconsistent with head, with hmtx",
@@ -784,7 +784,7 @@ func TestWidthRoundTrip(t *testing.T) {
 			// 1/0.0003 is not a whole number of units per em
 			name: "units per em from matrix",
 			spec: widthFile{matrix: scale(0.0003), widths: []float64{500, 1000}, hmtx: []funit.Uint16{150, 300}},
-			want: []float64{150 / (0.0003 * 3333), 300 / (0.0003 * 3333)},
+			want: []float64{cff.RoundWidth(150 / (0.0003 * 3333)), cff.RoundWidth(300 / (0.0003 * 3333))},
 		},
 		{
 			// a matrix close to the default must not be mistaken for it
@@ -795,7 +795,7 @@ func TestWidthRoundTrip(t *testing.T) {
 		{
 			name: "CID-keyed, matrix near the default",
 			spec: widthFile{matrix: scale(1.000001), fds: []matrix.Matrix{scale(0.001), scale(0.000999999)}, widths: []float64{500, 600}},
-			want: []float64{500 / 1.000001, 600},
+			want: []float64{500, 600},
 		},
 		{
 			// the fuzzer found this one: the widths are 2*10^17 units per em
@@ -804,19 +804,22 @@ func TestWidthRoundTrip(t *testing.T) {
 			want: []float64{0, 0},
 		},
 		{
+			// no multiple of 2^-16 maps to an hmtx width of 500
 			name: "huge matrix, with hmtx",
 			spec: widthFile{matrix: scale(1e10), widths: []float64{668, 668}, hmtx: []funit.Uint16{0, 500}},
-			want: []float64{0, 500 / 1e13},
-		},
-		{
-			name: "tiny matrix",
-			spec: widthFile{matrix: scale(1e-200), widths: []float64{668, 668}},
 			want: []float64{0, 0},
 		},
 		{
+			// the charstring widths map to an hmtx width of 0 and are kept
+			name: "tiny matrix",
+			spec: widthFile{matrix: scale(1e-200), widths: []float64{668, 668}},
+			want: []float64{668, 668},
+		},
+		{
+			// the design width for an hmtx width of 500 is too large to store
 			name: "tiny matrix, with hmtx",
 			spec: widthFile{matrix: scale(1e-200), widths: []float64{668, 668}, hmtx: []funit.Uint16{0, 500}},
-			want: []float64{0, 5e199},
+			want: []float64{668, 0},
 		},
 		{
 			name: "mirrored matrix",
@@ -832,7 +835,7 @@ func TestWidthRoundTrip(t *testing.T) {
 			// the advance has no horizontal component
 			name: "rotated matrix",
 			spec: widthFile{matrix: matrix.Matrix{0, 0.001, -0.001, 0, 0, 0}, widths: []float64{500, 600}, hmtx: []funit.Uint16{0, 600}},
-			want: []float64{0, 0},
+			want: []float64{500, 0},
 		},
 		{
 			name: "shear overflows",
@@ -842,7 +845,7 @@ func TestWidthRoundTrip(t *testing.T) {
 		{
 			name: "CID-keyed, FDs at different scales",
 			spec: widthFile{matrix: matrix.Identity, fds: []matrix.Matrix{scale(0.001), scale(0.0005)}, widths: []float64{500, 1001}},
-			want: []float64{500, 1002},
+			want: []float64{500, 1001},
 		},
 		{
 			name: "CID-keyed, composition overflows",
@@ -862,17 +865,17 @@ func TestWidthRoundTrip(t *testing.T) {
 		{
 			name: "CFF2, huge matrix",
 			spec: widthFile{cff2: true, matrix: scale(1e10), hmtx: []funit.Uint16{0, 500}},
-			want: []float64{0, 500 / 1e13},
+			want: []float64{0, 0},
 		},
 		{
 			name: "CFF2, tiny matrix",
 			spec: widthFile{cff2: true, matrix: scale(1e-200), hmtx: []funit.Uint16{0, 500}},
-			want: []float64{0, 5e199},
+			want: []float64{0, 0},
 		},
 		{
 			name: "CFF2, composition overflows",
 			spec: widthFile{cff2: true, matrix: scale(1e200), fds: []matrix.Matrix{scale(1e200), scale(1e200)}, hmtx: []funit.Uint16{0, 500}},
-			want: []float64{0, 500 / 1e203},
+			want: []float64{0, 0},
 		},
 	}
 	for _, c := range cases {

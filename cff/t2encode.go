@@ -30,7 +30,10 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 	var header [][]byte
 	w := g.Width
 	if w != defaultWidth {
-		x := encodeNumber(w - nominalWidth)
+		x, ok := encodeNumber(w - nominalWidth)
+		if !ok {
+			return nil, errWidthRange
+		}
 		header = append(header, x.Code)
 	}
 
@@ -79,7 +82,7 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 					}
 					break
 				}
-				encoded := encodeNumber(d)
+				encoded, _ := encodeNumber(d)
 				header = append(header, encoded.Code)
 				prev += encoded.Val
 				n++
@@ -97,7 +100,10 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 		}
 	}
 
-	data := encodePaths(g.Cmds)
+	data, err := encodePaths(g.Cmds)
+	if err != nil {
+		return nil, err
+	}
 
 	k := 0
 	for _, b := range header {
@@ -117,10 +123,13 @@ func (g *Glyph) encodeCharString(defaultWidth, nominalWidth float64) ([]byte, er
 	return code, nil
 }
 
-func encodePaths(commands []GlyphOp) [][]byte {
+func encodePaths(commands []GlyphOp) ([][]byte, error) {
 	var res [][]byte
 
-	cmds := encodeArgs(commands)
+	cmds, err := encodeArgs(commands)
+	if err != nil {
+		return nil, err
+	}
 
 	for len(cmds) > 0 {
 		switch cmds[0].Op {
@@ -158,33 +167,43 @@ func encodePaths(commands []GlyphOp) [][]byte {
 	}
 	res = append(res, t2endchar.Bytes())
 
-	return res
+	return res, nil
 }
 
-func encodeArgs(cmds []GlyphOp) []enCmd {
+// encodeArgs converts the absolute coordinates of the path commands into
+// the relative operands of the charstring operators.  Each operand is the
+// difference to the position the decoder has reached, so that encoding
+// errors do not accumulate.
+func encodeArgs(cmds []GlyphOp) ([]enCmd, error) {
 	res := make([]enCmd, len(cmds))
 
 	var posX float64
 	var posY float64
+	ok := true
+	num := func(x float64) encodedNumber {
+		enc, encOK := encodeNumber(x)
+		ok = ok && encOK
+		return enc
+	}
 	for i, cmd := range cmds {
 		res[i] = enCmd{
 			Op: cmd.Op,
 		}
 		switch cmd.Op {
 		case OpMoveTo, OpLineTo:
-			dx := encodeNumber(cmd.Args[0] - posX)
-			dy := encodeNumber(cmd.Args[1] - posY)
+			dx := num(cmd.Args[0] - posX)
+			dy := num(cmd.Args[1] - posY)
 			res[i].Args = []encodedNumber{dx, dy}
 			posX += dx.Val
 			posY += dy.Val
 
 		case OpCurveTo:
-			dax := encodeNumber(cmd.Args[0] - posX)
-			day := encodeNumber(cmd.Args[1] - posY)
-			dbx := encodeNumber(cmd.Args[2] - dax.Val - posX)
-			dby := encodeNumber(cmd.Args[3] - day.Val - posY)
-			dcx := encodeNumber(cmd.Args[4] - dbx.Val - dax.Val - posX)
-			dcy := encodeNumber(cmd.Args[5] - dby.Val - day.Val - posY)
+			dax := num(cmd.Args[0] - posX)
+			day := num(cmd.Args[1] - posY)
+			dbx := num(cmd.Args[2] - dax.Val - posX)
+			dby := num(cmd.Args[3] - day.Val - posY)
+			dcx := num(cmd.Args[4] - dbx.Val - dax.Val - posX)
+			dcy := num(cmd.Args[5] - dby.Val - day.Val - posY)
 			res[i].Args = []encodedNumber{dax, day, dbx, dby, dcx, dcy}
 			posX += dax.Val + dbx.Val + dcx.Val
 			posY += day.Val + dby.Val + dcy.Val
@@ -200,8 +219,11 @@ func encodeArgs(cmds []GlyphOp) []enCmd {
 		default:
 			panic("unhandled command")
 		}
+		if !ok {
+			return nil, errCoordRange
+		}
 	}
-	return res
+	return res, nil
 }
 
 func encodeSubPath(cmds []enCmd) [][]byte {
@@ -493,13 +515,18 @@ func (x encodedNumber) String() string {
 	return fmt.Sprintf("%g (% x)", x.Val, x.Code)
 }
 
-// encodeNumber encodes the given number into a CFF encoding.
-func encodeNumber(x float64) encodedNumber {
-	var code []byte
-
+// encodeNumber encodes x as a Type 2 charstring number operand, as a 16-bit
+// integer where possible and as a 16.16 fixed-point number otherwise.  The
+// second result is false if x is outside the range of both encodings.
+func encodeNumber(x float64) (encodedNumber, bool) {
 	// TODO(voss): consider using t2dup here.
 	// TODO(voss): also consider fractions of two one-byte integers?
 
+	if !charNumberEncodable(x) {
+		return encodedNumber{}, false
+	}
+
+	var code []byte
 	x16 := funit.Int16(x)
 	if math.Abs(float64(x16)-x) <= 0.5/65536 {
 		code = encodeInt(x16)
@@ -512,7 +539,7 @@ func encodeNumber(x float64) encodedNumber {
 	return encodedNumber{
 		Val:  x,
 		Code: code,
-	}
+	}, true
 }
 
 func encodeInt(x funit.Int16) []byte {
@@ -556,4 +583,9 @@ func copyOp(data [][]byte, op t2op, args ...encodedNumber) [][]byte {
 	return res
 }
 
-var errStemRange = invalidSince("stem hint out of range")
+var (
+	errStemRange   = invalidSince("stem hint out of range")
+	errCoordRange  = invalidSince("glyph coordinate out of range")
+	errWidthRange  = invalidSince("advance width out of range")
+	errWidthSpread = invalidSince("advance widths spread too far")
+)

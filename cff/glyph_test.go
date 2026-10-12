@@ -66,3 +66,57 @@ func rectToFunit(r rect.Rect) funit.Rect16 {
 		URy: funit.Int16(math.Ceil(r.URy)),
 	}
 }
+
+func TestRoundWidth(t *testing.T) {
+	cases := []struct {
+		in, want float64
+	}{
+		{500, 500},
+		{500.25, 500.25},
+		{600.3, math.Round(600.3*65536) / 65536},
+		{-0.4, -26214.0 / 65536},
+	}
+	for _, c := range cases {
+		if got := RoundWidth(c.in); got != c.want {
+			t.Errorf("RoundWidth(%g) = %g, want %g", c.in, got, c.want)
+		}
+		if !ValidWidth(c.want) {
+			t.Errorf("ValidWidth(%g) = false", c.want)
+		}
+	}
+	for _, bad := range []float64{600.3, 1 << 31, -(1 << 31), math.Inf(-1), math.NaN()} {
+		if ValidWidth(bad) {
+			t.Errorf("ValidWidth(%g) = true", bad)
+		}
+	}
+}
+
+func TestRepairWidth(t *testing.T) {
+	cases := []struct {
+		in, want float64
+	}{
+		{500, 500},
+		{600.3, RoundWidth(600.3)},
+		{1 << 31, 0},
+		{-1e300, 0},
+		{math.NaN(), 0},
+	}
+	for _, c := range cases {
+		if got := repairWidth(c.in); got != c.want {
+			t.Errorf("repairWidth(%g) = %g, want %g", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFontRoundWidths(t *testing.T) {
+	f := &Font{Outlines: &Outlines{Glyphs: []*Glyph{{Width: 600.3}, {Width: 500}}}}
+	f.RoundWidths()
+	for _, g := range f.Glyphs {
+		if !ValidWidth(g.Width) {
+			t.Errorf("width %g not rounded", g.Width)
+		}
+	}
+	if f.Glyphs[1].Width != 500 {
+		t.Errorf("integer width changed to %g", f.Glyphs[1].Width)
+	}
+}

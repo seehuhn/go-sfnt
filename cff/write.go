@@ -20,8 +20,11 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
+	"sort"
 
 	"seehuhn.de/go/postscript/type1"
+	"seehuhn.de/go/sfnt/glyph"
 )
 
 // maxGlyphs is the largest number of glyphs a CFF font can contain, since
@@ -49,8 +52,7 @@ func (f *Font) Write(w io.Writer) error {
 	}
 	numGlyphs := uint16(len(f.Glyphs))
 
-	// TODO(voss): this should be done per private dict.
-	charStrings, defWidth, nomWidth, err := f.encodeCharStrings()
+	charStrings, defWidths, nomWidths, err := f.encodeCharStrings()
 	if err != nil {
 		return err
 	}
@@ -182,7 +184,7 @@ func (f *Font) Write(w io.Writer) error {
 	secPrivateDicts := make([]int, numFonts)
 	for i := range privateDicts {
 		var err error
-		privateDicts[i], err = f.makePrivateDict(i, defWidth, nomWidth)
+		privateDicts[i], err = f.makePrivateDict(i, defWidths[i], nomWidths[i])
 		if err != nil {
 			return err
 		}
@@ -281,65 +283,107 @@ func (f *Font) Write(w io.Writer) error {
 	return nil
 }
 
-func (f *Font) selectWidths() (float64, float64) {
-	numGlyphs := int32(len(f.Glyphs))
-	switch numGlyphs {
-	case 0:
-		return 0, 0
-	case 1:
-		return f.Glyphs[0].Width, f.Glyphs[0].Width
-	}
-
-	widthHist := make(map[float64]int32)
-	var mostFrequentCount int32
-	var defaultWidth float64
-	for _, glyph := range f.Glyphs {
-		w := glyph.Width
-		if math.Abs(w) > 32767 {
+// selectWidths chooses the defaultWidthX and nominalWidthX entries of a
+// private dictionary for the given glyphs.  The default width is the most
+// frequent integer width, so that as many glyphs as possible omit the width
+// operand, and the nominal width is the integer which lets the most of the
+// remaining integer widths use the shortest operand encodings.  Ties are
+// broken towards the smaller value.
+//
+// An error is returned if a glyph has a width [ValidWidth] rejects, or if
+// the non-default widths are spread too far for one nominal width to bring
+// them all into the range of a charstring number.
+func selectWidths(glyphs []*Glyph) (defaultWidth, nominalWidth float64, err error) {
+	hist := make(map[float64]int)
+	var bestCount int
+	for _, g := range glyphs {
+		w := g.Width
+		if !ValidWidth(w) {
+			return 0, 0, errWidthRange
+		}
+		if w != math.Trunc(w) {
 			continue
 		}
-		widthHist[w]++
-		if widthHist[w] > mostFrequentCount {
+		hist[w]++
+		if c := hist[w]; c > bestCount || c == bestCount && w < defaultWidth {
 			defaultWidth = w
-			mostFrequentCount = widthHist[w]
+			bestCount = c
 		}
 	}
 
-	// TODO(voss): the choice of nominalWidth can be improved
-	var sum float64
-	var minWidth float64 = math.Inf(+1)
-	var maxWidth float64 = math.Inf(-1)
-	for _, glyph := range f.Glyphs {
-		w := glyph.Width
-		if w == defaultWidth {
+	// A fractional width needs the five-byte operand whatever the nominal
+	// width is, so only the integer widths take part in the scoring below.
+	var widths, scored []float64
+	for _, g := range glyphs {
+		if g.Width != defaultWidth {
+			widths = append(widths, g.Width)
+			if g.Width == math.Trunc(g.Width) {
+				scored = append(scored, g.Width)
+			}
+		}
+	}
+	if len(widths) == 0 {
+		return defaultWidth, 0, nil
+	}
+	slices.Sort(widths)
+	slices.Sort(scored)
+
+	// A width w is encodable relative to n if -32768 <= w-n < 32768.
+	// Integers n in [lo, hi] satisfy this for every width; the DICT integer
+	// range is a further restriction.
+	lo := math.Ceil(widths[len(widths)-1] - 32768 + 1.0/65536)
+	hi := math.Floor(widths[0] + 32768)
+	lo = max(lo, math.MinInt32)
+	hi = min(hi, math.MaxInt32)
+	if lo > hi {
+		return 0, 0, errWidthSpread
+	}
+	if len(scored) == 0 {
+		return defaultWidth, min(max(0, lo), hi), nil
+	}
+
+	// The number of scored widths within r of n is the number of them in
+	// [n-r, n+r].
+	count := func(n, r float64) int {
+		i, _ := slices.BinarySearch(scored, n-r)
+		j := sort.Search(len(scored), func(k int) bool { return scored[k] > n+r })
+		return j - i
+	}
+
+	// The counts are piecewise constant in n and change only where a
+	// window edge passes a width, so the candidates below reach every
+	// value, each at the smallest n where it is taken.
+	candidates := []float64{lo}
+	for _, w := range scored {
+		for _, r := range []float64{107, 1131} {
+			candidates = append(candidates, math.Ceil(w-r), math.Floor(w+r)+1)
+		}
+	}
+	slices.Sort(candidates)
+	bestOne, bestTwo := -1, -1
+	for _, n := range candidates {
+		if n < lo || n > hi {
 			continue
 		}
-		sum += w
-		if w < minWidth {
-			minWidth = w
+		one := count(n, 107)
+		if one < bestOne {
+			continue
 		}
-		if w > maxWidth {
-			maxWidth = w
+		two := count(n, 1131)
+		if one > bestOne || two > bestTwo {
+			nominalWidth = n
+			bestOne, bestTwo = one, two
 		}
 	}
-	if math.IsInf(minWidth, +1) {
-		// every glyph uses the default width, so nominalWidth is never
-		// referenced and the clamping below would produce infinities
-		return defaultWidth, defaultWidth
-	}
-	nominalWidth := math.Round(sum / float64(numGlyphs))
-	if nominalWidth < minWidth+107 {
-		nominalWidth = minWidth + 107
-	} else if nominalWidth > maxWidth-107 {
-		nominalWidth = maxWidth - 107
-	}
-	return defaultWidth, nominalWidth
+	return defaultWidth, nominalWidth, nil
 }
 
-func (f *Font) encodeCharStrings() (cffIndex, float64, float64, error) {
+// encodeCharStrings encodes the glyphs and returns the default and nominal
+// widths chosen for each private dictionary.
+func (f *Font) encodeCharStrings() (cffIndex, []float64, []float64, error) {
 	numGlyphs := len(f.Glyphs)
 	if numGlyphs < 1 || (f.ROS == nil && f.Glyphs[0].Name != ".notdef") {
-		return nil, 0, 0, invalidSince("missing .notdef glyph")
+		return nil, nil, nil, invalidSince("missing .notdef glyph")
 	}
 
 	// TODO(voss): re-introduce subroutines.
@@ -362,20 +406,44 @@ func (f *Font) encodeCharStrings() (cffIndex, float64, float64, error) {
 	// http://www.allisons.org/ll/AlgDS/Tree/Suffix/
 	// https://stackoverflow.com/questions/9452701/ukkonens-suffix-tree-algorithm-in-plain-english
 
-	cc := make(cffIndex, numGlyphs)
-	defaultWidth, nominalWidth := f.selectWidths()
-	for i, glyph := range f.Glyphs {
-		code, err := glyph.encodeCharString(defaultWidth, nominalWidth)
+	numFonts := len(f.Private)
+	fdOf := make([]int, numGlyphs)
+	byFD := make([][]*Glyph, numFonts)
+	for gid, g := range f.Glyphs {
+		fd := 0
+		if f.ROS != nil {
+			fd = f.FDSelect(glyph.ID(gid))
+			if fd < 0 || fd >= numFonts {
+				return nil, nil, nil, invalidSince("FDSelect index out of range")
+			}
+		}
+		fdOf[gid] = fd
+		byFD[fd] = append(byFD[fd], g)
+	}
+	defaultWidths := make([]float64, numFonts)
+	nominalWidths := make([]float64, numFonts)
+	for fd, glyphs := range byFD {
+		var err error
+		defaultWidths[fd], nominalWidths[fd], err = selectWidths(glyphs)
 		if err != nil {
-			return nil, 0, 0, err
+			return nil, nil, nil, err
+		}
+	}
+
+	cc := make(cffIndex, numGlyphs)
+	for i, g := range f.Glyphs {
+		fd := fdOf[i]
+		code, err := g.encodeCharString(defaultWidths[fd], nominalWidths[fd])
+		if err != nil {
+			return nil, nil, nil, err
 		}
 		if len(code) > maxCharStringLen {
-			return nil, 0, 0, invalidSince("charstring too long")
+			return nil, nil, nil, invalidSince("charstring too long")
 		}
 		cc[i] = code
 	}
 
-	return cc, defaultWidth, nominalWidth, nil
+	return cc, defaultWidths, nominalWidths, nil
 }
 
 func offsSize(i int32) byte {

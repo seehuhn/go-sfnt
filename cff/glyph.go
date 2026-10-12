@@ -30,7 +30,42 @@ type Glyph struct {
 	Cmds  []GlyphOp
 	HStem []float64
 	VStem []float64
+
+	// Width is the advance width of the glyph, in glyph design units.
+	// The writer requires a value [ValidWidth] accepts; use [RoundWidth]
+	// to bring a computed width into this form.
 	Width float64
+}
+
+// maxAbsWidth bounds the magnitude of an advance width, so that the
+// arithmetic on widths in the writer is exact and the defaultWidthX and
+// nominalWidthX entries of the private DICT fit integer operands.
+const maxAbsWidth = 1 << 31
+
+// ValidWidth reports whether the CFF writer can store w as an advance width
+// unchanged: w must be a multiple of 2^-16, the resolution of a charstring
+// number, and less than 2^31 in magnitude.
+func ValidWidth(w float64) bool {
+	r := w * 65536
+	return r == math.Trunc(r) && math.Abs(w) < maxAbsWidth
+}
+
+// repairWidth brings a width read from a file into the form the writer
+// accepts, so that the font can be written back out.  A width too large in
+// magnitude is dropped.
+func repairWidth(w float64) float64 {
+	w = RoundWidth(w)
+	if !(math.Abs(w) < maxAbsWidth) { // the negated test also drops NaN
+		return 0
+	}
+	return w
+}
+
+// RoundWidth rounds w to the nearest multiple of 2^-16, the resolution of a
+// charstring number.  The result passes [ValidWidth] unless its magnitude is
+// 2^31 or more.
+func RoundWidth(w float64) float64 {
+	return math.Round(w*65536) / 65536
 }
 
 // NewGlyph allocates a new glyph.
