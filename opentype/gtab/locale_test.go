@@ -114,3 +114,53 @@ func TestLangTags(t *testing.T) {
 		}
 	}
 }
+
+// TestReverseTablesUnambiguous checks that every BCP 47 value shared by
+// several OpenType language tags has a preferred tag, that every script
+// value is shared by at most an original tag and its v.2 variant, and that
+// the script inversion picks the v.2 variant.
+func TestReverseTablesUnambiguous(t *testing.T) {
+	count := make(map[string]int)
+	for _, val := range langBcp47 {
+		count[val]++
+	}
+	for val, n := range count {
+		if n > 1 {
+			if _, ok := preferredOtfLang[val]; !ok {
+				t.Errorf("no preferred OpenType tag for %q", val)
+			}
+		}
+	}
+	for val, pref := range preferredOtfLang {
+		if count[val] < 2 {
+			t.Errorf("preference for %q is stale: the value is not shared", val)
+		}
+		if langBcp47[pref] != val {
+			t.Errorf("preferred tag %q does not map to %q", pref, val)
+		}
+		if bcp47Lang[val] != pref {
+			t.Errorf("bcp47Lang[%q] = %q, want %q", val, bcp47Lang[val], pref)
+		}
+	}
+	scripts := make(map[string][]otfScript)
+	for key, val := range scriptBcp47 {
+		scripts[val] = append(scripts[val], key)
+	}
+	for val, keys := range scripts {
+		if len(keys) == 1 {
+			continue
+		}
+		v2 := 0
+		for _, key := range keys {
+			if isV2Script(key) {
+				v2++
+			}
+		}
+		if len(keys) != 2 || v2 != 1 {
+			t.Errorf("script %q has tags %v, want one original and one v.2 tag", val, keys)
+		}
+		if got := bcp47Script[val]; !isV2Script(got) {
+			t.Errorf("bcp47Script[%q] = %q, want the v.2 tag", val, got)
+		}
+	}
+}

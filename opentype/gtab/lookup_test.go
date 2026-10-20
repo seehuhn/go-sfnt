@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/text/language"
 
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/classdef"
@@ -492,5 +493,93 @@ func lookupOf(st Subtable) *LookupTable {
 	return &LookupTable{
 		Meta:      &LookupMetaInfo{LookupType: 1},
 		Subtables: []Subtable{st},
+	}
+}
+
+func TestFindLookupsPrefersV2(t *testing.T) {
+	info := &Info{
+		ScriptList: ScriptListInfo{
+			language.MustParse("und-Beng-x-beng"): {Required: 0},
+			language.MustParse("und-Beng-x-bng2"): {Required: 1},
+			language.MustParse("und-Deva-x-deva"): {Required: 2},
+			language.MustParse("und-Deva-x-dev2"): {Required: 3},
+		},
+		FeatureList: FeatureListInfo{
+			{Tag: "aaaa", Lookups: []LookupIndex{0}},
+			{Tag: "bbbb", Lookups: []LookupIndex{1}},
+			{Tag: "cccc", Lookups: []LookupIndex{2}},
+			{Tag: "dddd", Lookups: []LookupIndex{3}},
+		},
+		LookupList: make(LookupList, 4),
+	}
+	cases := []struct {
+		lang language.Tag
+		want LookupIndex
+	}{
+		{language.Bengali, 1},
+		{language.Hindi, 3},
+		{language.MustParse("und-Beng-x-beng"), 0}, // explicit tags are honoured
+		{language.MustParse("und-Deva-x-deva"), 2},
+		{language.MustParse("und-Deva-x-deva-xyz"), 2}, // unknown language system: script default
+		{language.MustParse("en-x-beng"), 0},           // BCP 47 parts are irrelevant
+		{language.MustParse("und-x-dev2"), 3},
+	}
+	for _, tc := range cases {
+		if got := info.FindLookups(tc.lang, nil); len(got) != 1 || got[0] != tc.want {
+			t.Errorf("FindLookups(%v) = %v, want [%d]", tc.lang, got, tc.want)
+		}
+	}
+}
+
+func TestFindLookupsDeterministic(t *testing.T) {
+	info := &Info{
+		ScriptList: ScriptListInfo{
+			language.MustParse("und-Zzzz-x-dflt"):    {Required: 0},
+			language.MustParse("und-Latn-x-latn"):    {Required: 1},
+			language.MustParse("ru-Cyrl-x-cyrl-rus"): {Required: 2},
+			language.MustParse("el-Grek-x-grek-ell"): {Required: 3},
+		},
+		FeatureList: FeatureListInfo{
+			{Tag: "aaaa", Lookups: []LookupIndex{0}},
+			{Tag: "bbbb", Lookups: []LookupIndex{1}},
+			{Tag: "cccc", Lookups: []LookupIndex{2}},
+			{Tag: "dddd", Lookups: []LookupIndex{3}},
+		},
+		LookupList: make(LookupList, 4),
+	}
+	// no script matches Thai, so the DFLT script applies
+	for range 20 {
+		if got := info.FindLookups(language.Thai, nil); len(got) != 1 || got[0] != 0 {
+			t.Fatalf("FindLookups(Thai) = %v, want [0]", got)
+		}
+		if got := info.FindLookups(language.Russian, nil); len(got) != 1 || got[0] != 2 {
+			t.Fatalf("FindLookups(Russian) = %v, want [2]", got)
+		}
+	}
+}
+
+func TestFindLookupsFallback(t *testing.T) {
+	// without DFLT, latn is the fallback, and a v.2 tag precedes its
+	// original
+	info := &Info{
+		ScriptList: ScriptListInfo{
+			language.MustParse("und-Latn-x-latn"): {Required: 1},
+			language.MustParse("und-Deva-x-deva"): {Required: 2},
+			language.MustParse("und-Deva-x-dev2"): {Required: 3},
+		},
+		FeatureList: FeatureListInfo{
+			{Tag: "aaaa", Lookups: []LookupIndex{0}},
+			{Tag: "bbbb", Lookups: []LookupIndex{1}},
+			{Tag: "cccc", Lookups: []LookupIndex{2}},
+			{Tag: "dddd", Lookups: []LookupIndex{3}},
+		},
+		LookupList: make(LookupList, 4),
+	}
+	if got := info.FindLookups(language.Thai, nil); len(got) != 1 || got[0] != 1 {
+		t.Errorf("FindLookups(Thai) without DFLT = %v, want [1]", got)
+	}
+	delete(info.ScriptList, language.MustParse("und-Latn-x-latn"))
+	if got := info.FindLookups(language.Thai, nil); len(got) != 1 || got[0] != 3 {
+		t.Errorf("FindLookups(Thai) without DFLT and latn = %v, want [3]", got)
 	}
 }

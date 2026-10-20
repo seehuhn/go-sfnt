@@ -18,6 +18,7 @@ package gtab
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"golang.org/x/text/language"
@@ -83,26 +84,111 @@ func bcp47ToOtf(tag language.Tag) (otfScript, otfLang, error) {
 		lang = "ZHT "
 	} else {
 		langTag, _, _ := tag.Raw()
-		bcpLang := langTag.String()
 		scriptTag, _ := tag.Script()
-		bcpScript := scriptTag.String()
-
-		for key, val := range langBcp47 {
-			if val == bcpLang {
-				lang = string(key)
-				break
-			}
+		script = string(bcp47Script[scriptTag.String()])
+		if script == "" {
+			return "", "", fmt.Errorf("BCP47 tag %q: script has no OpenType tag", tag)
 		}
-
-		for key, val := range scriptBcp47 {
-			if val == bcpScript {
-				script = string(key)
-				break
+		if bcpLang := langTag.String(); bcpLang != "und" {
+			lang = string(bcp47Lang[bcpLang])
+			if lang == "" {
+				return "", "", fmt.Errorf("BCP47 tag %q: language has no OpenType tag", tag)
 			}
 		}
 	}
 
 	return otfScript(script), otfLang(lang), nil
+}
+
+// scriptEntry holds the sort keys which order a font's script-list tags for
+// choosing a fallback language system.
+type scriptEntry struct {
+	tag    language.Tag
+	rank   int    // 0 for DFLT, 1 for latn, 2 otherwise
+	script string // the BCP 47 script, shared by a v.2 tag and its original
+	v2     bool
+	str    string
+}
+
+func newScriptEntry(tag language.Tag) scriptEntry {
+	e := scriptEntry{tag: tag, rank: 2, str: tag.String()}
+	if script, _, err := bcp47ToOtf(tag); err == nil {
+		switch script {
+		case "DFLT":
+			e.rank = 0
+		case "latn":
+			e.rank = 1
+		}
+		e.script = scriptBcp47[script]
+		e.v2 = isV2Script(script)
+	}
+	return e
+}
+
+func compareScriptEntries(a, b scriptEntry) int {
+	if a.rank != b.rank {
+		return a.rank - b.rank
+	}
+	if a.script != b.script {
+		return strings.Compare(a.script, b.script)
+	}
+	if a.v2 != b.v2 {
+		if a.v2 {
+			return -1
+		}
+		return 1
+	}
+	return strings.Compare(a.str, b.str)
+}
+
+// isV2Script reports whether script is one of the "v.2" script tags, which
+// select the newer shaping model for the same script.
+func isV2Script(script otfScript) bool {
+	return strings.HasSuffix(string(script), "2")
+}
+
+// bcp47Lang and bcp47Script invert langBcp47 and scriptBcp47.  For scripts
+// the "v.2" shaping variant wins over the original tag, so a script list
+// keyed by plain BCP 47 tags is written with the v.2 tags.  The tests check
+// that no other ambiguity exists in the tables.
+var (
+	bcp47Lang   = make(map[string]otfLang)
+	bcp47Script = make(map[string]otfScript)
+)
+
+// preferredOtfLang names the OpenType language tag to use where several
+// share a BCP 47 value.
+var preferredOtfLang = map[string]otfLang{
+	"chp": "CHP ", // over SAY (Sayisi)
+	"cr":  "CRE ", // over YCR (Y-Cree)
+	"crm": "MCR ", // over LCR (L-Cree)
+	"csw": "NCR ", // over NHC (Norway House Cree)
+	"cwd": "TCR ", // over DCR (D-Cree)
+	"dv":  "DIV ", // over DHV (deprecated)
+	"fil": "PIL ", // over TGL (Tagalog)
+	"ga":  "IRI ", // over IRT (Irish Traditional)
+	"hy":  "HYE ", // over HYE0 (Armenian East)
+	"iu":  "INU ", // over INUK (Nunavik Inuktitut)
+	"ka":  "KAT ", // over KGE (Khutsuri Georgian)
+	"kca": "KHK ", // over KHS, KHV (Khanty dialects)
+	"krc": "KAR ", // over BAL (Balkar)
+	"ml":  "MAL ", // over MLR (Malayalam Reformed)
+	"mnw": "MON ", // over MONT (Thailand Mon)
+	"nl":  "NLD ", // over FLE (Flemish)
+	"ro":  "ROM ", // over MOL (Moldavian)
+	"xal": "KLM ", // over TOD (Todo)
+}
+
+func init() {
+	for key, val := range langBcp47 {
+		bcp47Lang[val] = key
+	}
+	maps.Copy(bcp47Lang, preferredOtfLang)
+	for key, val := range scriptBcp47 {
+		if _, ok := bcp47Script[val]; !ok || isV2Script(key) {
+			bcp47Script[val] = key
+		}
+	}
 }
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags

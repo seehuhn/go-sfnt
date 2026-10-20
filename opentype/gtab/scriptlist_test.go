@@ -112,3 +112,20 @@ func FuzzScriptList(f *testing.F) {
 		}
 	})
 }
+
+func TestEncodeUnmappedTag(t *testing.T) {
+	for _, tag := range []language.Tag{
+		language.MustParse("und-Qaaa"), // private-use script
+		language.MustParse("qaa-Latn"), // private-use language
+	} {
+		info := ScriptListInfo{tag: &Features{Required: 0xFFFF}}
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("encoding %v did not panic", tag)
+				}
+			}()
+			info.encode()
+		}()
+	}
+}

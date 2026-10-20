@@ -647,22 +647,56 @@ func (l *extensionSubtable) encode() []byte {
 
 // FindLookups returns the lookups required to implement the given
 // features in the specified language.
+//
+// A tag which names an OpenType script and language system through its
+// private-use subtags, as the tags in [ScriptListInfo] do, selects that
+// language system, or the default language system of the script if the
+// font has no such language system.  Any other tag, and an explicit tag
+// whose script the font lacks, is matched against the font's script list
+// ignoring private-use subtags; if nothing matches, the lookups of the DFLT script
+// are used, or failing that those of the latn script, or else those of the
+// first script by name.  A "v.2" script tag takes precedence over the
+// original tag for the same script.
 func (info *Info) FindLookups(lang language.Tag, includeFeature map[string]bool) []LookupIndex {
 	if info == nil || len(info.ScriptList) == 0 {
 		return nil
 	}
 
-	tags := make([]language.Tag, 0, len(info.ScriptList))
-	for tag := range info.ScriptList {
-		tags = append(tags, tag)
+	// An explicit OpenType tag is looked up in the reader's spelling, since
+	// only its private-use subtags matter.  The matcher ignores those
+	// subtags, so this must come first.
+	features, ok := info.ScriptList[lang]
+	if _, explicit := lang.Extension('x'); !ok && explicit {
+		if script, otLang, err := bcp47ToOtf(lang); err == nil {
+			if key, err := otfToBCP47(script, otLang); err == nil {
+				features, ok = info.ScriptList[key]
+			}
+			if !ok && otLang != "" {
+				if dflt, err := otfToBCP47(script, ""); err == nil {
+					features, ok = info.ScriptList[dflt]
+				}
+			}
+		}
 	}
-	// TODO(voss): make sure a sensible default comes first.
-	//     Maybe this could be based on the number of features supported?
+	if !ok {
+		// The matcher falls back to the first tag when nothing matches, so
+		// the order is DFLT, then latn, then the other scripts by name,
+		// with a "v.2" script tag just before the original tag for the
+		// same script, since the newer shaping model is preferred.
+		entries := make([]scriptEntry, 0, len(info.ScriptList))
+		for tag := range info.ScriptList {
+			entries = append(entries, newScriptEntry(tag))
+		}
+		slices.SortFunc(entries, compareScriptEntries)
+		tags := make([]language.Tag, len(entries))
+		for i, e := range entries {
+			tags[i] = e.tag
+		}
 
-	matcher := language.NewMatcher(tags)
-	_, index, _ := matcher.Match(lang)
-
-	features := info.ScriptList[tags[index]]
+		matcher := language.NewMatcher(tags)
+		_, index, _ := matcher.Match(lang)
+		features = info.ScriptList[tags[index]]
+	}
 	if features == nil {
 		return nil
 	}

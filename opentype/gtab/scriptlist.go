@@ -26,6 +26,15 @@ import (
 // ScriptListInfo contains the information of an OpenType "ScriptList table".
 // It maps BCP 47 tags to OpenType font features.
 //
+// Tags read from a font name the OpenType script and language system in
+// their private-use subtags, for example "und-Deva-x-dev2" or
+// "en-Latn-x-latn-eng", and are written back unchanged.  A tag without
+// these subtags is written with the OpenType tags implied by its language
+// and script; where a script has both an original and a "v.2" tag, the
+// "v.2" tag is used, since it selects the current shaping model.  Use the
+// explicit form to request the original tag.  A language or script with no
+// OpenType tag cannot be written; encoding such a tag panics.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#scriptList
 type ScriptListInfo map[language.Tag]*Features
 
@@ -222,8 +231,7 @@ func (info ScriptListInfo) encode() []byte {
 	for tag := range info {
 		script, _, err := bcp47ToOtf(tag)
 		if err != nil {
-			// TODO(voss): what to do here?
-			continue
+			panic("gtab: cannot encode script list: " + err.Error())
 		}
 		scriptLangs[script] = append(scriptLangs[script], tag)
 	}
