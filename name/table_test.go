@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestTable(t *testing.T) {
@@ -52,4 +54,47 @@ func TestTableString(t *testing.T) {
 			t.Errorf("Description missing from output:\n%s", got)
 		}
 	})
+}
+
+func TestMerged(t *testing.T) {
+	win := &Table{
+		Subfamily: "Regular",
+		Version:   "Version 1.0",
+		Extra:     map[ID]string{256: "Weight"},
+	}
+	mac := &Table{
+		Family:         "Quire Sans",
+		Subfamily:      "Roman",
+		FullName:       "Quire Sans",
+		PostScriptName: "QuireSans",
+		Extra:          map[ID]string{256: "Gewicht", 257: "Width"},
+	}
+
+	got := Merged(win, mac)
+	want := &Table{
+		Family:         "Quire Sans",
+		Subfamily:      "Regular",
+		FullName:       "Quire Sans",
+		Version:        "Version 1.0",
+		PostScriptName: "QuireSans",
+		Extra:          map[ID]string{256: "Weight", 257: "Width"},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("merge failed (-want +got):\n%s", diff)
+	}
+
+	// the arguments are left alone
+	if win.Family != "" || mac.Subfamily != "Roman" || len(win.Extra) != 1 {
+		t.Error("arguments modified")
+	}
+
+	if Merged(nil, nil) != nil {
+		t.Error("merging two nil tables gave a non-nil table")
+	}
+	if diff := cmp.Diff(mac, Merged(nil, mac)); diff != "" {
+		t.Errorf("merge with nil table failed (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(win, Merged(win, nil)); diff != "" {
+		t.Errorf("merge with nil fallback failed (-want +got):\n%s", diff)
+	}
 }

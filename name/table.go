@@ -291,3 +291,27 @@ func (t *Table) keys() []ID {
 	}
 	return res
 }
+
+// Merged returns a table which holds the entries of t, with each entry
+// missing from t taken from fallback.  Either table may be nil; the result is
+// nil only if both are.  Neither argument is modified.
+//
+// Some fonts spread their names over the platforms: the Macintosh records
+// give the family and the PostScript name, while the Windows records give
+// only the subfamily.  Merging the best table of each platform recovers all
+// of them.
+func Merged(t, fallback *Table) *Table {
+	if t == nil && fallback == nil {
+		return nil
+	}
+	res := &Table{}
+	for _, src := range []*Table{fallback, t} {
+		if src == nil {
+			continue
+		}
+		for _, nameID := range src.keys() {
+			res.set(nameID, src.get(nameID))
+		}
+	}
+	return res
+}

@@ -402,6 +402,21 @@ func isASCII(s string) bool {
 func fontWithPostScriptName(t *testing.T, font *sfnt.Font, psName string) []byte {
 	t.Helper()
 
+	return editTables(t, font, func(tables map[string][]byte) {
+		nameInfo, err := name.Decode(tables["name"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		nameInfo.Windows["en-US"].PostScriptName = psName
+		tables["name"] = nameInfo.Encode(1)
+	})
+}
+
+// editTables writes font to a font file, lets edit change the tables of the
+// file, and returns the font file which holds the changed tables.
+func editTables(t *testing.T, font *sfnt.Font, edit func(tables map[string][]byte)) []byte {
+	t.Helper()
+
 	buf := &bytes.Buffer{}
 	if _, err := font.Write(buf); err != nil {
 		t.Fatal(err)
@@ -420,12 +435,7 @@ func fontWithPostScriptName(t *testing.T, font *sfnt.Font, psName string) []byte
 		tables[tag] = data
 	}
 
-	nameInfo, err := name.Decode(tables["name"])
-	if err != nil {
-		t.Fatal(err)
-	}
-	nameInfo.Windows["en-US"].PostScriptName = psName
-	tables["name"] = nameInfo.Encode(1)
+	edit(tables)
 
 	out := &bytes.Buffer{}
 	if _, err := header.Write(out, hdr.ScalerType, tables); err != nil {
@@ -544,6 +554,74 @@ func TestFontNamePrefersNameTableEntry6(t *testing.T) {
 
 	if got, want := font2.FontName, "Quire-Regular"; got != want {
 		t.Errorf("PostScript name = %q, want %q", got, want)
+	}
+}
+
+// Some fonts give only the subfamily in their Windows records and keep the
+// family, full name and PostScript name in the Macintosh records.  Each
+// entry missing from the preferred table is taken from the other platform,
+// and the names survive a write and a second read.
+func TestNamesSpreadOverPlatforms(t *testing.T) {
+	font := debug.MakeSimpleFont()
+	nameInfo := &name.Info{
+		Mac: name.Tables{"en": {
+			Family:         "Quire Sans",
+			Subfamily:      "Roman",
+			FullName:       "Quire Sans",
+			PostScriptName: "QuireSans",
+		}},
+		Windows: name.Tables{"en-US": {Subfamily: "Regular"}},
+	}
+	data := editTables(t, font, func(tables map[string][]byte) {
+		tables["name"] = nameInfo.Encode(1)
+	})
+
+	type names struct{ Family, Subfamily, FullName, FontName string }
+	want := names{"Quire Sans", "Regular", "Quire Sans", "QuireSans"}
+
+	font2 := readBack(t, data)
+	got := names{font2.FamilyName, font2.Subfamily, font2.FullName, font2.FontName}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("names (-want +got):\n%s", diff)
+	}
+
+	buf := &bytes.Buffer{}
+	if _, err := font2.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	font3 := readBack(t, buf.Bytes())
+	got3 := names{font3.FamilyName, font3.Subfamily, font3.FullName, font3.FontName}
+	if diff := cmp.Diff(want, got3); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+// Names from the other platform fill gaps only if they are in a language
+// close to the one wanted.
+func TestNamesFallbackLanguage(t *testing.T) {
+	font := debug.MakeSimpleFont()
+	font.FontName = "Quire-Regular"
+	nameInfo := &name.Info{
+		Mac: name.Tables{"de": {
+			Family:    "Quire Grotesk",
+			Subfamily: "Normal",
+		}},
+		Windows: name.Tables{"en-US": {
+			Subfamily:      "Regular",
+			PostScriptName: "Quire-Regular",
+		}},
+	}
+	data := editTables(t, font, func(tables map[string][]byte) {
+		tables["name"] = nameInfo.Encode(1)
+	})
+
+	// the family comes from the CFF font program, not the German record
+	font2 := readBack(t, data)
+	if got, want := font2.FamilyName, font.FamilyName; got != want {
+		t.Errorf("family name = %q, want %q", got, want)
+	}
+	if got, want := font2.Subfamily, "Regular"; got != want {
+		t.Errorf("subfamily = %q, want %q", got, want)
 	}
 }
 

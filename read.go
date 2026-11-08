@@ -181,10 +181,15 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		}
 		winTab, winConf := nameInfo.Windows.Choose(language.AmericanEnglish)
 		macTab, macConf := nameInfo.Mac.Choose(language.AmericanEnglish)
-		nameTable = winTab
-		if winConf < language.High && macConf > winConf || nameTable == nil {
-			nameTable = macTab
+		primary, fallback, fallbackConf := winTab, macTab, macConf
+		if (winConf < language.High && macConf > winConf) || winTab == nil {
+			primary, fallback, fallbackConf = macTab, winTab, winConf
 		}
+		if fallbackConf < language.Low {
+			// names in an unrelated language
+			fallback = nil
+		}
+		nameTable = name.Merged(primary, fallback)
 	}
 
 	var postInfo *post.Info
