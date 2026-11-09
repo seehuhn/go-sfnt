@@ -246,10 +246,11 @@ func (l *Gpos1_2) apply(ctx *Context, a, b int) int {
 
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos1_2) encodeLen() int {
-	var valueFormat uint16
+	var format valueFormat
 	for _, adj := range l.Adjust {
-		valueFormat |= adj.getFormat()
+		format.add(adj)
 	}
+	valueFormat := format.get()
 	devStart := 8 + valueRecordEncodeLen(valueFormat)*len(l.Adjust)
 	pool := newDevicePool("Gpos1_2", devStart)
 	pool.addAll(l.Adjust...)
@@ -258,10 +259,11 @@ func (l *Gpos1_2) encodeLen() int {
 
 // encode implements the [Subtable] interface.
 func (l *Gpos1_2) encode() []byte {
-	var valueFormat uint16
+	var format valueFormat
 	for _, adj := range l.Adjust {
-		valueFormat |= adj.getFormat()
+		format.add(adj)
 	}
+	valueFormat := format.get()
 	valueCount := len(l.Adjust)
 	vrLen := valueRecordEncodeLen(valueFormat)
 
@@ -448,13 +450,14 @@ func (l Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
 func (l Gpos2_1) encodeLen() int {
 	cov, adjust := l.CovAndAdjust()
 
-	var valueFormat1, valueFormat2 uint16
+	var format1, format2 valueFormat
 	for _, adj := range adjust {
 		for _, v := range adj {
-			valueFormat1 |= v.First.getFormat()
-			valueFormat2 |= v.Second.getFormat()
+			format1.add(v.First)
+			format2.add(v.Second)
 		}
 	}
+	valueFormat1, valueFormat2 := format1.get(), format2.get()
 	vr1Len := valueRecordEncodeLen(valueFormat1)
 	vr2Len := valueRecordEncodeLen(valueFormat2)
 
@@ -476,13 +479,14 @@ func (l Gpos2_1) encode() []byte {
 	cov, adjust := l.CovAndAdjust()
 
 	pairSetCount := len(adjust)
-	var valueFormat1, valueFormat2 uint16
+	var format1, format2 valueFormat
 	for _, adj := range adjust {
 		for _, v := range adj {
-			valueFormat1 |= v.First.getFormat()
-			valueFormat2 |= v.Second.getFormat()
+			format1.add(v.First)
+			format2.add(v.Second)
 		}
 	}
+	valueFormat1, valueFormat2 := format1.get(), format2.get()
 	vr1Len := valueRecordEncodeLen(valueFormat1)
 	vr2Len := valueRecordEncodeLen(valueFormat2)
 
@@ -697,13 +701,14 @@ func (l *Gpos2_2) countClasses() (class1Count, class2Count int) {
 
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos2_2) encodeLen() int {
-	var valueFormat1, valueFormat2 uint16
+	var format1, format2 valueFormat
 	for _, adj := range l.Adjust {
 		for _, v := range adj {
-			valueFormat1 |= v.First.getFormat()
-			valueFormat2 |= v.Second.getFormat()
+			format1.add(v.First)
+			format2.add(v.Second)
 		}
 	}
+	valueFormat1, valueFormat2 := format1.get(), format2.get()
 	recLen := valueRecordEncodeLen(valueFormat1) + valueRecordEncodeLen(valueFormat2)
 
 	class1Count, class2Count := l.countClasses()
@@ -724,13 +729,14 @@ func (l *Gpos2_2) encodeLen() int {
 
 // encode implements the [Subtable] interface.
 func (l *Gpos2_2) encode() []byte {
-	var valueFormat1, valueFormat2 uint16
+	var format1, format2 valueFormat
 	for _, adj := range l.Adjust {
 		for _, v := range adj {
-			valueFormat1 |= v.First.getFormat()
-			valueFormat2 |= v.Second.getFormat()
+			format1.add(v.First)
+			format2.add(v.Second)
 		}
 	}
+	valueFormat1, valueFormat2 := format1.get(), format2.get()
 	recLen := valueRecordEncodeLen(valueFormat1) + valueRecordEncodeLen(valueFormat2)
 
 	class1Count, class2Count := l.countClasses()
