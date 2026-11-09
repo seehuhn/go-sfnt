@@ -136,9 +136,23 @@ func readValueRecord(p *parser.Parser, valueFormat uint16, subtablePos int64) (*
 }
 
 func (vr *GposValueRecord) getFormat() uint16 {
+	var format valueFormat
+	format.add(vr)
+	return format.get()
+}
+
+// valueFormat collects the fields used by records sharing one encoded format.
+// A zero record needs a marker only when no record uses an actual field.
+type valueFormat struct {
+	bits      uint16
+	hasRecord bool
+}
+
+func (f *valueFormat) add(vr *GposValueRecord) {
 	if vr == nil {
-		return 0
+		return
 	}
+	f.hasRecord = true
 
 	var format uint16
 	if vr.XPlacement != 0 {
@@ -166,13 +180,15 @@ func (vr *GposValueRecord) getFormat() uint16 {
 		format |= 0x0080
 	}
 
-	if format == 0 {
-		// set one of the fields to mark the difference between
-		// a nil *ValueRecord and a zero value.
-		format = 0x0004
-	}
+	f.bits |= format
+}
 
-	return format
+func (f valueFormat) get() uint16 {
+	if f.bits == 0 && f.hasRecord {
+		// Preserve the distinction between absent and all-zero records.
+		return 0x0004
+	}
+	return f.bits
 }
 
 // valueRecordEncodeLen returns the number of bytes that the inline
