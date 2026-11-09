@@ -98,8 +98,8 @@ func makeTestType1() *type1.Font {
 	g.LineTo(600, 0)
 	g.LineTo(300, 700)
 	g.ClosePath()
-	g.HStem = []funit.Int16{0, 20, 680, 700}
-	g.VStem = []funit.Int16{0, 30, 570, 600}
+	g.HStem = []float64{0, 20, 680, 700}
+	g.VStem = []float64{0, 30, 570, 600}
 
 	// two sub-paths, mixing lines and curves
 	g = F.NewGlyph("B", 550)
@@ -331,12 +331,11 @@ func TestFromType1Glyphs(t *testing.T) {
 			t.Errorf("width of %q: got %v, want %v", g.Name, g.Width, orig.WidthX)
 		}
 
-		// the stems of makeTestType1 are already sorted and disjoint,
-		// so conversion only widens the values to float64
-		if d := cmp.Diff(convertStems(orig.HStem), g.HStem); d != "" {
+		// the stems of makeTestType1 are already sorted and disjoint
+		if d := cmp.Diff(orig.HStem, g.HStem); d != "" {
 			t.Errorf("HStem of %q differs (-want +got):\n%s", g.Name, d)
 		}
-		if d := cmp.Diff(convertStems(orig.VStem), g.VStem); d != "" {
+		if d := cmp.Diff(orig.VStem, g.VStem); d != "" {
 			t.Errorf("VStem of %q differs (-want +got):\n%s", g.Name, d)
 		}
 
@@ -582,9 +581,9 @@ func TestFromType1StemHints(t *testing.T) {
 	g := F.Glyphs["A"]
 	// A ghost hint (edges in descending order) first, then a normal stem
 	// below it, then a duplicate of that stem.
-	g.HStem = []funit.Int16{700, 680, 0, 20, 0, 20}
+	g.HStem = []float64{700, 680, 0, 20, 0, 20}
 	// the middle stem overlaps the first
-	g.VStem = []funit.Int16{0, 30, 25, 60, 570, 600}
+	g.VStem = []float64{0, 30, 25, 60, 570, 600}
 
 	cffFont, err := FromType1(F)
 	if err != nil {
@@ -610,7 +609,7 @@ func TestFromType1StemLimit(t *testing.T) {
 	g.HStem = nil
 	g.VStem = nil
 	for i := range 60 {
-		x := funit.Int16(100 * i)
+		x := float64(100 * i)
 		g.HStem = append(g.HStem, x, x+20)
 		g.VStem = append(g.VStem, x, x+20)
 	}

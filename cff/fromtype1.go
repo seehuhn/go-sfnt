@@ -17,7 +17,6 @@
 package cff
 
 import (
-	"cmp"
 	"errors"
 	"math"
 	"slices"
@@ -25,7 +24,6 @@ import (
 	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/vec"
 
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -149,8 +147,8 @@ func FromType1(f *type1.Font) (*Font, error) {
 // Type 1 glyph src.
 func convertGlyph(dst *Glyph, src *type1.Glyph) {
 	dst.Width = RoundWidth(src.WidthX)
-	dst.HStem = convertStems(src.HStem)
-	dst.VStem = convertStems(src.VStem)
+	dst.HStem = type1.RepairStems(src.HStem)
+	dst.VStem = type1.RepairStems(src.VStem)
 
 	// cap the combined stem count at the Type 2 limit
 	if nH, nV := len(dst.HStem)/2, len(dst.VStem)/2; nH+nV > maxStemHints {
@@ -187,39 +185,4 @@ func convertGlyph(dst *Glyph, src *type1.Glyph) {
 			needMoveTo = true
 		}
 	}
-}
-
-// convertStems converts Type 1 stem hints to the form Type 2 charstrings
-// require: the edge pairs are sorted by increasing bottom edge, and pairs
-// which overlap an earlier pair are dropped.  Type 1 hint replacement leaves
-// the hints of all replacement groups accumulated in the glyph, so such
-// pairs are common in real fonts.
-func convertStems(stems []funit.Int16) []float64 {
-	n := len(stems) / 2
-	if n == 0 {
-		return nil
-	}
-
-	pairs := make([][2]float64, n)
-	for i := range pairs {
-		pairs[i] = [2]float64{float64(stems[2*i]), float64(stems[2*i+1])}
-	}
-	// Ghost hints list their edges in descending order, so the bottom edge
-	// of a pair is the smaller of the two values.
-	bottom := func(p [2]float64) float64 { return min(p[0], p[1]) }
-	top := func(p [2]float64) float64 { return max(p[0], p[1]) }
-	slices.SortStableFunc(pairs, func(p, q [2]float64) int {
-		return cmp.Compare(bottom(p), bottom(q))
-	})
-
-	res := make([]float64, 0, 2*n)
-	var last [2]float64
-	for i, p := range pairs {
-		if i > 0 && (bottom(p) < top(last) || p == last) {
-			continue
-		}
-		res = append(res, p[0], p[1])
-		last = p
-	}
-	return res
 }
