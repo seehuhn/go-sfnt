@@ -229,6 +229,11 @@ offsLoop:
 }
 
 // Get decodes the given cmap subtable.
+//
+// The character codes of a Macintosh subtable (platform ID 1) are translated
+// from Mac Roman to Unicode, so that the subtable can be looked up by rune;
+// other Macintosh encodings are not supported.  Use [Table.GetNoLang] to
+// keep the character codes of the subtable instead.
 func (ss Table) Get(key Key) (Subtable, error) {
 	data, ok := ss[key]
 	if !ok {
@@ -252,6 +257,12 @@ func (ss Table) Get(key Key) (Subtable, error) {
 	return decode(data, code2rune)
 }
 
+// GetNoLang decodes a subtable with the given platform and encoding IDs,
+// regardless of its language.  If several subtables match, the one with the
+// lowest language ID is used.
+//
+// Unlike [Table.Get], GetNoLang does not translate character codes: the
+// subtable is looked up by the codes it stores.
 func (ss Table) GetNoLang(platformID, encodingID uint16) (Subtable, error) {
 	// sort the keys to make the output deterministic
 	keys := slices.Collect(maps.Keys(ss))

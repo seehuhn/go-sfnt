@@ -17,6 +17,7 @@
 package cff
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -49,10 +50,9 @@ func readEncoding(p *parser.Parser, charset []int32) ([]glyph.ID, error) {
 			return nil, err
 		}
 		for _, c := range codes {
-			if res[c] != 0 {
-				return nil, invalidSince("invalid format 0 encoding")
+			if res[c] == 0 {
+				res[c] = currentGid // first assignment wins
 			}
-			res[c] = currentGid
 			currentGid++
 		}
 	case 1:
@@ -75,10 +75,10 @@ func readEncoding(p *parser.Parser, charset []int32) ([]glyph.ID, error) {
 			for j := int(first); j <= int(first+nLeft); j++ {
 				if int(currentGid) >= len(charset) {
 					return nil, invalidSince("format 1 encoding too long")
-				} else if res[j] != 0 {
-					return nil, invalidSince("invalid format 1 encoding")
 				}
-				res[j] = currentGid
+				if res[j] == 0 {
+					res[j] = currentGid // first assignment wins
+				}
 				currentGid++
 			}
 		}
@@ -99,18 +99,12 @@ func readEncoding(p *parser.Parser, charset []int32) ([]glyph.ID, error) {
 			code, err := p.ReadUint8()
 			if err != nil {
 				return nil, err
-			} else if res[code] != 0 {
-				return nil, invalidSince("invalid encoding supplement")
 			}
 			sid, err := p.ReadUint16()
 			if err != nil {
 				return nil, err
 			}
-			gid := lookup[sid]
-			if gid >= currentGid {
-				return nil, invalidSince("invalid encoding supplement")
-			}
-			if gid != 0 {
+			if gid := lookup[sid]; gid != 0 && res[code] == 0 {
 				res[code] = gid
 			}
 		}
@@ -122,32 +116,33 @@ func readEncoding(p *parser.Parser, charset []int32) ([]glyph.ID, error) {
 // encodeEncoding creates the CFF binary representation of an encoding vector.
 // The encoding vector is given as a slice of glyph IDs (length 256),
 // where the glyph ID 0 is used to indicate a missing glyph.
+// The glyphNames argument gives the SID of each glyph name.
 //
-// The encoded glyphs must form a contiguous range starting at glyph ID 1.
-//
-// The glyphNames argument is only used for supplemented encodings, where
-// one or more glyphs have multiple codes.
+// Format 0 and format 1 encodings assign codes to the glyphs 1, 2, ..., n
+// in order.  The longest run of glyphs, starting at glyph 1, which all have
+// codes is encoded this way.  All remaining codes are stored as
+// supplements, which identify glyphs by name.  This fails for glyphs
+// whose name is also used by a later glyph, since a supplement then
+// refers to the later glyph.
 func encodeEncoding(encoding []glyph.ID, glyphNames []int32) ([]byte, error) {
-	var maxGid glyph.ID
-	codes := map[glyph.ID]uint8{}
-	type suppl struct {
-		code uint8
-		gid  glyph.ID
-	}
-	var extra []suppl
+	// the first (lowest) code of each glyph
+	firstCode := make(map[glyph.ID]uint8)
 	for code, gid := range encoding {
 		if gid == 0 {
 			continue
 		}
-		c8 := uint8(code)
-		if _, ok := codes[gid]; ok {
-			extra = append(extra, suppl{c8, gid})
-			continue
+		if _, ok := firstCode[gid]; !ok {
+			firstCode[gid] = uint8(code)
 		}
-		codes[gid] = c8
-		if gid > maxGid {
-			maxGid = gid
+	}
+
+	// the longest run of encoded glyphs, starting at glyph 1
+	n := 0
+	for {
+		if _, ok := firstCode[glyph.ID(n+1)]; !ok {
+			break
 		}
+		n++
 	}
 
 	type seg struct {
@@ -155,61 +150,77 @@ func encodeEncoding(encoding []glyph.ID, glyphNames []int32) ([]byte, error) {
 		nLeft     uint8
 	}
 	var ss []seg
-
-	startGid := glyph.ID(1)
-	startCode := codes[startGid]
-	for gid := glyph.ID(1); gid <= maxGid; gid++ {
-		code, ok := codes[gid]
-		if !ok {
-			msg := fmt.Sprintf("encoded glyphs not contiguous (glyph %d not encoded)", gid)
-			return nil, invalidSince(msg)
-		}
-		if int(gid-startGid) != int(code)-int(startCode) {
-			ss = append(ss, seg{startCode, uint8(gid - startGid - 1)})
-			startGid = gid
-			startCode = code
+	for gid := glyph.ID(1); int(gid) <= n; gid++ {
+		code := firstCode[gid]
+		if k := len(ss) - 1; k >= 0 && int(ss[k].firstCode)+int(ss[k].nLeft)+1 == int(code) {
+			ss[k].nLeft++
+		} else {
+			ss = append(ss, seg{code, 0})
 		}
 	}
-	ss = append(ss, seg{startCode, uint8(maxGid - startGid)})
+	// Format 0 holds at most 255 codes, and format 1 at most 255 ranges.
+	// Since there are only 256 codes, both limits are exceeded only if
+	// n == 256 and every glyph forms a range of its own.  The last glyph
+	// is then stored as a supplement.
 	if len(ss) > 255 {
-		return nil, invalidSince("too many segments")
+		n = 255
+		ss = ss[:255]
 	}
 
-	format0Len := 2 + int(maxGid)
+	// the SID of each glyph name resolves to the last glyph using it
+	nameOwner := make(map[int32]glyph.ID)
+	for gid, sid := range glyphNames {
+		nameOwner[sid] = glyph.ID(gid)
+	}
+
+	type suppl struct {
+		code uint8
+		sid  uint16
+	}
+	var extra []suppl
+	for code, gid := range encoding {
+		if gid == 0 || int(gid) <= n && firstCode[gid] == uint8(code) {
+			continue
+		}
+		sid := glyphNames[gid]
+		if nameOwner[sid] != gid {
+			return nil, fmt.Errorf("cff: cannot encode glyph %d (name shared with glyph %d)",
+				gid, nameOwner[sid])
+		}
+		extra = append(extra, suppl{uint8(code), uint16(sid)})
+	}
+	if len(extra) > 255 {
+		return nil, errors.New("cff: too many encoding supplements")
+	}
+
+	format0Len := 2 + n
 	format1Len := 2 + len(ss)*2
 	extraLen := 0
 	if len(extra) > 0 {
 		extraLen = 1 + 3*len(extra)
 	}
 	var buf []byte
-	var extraBase int
-	if format0Len <= format1Len && maxGid <= 255 {
-		extraBase = format0Len
-		buf = make([]byte, format0Len+extraLen)
-		// buf[0] = 0
-		buf[1] = byte(maxGid)
-		for i := glyph.ID(1); i <= maxGid; i++ {
-			buf[i+1] = codes[i]
+	if n <= 255 && format0Len <= format1Len {
+		buf = make([]byte, 2, format0Len+extraLen)
+		buf[0] = 0
+		buf[1] = byte(n)
+		for gid := glyph.ID(1); int(gid) <= n; gid++ {
+			buf = append(buf, firstCode[gid])
 		}
 	} else {
-		extraBase = format1Len
-		buf = make([]byte, format1Len+extraLen)
+		buf = make([]byte, 2, format1Len+extraLen)
 		buf[0] = 1
 		buf[1] = byte(len(ss))
-		for i, s := range ss {
-			buf[2+i*2] = s.firstCode
-			buf[2+i*2+1] = s.nLeft
+		for _, s := range ss {
+			buf = append(buf, s.firstCode, s.nLeft)
 		}
 	}
 
 	if len(extra) > 0 {
 		buf[0] |= 128
-		buf[extraBase] = byte(len(extra))
-		for i, s := range extra {
-			buf[extraBase+i*3+1] = s.code
-			sid := uint16(glyphNames[s.gid])
-			buf[extraBase+i*3+2] = byte(sid >> 8)
-			buf[extraBase+i*3+3] = byte(sid)
+		buf = append(buf, byte(len(extra)))
+		for _, s := range extra {
+			buf = append(buf, s.code, byte(s.sid>>8), byte(s.sid))
 		}
 	}
 

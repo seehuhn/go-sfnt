@@ -18,12 +18,16 @@ package sfnt
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
+	"slices"
 	"strings"
+	"sync"
 
 	"golang.org/x/text/language"
 
@@ -48,6 +52,7 @@ import (
 	"seehuhn.de/go/sfnt/maxp"
 	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/name"
+	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
@@ -154,7 +159,6 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 	}
 
 	var cmapTable cmap.Table
-	var cmapBest cmap.Subtable
 	cmapData, err := dir.ReadTableBytes(rr, "cmap")
 	if err != nil && !header.IsMissing(err) {
 		return nil, err
@@ -166,7 +170,6 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			cmapTable = nil
 			err = nil
 		}
-		cmapBest, _ = cmapTable.GetBest()
 	}
 
 	var nameTable *name.Table
@@ -362,6 +365,15 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		panic("unexpected scaler type")
 	}
 
+	// glyph IDs must be valid before anything looks them up
+	cmapTable = dropInvalidCMapGlyphs(cmapTable, Outlines.NumGlyphs())
+
+	// decoded only if needed, since large subtables are expensive to decode
+	cmapBest := sync.OnceValue(func() cmap.Subtable {
+		c, _ := cmapTable.GetBest()
+		return c
+	})
+
 	// Merge the information from the various tables.
 	info := &Font{
 		Outlines:  Outlines,
@@ -470,11 +482,15 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		info.CapHeight = os2Info.CapHeight
 		info.XHeight = os2Info.XHeight
 	}
-	if info.CapHeight == 0 && cmapBest != nil {
-		info.CapHeight = info.measureHeight(cmapBest, type1.CapHeightChars)
+	if info.CapHeight == 0 {
+		if c := cmapBest(); c != nil {
+			info.CapHeight = info.measureHeight(c, type1.CapHeightChars)
+		}
 	}
-	if info.XHeight == 0 && cmapBest != nil {
-		info.XHeight = info.measureHeight(cmapBest, type1.XHeightChars)
+	if info.XHeight == 0 {
+		if c := cmapBest(); c != nil {
+			info.XHeight = info.measureHeight(c, type1.XHeightChars)
+		}
 	}
 
 	if postInfo != nil {
@@ -573,10 +589,10 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			}
 		}
 	}
+	dropInvalidGsubGlyphs(info.Gsub, info.NumGlyphs())
 	if info.Gsub == nil && !info.IsFixedPitch() {
-		cmap, _ := info.CMapTable.GetBest()
-		if cmap != nil {
-			info.Gsub = standardLigatures(cmap)
+		if c := cmapBest(); c != nil {
+			info.Gsub = standardLigatures(c)
 		}
 	}
 
@@ -822,4 +838,251 @@ func deriveUnitsPerEm(outlines Outlines, fontInfo *type1.FontInfo, headInfo *hea
 		}
 	}
 	return unitsPerEmFrom(headInfo, fm)
+}
+
+// dropInvalidCMapGlyphs removes the mappings to glyphs which do not exist in
+// the font, so that every glyph ID found via the cmap table can be used to
+// index the font's glyphs.  Subtables which need no change are kept as they
+// are; subtables in formats which cannot be decoded are never used to look up
+// glyphs and are also kept.
+func dropInvalidCMapGlyphs(table cmap.Table, numGlyphs int) cmap.Table {
+	// Fonts often store identical subtables under several keys, e.g. for
+	// the Unicode and Windows platforms.  Subtables found to need no
+	// change are recorded here, so that copies are not decoded again.
+	var clean [][]byte
+
+	for _, key := range sortedCMapKeys(table) {
+		data := table[key]
+		if slices.ContainsFunc(clean, func(d []byte) bool { return bytes.Equal(d, data) }) {
+			continue
+		}
+		c, err := cmap.Table{key: data}.GetNoLang(key.PlatformID, key.EncodingID)
+		if err != nil {
+			continue
+		}
+
+		changed := false
+		switch c := c.(type) {
+		case *cmap.Format0:
+			for i, g := range c.Data {
+				if int(g) >= numGlyphs {
+					c.Data[i] = 0
+					changed = true
+				}
+			}
+			if changed {
+				table[key] = c.Encode(key.Language)
+			}
+		case *cmap.Format6:
+			for i, g := range c.GlyphIDs {
+				if int(g) >= numGlyphs {
+					c.GlyphIDs[i] = 0
+					changed = true
+				}
+			}
+			if changed {
+				table[key] = c.Encode(key.Language)
+			}
+		case cmap.Format4:
+			// removing mappings can split segments, so the result may
+			// not fit into a format 4 subtable
+			for code, g := range c {
+				if int(g) >= numGlyphs {
+					delete(c, code)
+					changed = true
+				}
+			}
+			if changed {
+				delete(table, key)
+				putFormat4(table, key, c, table)
+			}
+		case cmap.Format12:
+			for code, g := range c {
+				if int(g) >= numGlyphs {
+					delete(c, code)
+					changed = true
+				}
+			}
+			if changed {
+				table[key] = c.Encode(key.Language)
+			}
+		}
+		if !changed {
+			clean = append(clean, data)
+		}
+	}
+	return table
+}
+
+// dropInvalidGsubGlyphs removes the GSUB substitutions which produce glyphs
+// not present in the font, so that applying the lookups never yields an
+// invalid glyph ID.  An alternate set keeps its valid alternates and a
+// ligature set its valid ligatures; all other substitutions with an invalid
+// output are removed as a whole.  Subtables left without any rules are
+// removed from their lookup.
+//
+// Rules which match missing glyphs are kept.  They never fire, since neither
+// the cmap table nor the remaining substitutions produce such glyphs.
+func dropInvalidGsubGlyphs(info *gtab.Info, numGlyphs int) {
+	if info == nil {
+		return
+	}
+
+	valid := func(gid glyph.ID) bool { return int(gid) < numGlyphs }
+	allValid := func(gids []glyph.ID) bool {
+		return !slices.ContainsFunc(gids, func(gid glyph.ID) bool { return !valid(gid) })
+	}
+	validLig := func(lig gtab.Ligature) bool { return valid(lig.Out) }
+	allValidLigs := func(ligs []gtab.Ligature) bool {
+		return !slices.ContainsFunc(ligs, func(lig gtab.Ligature) bool { return !validLig(lig) })
+	}
+	nonEmpty := func(x []glyph.ID) bool { return len(x) > 0 }
+	nonEmptyLigs := func(x []gtab.Ligature) bool { return len(x) > 0 }
+
+	for _, lookup := range info.LookupList {
+		for _, subtable := range lookup.Subtables {
+			switch l := subtable.(type) {
+			case *gtab.Gsub1_1:
+				for gid := range l.Cov {
+					if !valid(gid + l.Delta) {
+						delete(l.Cov, gid)
+					}
+				}
+			case *gtab.Gsub1_2:
+				l.Cov, l.SubstituteGlyphIDs = filterCoverage(l.Cov, l.SubstituteGlyphIDs, valid)
+			case *gtab.Gsub2_1:
+				l.Cov, l.Repl = filterCoverage(l.Cov, l.Repl, allValid)
+			case *gtab.Gsub3_1:
+				if !slices.ContainsFunc(l.Alternates, func(alts []glyph.ID) bool { return !allValid(alts) }) {
+					continue
+				}
+				alternates := make([][]glyph.ID, len(l.Alternates))
+				for i, alts := range l.Alternates {
+					alternates[i] = slices.DeleteFunc(slices.Clone(alts),
+						func(gid glyph.ID) bool { return !valid(gid) })
+				}
+				l.Cov, l.Alternates = filterCoverage(l.Cov, alternates, nonEmpty)
+			case *gtab.Gsub4_1:
+				if !slices.ContainsFunc(l.Repl, func(ligs []gtab.Ligature) bool { return !allValidLigs(ligs) }) {
+					continue
+				}
+				repl := make([][]gtab.Ligature, len(l.Repl))
+				for i, ligs := range l.Repl {
+					repl[i] = slices.DeleteFunc(slices.Clone(ligs),
+						func(lig gtab.Ligature) bool { return !validLig(lig) })
+				}
+				l.Cov, l.Repl = filterCoverage(l.Cov, repl, nonEmptyLigs)
+			case *gtab.Gsub8_1:
+				l.Input, l.SubstituteGlyphIDs = filterCoverage(l.Input, l.SubstituteGlyphIDs, valid)
+			}
+		}
+		lookup.Subtables = slices.DeleteFunc(lookup.Subtables, isEmptyGsub)
+	}
+}
+
+// isEmptyGsub reports whether a non-contextual GSUB subtable has no rules.
+func isEmptyGsub(subtable gtab.Subtable) bool {
+	switch l := subtable.(type) {
+	case *gtab.Gsub1_1:
+		return len(l.Cov) == 0
+	case *gtab.Gsub1_2:
+		return len(l.Cov) == 0
+	case *gtab.Gsub2_1:
+		return len(l.Cov) == 0
+	case *gtab.Gsub3_1:
+		return len(l.Cov) == 0
+	case *gtab.Gsub4_1:
+		return len(l.Cov) == 0
+	case *gtab.Gsub8_1:
+		return len(l.Input) == 0
+	default:
+		return false
+	}
+}
+
+// filterCoverage restricts a coverage table, and the data indexed by its
+// coverage indices, to the entries for which keep returns true.  If entries
+// are removed, the remaining ones are renumbered in order of increasing glyph
+// ID; otherwise cov and data are returned unchanged.
+func filterCoverage[T any](cov coverage.Table, data []T, keep func(T) bool) (coverage.Table, []T) {
+	if !slices.ContainsFunc(data, func(x T) bool { return !keep(x) }) {
+		return cov, data
+	}
+
+	newCov := make(coverage.Table, len(cov))
+	newData := make([]T, 0, len(cov))
+	for _, gid := range cov.Glyphs() {
+		x := data[cov[gid]]
+		if keep(x) {
+			newCov[gid] = len(newData)
+			newData = append(newData, x)
+		}
+	}
+	return newCov, newData
+}
+
+// putFormat4 stores the mapping c, decoded from the subtable with the given
+// key, in the table out.
+//
+// A format 4 subtable is limited to 16-bit offsets and length.  If c does not
+// fit, the mapping is stored as a format 12 subtable under the platform's
+// full-repertoire encoding instead.  The mapping is left out if the platform
+// has no such encoding, or if the new key is already used in orig or out.
+// Callers visit the keys in sorted order, so that the result does not depend
+// on map iteration order when several subtables compete for the same key.
+func putFormat4(out cmap.Table, key cmap.Key, c cmap.Format4, orig cmap.Table) {
+	data, err := c.TryEncode(key.Language)
+	if err == nil {
+		out[key] = data
+		return
+	}
+
+	newKey, ok := format12Key(key)
+	if !ok {
+		return
+	}
+	if newKey != key {
+		if _, taken := orig[newKey]; taken {
+			return
+		}
+		if _, taken := out[newKey]; taken {
+			return
+		}
+	}
+	f12 := make(cmap.Format12, len(c))
+	for code, g := range c {
+		f12[uint32(code)] = g
+	}
+	out[newKey] = f12.Encode(key.Language)
+}
+
+// format12Key returns the key under which a Unicode subtable beyond the BMP
+// is stored for the given platform and encoding.  The second return value is
+// false if the platform has no such encoding.
+func format12Key(key cmap.Key) (cmap.Key, bool) {
+	switch key.PlatformID {
+	case 0:
+		key.EncodingID = 4
+	case 3:
+		if key.EncodingID != 1 && key.EncodingID != 10 {
+			return cmap.Key{}, false
+		}
+		key.EncodingID = 10
+	default:
+		return cmap.Key{}, false
+	}
+	return key, true
+}
+
+// sortedCMapKeys returns the keys of the table, ordered by platform ID,
+// encoding ID and language.
+func sortedCMapKeys(table cmap.Table) []cmap.Key {
+	keys := slices.Collect(maps.Keys(table))
+	slices.SortFunc(keys, func(a, b cmap.Key) int {
+		return cmp.Or(
+			cmp.Compare(a.PlatformID, b.PlatformID),
+			cmp.Compare(a.EncodingID, b.EncodingID),
+			cmp.Compare(a.Language, b.Language))
+	})
+	return keys
 }

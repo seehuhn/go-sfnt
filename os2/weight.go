@@ -19,6 +19,7 @@ package os2
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Weight indicates the visual weight (degree of blackness or thickness of
@@ -26,27 +27,35 @@ import (
 type Weight uint16
 
 // WeightFromString returns the weight class for the given string.
+// Names are matched ignoring case, spaces and hyphens, and the names used in
+// Adobe font metrics files ("Roman", "Book", "Demi", "Heavy", ...) are
+// understood.  Decimal numbers are accepted as well.
 // If the weight cannot be parsed, 0 is returned.
 // This is the converse of Weight.String().
 func WeightFromString(s string) Weight {
-	switch s {
-	case "Thin":
+	// ignore case, spaces and hyphens: "Semi Bold", "SemiBold", "semi-bold"
+	key := strings.ToLower(strings.NewReplacer(" ", "", "-", "").Replace(s))
+	switch key {
+	case "thin", "hairline":
 		return WeightThin
-	case "Extra Light":
+	case "extralight", "ultralight":
 		return WeightExtraLight
-	case "Light":
+	case "light":
 		return WeightLight
-	case "Normal", "Regular":
+	case "normal", "regular", "roman", "book":
 		return WeightNormal
-	case "Medium":
+	case "medium":
 		return WeightMedium
-	case "Semi Bold":
+	case "semibold", "demibold", "demi":
 		return WeightSemiBold
-	case "Bold":
+	case "bold":
 		return WeightBold
-	case "Extra Bold":
+	case "extrabold", "ultrabold":
 		return WeightExtraBold
-	case "Black":
+	// "Ultra" alone is the name of the heaviest weight (as in "Ultra
+	// Black"), whereas "Ultra" as a prefix is a synonym for "Extra", so
+	// "UltraBold" is one step below "Black".
+	case "black", "heavy", "ultra", "extrablack", "ultrablack":
 		return WeightBlack
 	default:
 		x, _ := strconv.Atoi(s)

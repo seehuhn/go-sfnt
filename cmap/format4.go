@@ -19,11 +19,14 @@ package cmap
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"math/bits"
 
 	"seehuhn.de/go/dag"
 	"seehuhn.de/go/sfnt/glyph"
 )
+
+var errTooManyMappings = errors.New("cmap: too many mappings for a format 4 subtable")
 
 // Format4 represents a format 4 cmap subtable.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-4-segment-mapping-to-delta-values
@@ -99,12 +102,25 @@ func (cmap Format4) Lookup(r rune) glyph.ID {
 	return cmap[uint16(r)]
 }
 
-// Encode encodes the subtable into a byte slice.
+// Encode encodes the subtable into a byte slice.  The method panics if the
+// mapping is too large for a format 4 subtable; use [Format4.TryEncode] to
+// check for this case.
 func (cmap Format4) Encode(language uint16) []byte {
+	data, err := cmap.TryEncode(language)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+// TryEncode encodes the subtable into a byte slice.  An error is returned if
+// the mapping does not fit into a format 4 subtable, where all offsets and the
+// total length are limited to 16 bits.
+func (cmap Format4) TryEncode(language uint16) ([]byte, error) {
 	g := makeSegments(cmap)
 	segments, err := dag.ShortestPath(g, 0x10000)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	var StartCode, EndCode, IDDelta, IDRangeOffsets, GlyphIDArray []uint16
@@ -118,7 +134,7 @@ func (cmap Format4) Encode(language uint16) []byte {
 			offs := 2 * (len(segments) - i + // remaining entries in IDRangeOffsets
 				len(GlyphIDArray)) // any previous entries in GlyphIDArray
 			if offs > 65535 {
-				panic("too many mappings for a format 4 subtable")
+				return nil, errTooManyMappings
 			}
 			IDRangeOffsets = append(IDRangeOffsets, uint16(offs))
 			for c := uint32(s.first); c <= uint32(s.last); c++ {
@@ -129,6 +145,9 @@ func (cmap Format4) Encode(language uint16) []byte {
 
 	// Encode the data in the binary format
 	segCount := len(StartCode)
+	if 2*(8+4*segCount+len(GlyphIDArray)) > 0xFFFF {
+		return nil, errTooManyMappings
+	}
 	sel := bits.Len(uint(segCount))
 	data := &cmapFormat4{
 		Format:        4,
@@ -148,7 +167,7 @@ func (cmap Format4) Encode(language uint16) []byte {
 		_ = binary.Write(buf, binary.BigEndian, x)
 	}
 
-	return buf.Bytes()
+	return buf.Bytes(), nil
 }
 
 // CodeRange returns the smallest and largest code point in the subtable.

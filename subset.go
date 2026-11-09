@@ -19,6 +19,7 @@ package sfnt
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/funit"
@@ -37,8 +38,9 @@ import (
 var ErrVariableFont = errors.New("sfnt: cannot subset variable font; call Instantiate first")
 
 // Subset returns a subset of the font containing the given
-// glyphs at the first positions.  More glyphs may be included in the
-// subset, if they occur as ligatures between the given glyphs.
+// glyphs at the first positions.  More glyphs are included in the
+// subset where GSUB lookups can produce them from the given glyphs,
+// and where composite glyphs use them as components.
 //
 // The slice glyphs must start with glyph ID 0 to represent the notdef glyph.
 //
@@ -55,7 +57,7 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 	res := f.Clone()
 
 	s := subsetter{
-		glyphs: glyphs,
+		glyphs: slices.Clone(glyphs),
 		newGid: map[glyph.ID]glyph.ID{},
 	}
 	for newgid, oldGid := range glyphs {
@@ -64,17 +66,42 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 
 	if f.CMapTable != nil {
 		res.CMapTable = make(cmap.Table, len(f.CMapTable))
-		for key := range f.CMapTable {
-			c, err := f.CMapTable.Get(key)
+		for _, key := range sortedCMapKeys(f.CMapTable) {
+			// Decode without translating the character codes, so that
+			// the subset subtable keeps the codes of the original.
+			// Subtables in formats which cannot be decoded are dropped.
+			c, err := cmap.Table{key: f.CMapTable[key]}.GetNoLang(key.PlatformID, key.EncodingID)
 			if err != nil {
 				continue
 			}
-			c = s.SubsetCMap(c)
-			res.CMapTable[key] = c.Encode(key.Language)
+			switch c := s.SubsetCMap(c).(type) {
+			case cmap.Format4:
+				// renumbering the glyphs can break up runs, so the
+				// subset may not fit into a format 4 subtable
+				putFormat4(res.CMapTable, key, c, f.CMapTable)
+			default:
+				res.CMapTable[key] = c.Encode(key.Language)
+			}
 		}
 	}
+
+	// GSUB outputs may be composite glyphs, so alternate the two closures
+	// until the glyph list is complete.  All tables below are built from
+	// the complete list, so that composite components keep their GDEF
+	// and GPOS data.
+	glyfOutlines, _ := f.Outlines.(*glyf.Outlines)
+	for {
+		n := len(s.glyphs)
+		s.closeGsub(f.Gsub)
+		if glyfOutlines != nil {
+			s.closeGlyf(glyfOutlines)
+		}
+		if len(s.glyphs) == n {
+			break
+		}
+	}
+
 	res.Gsub = s.SubsetGsub(f.Gsub)
-	// At this point we have the final list of glyphs.
 	res.Gpos = s.SubsetGpos(f.Gpos)
 	res.Gdef = s.SubsetGdef(f.Gdef)
 
@@ -98,22 +125,58 @@ func (s *subsetter) hasOldGid(oldGid glyph.ID) bool {
 	return ok
 }
 
+// getNewGid returns the new glyph ID for oldGid, adding the glyph to the
+// subset if needed.
 func (s *subsetter) getNewGid(oldGid glyph.ID) glyph.ID {
-	newGid, ok := s.newGid[oldGid]
-	if !ok {
-		newGid = glyph.ID(len(s.glyphs))
-		s.glyphs = append(s.glyphs, oldGid)
-		s.newGid[oldGid] = newGid
-	}
-	return newGid
+	s.addGlyph(oldGid)
+	return s.newGid[oldGid]
 }
 
-func (s *subsetter) SubsetCMap(c cmap.Subtable) cmap.Subtable {
-	if c == nil {
-		return nil
+// addGlyph adds oldGid to the subset and reports whether the glyph was
+// added, rather than being in the subset already.
+func (s *subsetter) addGlyph(oldGid glyph.ID) bool {
+	if s.hasOldGid(oldGid) {
+		return false
 	}
+	s.newGid[oldGid] = glyph.ID(len(s.glyphs))
+	s.glyphs = append(s.glyphs, oldGid)
+	return true
+}
 
+// SubsetCMap returns the subtable c restricted to the glyphs of the subset,
+// with glyph IDs remapped.
+func (s *subsetter) SubsetCMap(c cmap.Subtable) cmap.Subtable {
 	switch c := c.(type) {
+	case *cmap.Format0:
+		// mappings to glyph IDs above 255 cannot be represented
+		res := &cmap.Format0{}
+		for code, oldGid := range c.Data {
+			if newGid, ok := s.newGid[glyph.ID(oldGid)]; ok && newGid <= 255 {
+				res.Data[code] = byte(newGid)
+			}
+		}
+		return res
+	case *cmap.Format6:
+		gids := make([]glyph.ID, len(c.GlyphIDs))
+		for i, oldGid := range c.GlyphIDs {
+			gids[i] = s.newGid[oldGid] // 0 if not in the subset
+		}
+		// trim unmapped codes at both ends
+		start := 0
+		for start < len(gids) && gids[start] == 0 {
+			start++
+		}
+		end := len(gids)
+		for end > start && gids[end-1] == 0 {
+			end--
+		}
+		if start == end {
+			return &cmap.Format6{}
+		}
+		return &cmap.Format6{
+			FirstCode: c.FirstCode + uint16(start),
+			GlyphIDs:  gids[start:end],
+		}
 	case cmap.Format4:
 		res := cmap.Format4{}
 		for key, oldGid := range c {
@@ -135,14 +198,18 @@ func (s *subsetter) SubsetCMap(c cmap.Subtable) cmap.Subtable {
 		}
 		return res
 	default:
+		// GetNoLang only returns the formats above
 		panic(fmt.Sprintf("sfnt: unsupported cmap format %T", c))
 	}
 }
 
-// TODO(voss): This is incomplete.  Finish this!
-func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
+// closeGsub adds to the subset all glyphs which GSUB lookups can produce
+// from the glyphs already in the subset.  The rules of contextual lookups
+// are treated as if they could always fire, so the result may contain more
+// glyphs than strictly needed.
+func (s *subsetter) closeGsub(old *gtab.Info) {
 	if old == nil {
-		return nil
+		return
 	}
 
 	// step 1: make a list of all GSUB rules
@@ -170,36 +237,36 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 		for _, sOld := range tOld.Subtables {
 			switch sOld := sOld.(type) {
 			case *gtab.Gsub1_1:
-				for gid := range sOld.Cov {
+				for _, gid := range sOld.Cov.Glyphs() {
 					rules = append(rules, rule{
 						in:  []glyph.ID{gid},
 						out: []glyph.ID{gid + sOld.Delta},
 					})
 				}
 			case *gtab.Gsub1_2:
-				for gid, idx := range sOld.Cov {
+				for _, gid := range sOld.Cov.Glyphs() {
 					rules = append(rules, rule{
 						in:  []glyph.ID{gid},
-						out: []glyph.ID{sOld.SubstituteGlyphIDs[idx]},
+						out: []glyph.ID{sOld.SubstituteGlyphIDs[sOld.Cov[gid]]},
 					})
 				}
 			case *gtab.Gsub2_1:
-				for gid, idx := range sOld.Cov {
+				for _, gid := range sOld.Cov.Glyphs() {
 					rules = append(rules, rule{
 						in:  []glyph.ID{gid},
-						out: sOld.Repl[idx],
+						out: sOld.Repl[sOld.Cov[gid]],
 					})
 				}
 			case *gtab.Gsub3_1:
-				for gid, idx := range sOld.Cov {
+				for _, gid := range sOld.Cov.Glyphs() {
 					rules = append(rules, rule{
 						in:  []glyph.ID{gid},
-						out: sOld.Alternates[idx],
+						out: sOld.Alternates[sOld.Cov[gid]],
 					})
 				}
 			case *gtab.Gsub4_1:
-				for gid, idx := range sOld.Cov {
-					for _, lig := range sOld.Repl[idx] {
+				for _, gid := range sOld.Cov.Glyphs() {
+					for _, lig := range sOld.Repl[sOld.Cov[gid]] {
 						in := make([]glyph.ID, 0, len(lig.In)+1)
 						in = append(in, gid)
 						in = append(in, lig.In...)
@@ -210,10 +277,10 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 					}
 				}
 			case *gtab.Gsub8_1:
-				for gid, idx := range sOld.Input {
+				for _, gid := range sOld.Input.Glyphs() {
 					gsub8Rules = append(gsub8Rules, gsub8Rule{
 						input:     gid,
-						target:    sOld.SubstituteGlyphIDs[idx],
+						target:    sOld.SubstituteGlyphIDs[sOld.Input[gid]],
 						backtrack: sOld.Backtrack,
 						lookahead: sOld.Lookahead,
 					})
@@ -273,8 +340,7 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 			r := rules[pos]
 			if r.nMissing == 0 {
 				for _, gid := range r.out {
-					if !s.hasOldGid(gid) {
-						s.getNewGid(gid)
+					if s.addGlyph(gid) {
 						added[gid] = struct{}{}
 					}
 				}
@@ -290,8 +356,7 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 		for pos < len(gsub8Rules) {
 			r := &gsub8Rules[pos]
 			if gsub8CanFire(r) {
-				if !s.hasOldGid(r.target) {
-					s.getNewGid(r.target)
+				if s.addGlyph(r.target) {
 					added[r.target] = struct{}{}
 				}
 				gsub8Rules = append(gsub8Rules[:pos], gsub8Rules[pos+1:]...)
@@ -318,10 +383,20 @@ func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
 			needsRun = true
 		}
 	}
+}
 
-	// step 3: create the new GSUB table
+// SubsetGsub returns the GSUB table restricted to the glyphs of the subset.
+// Glyphs which the lookups can produce are first added to the subset, see
+// [subsetter.closeGsub].
+func (s *subsetter) SubsetGsub(old *gtab.Info) *gtab.Info {
+	if old == nil {
+		return nil
+	}
+
+	s.closeGsub(old)
+
 	res := *old
-	res.LookupList = nil
+	res.LookupList = gtab.LookupList{}
 	oldToNew := make([]int, 0, len(old.LookupList))
 	for _, tOld := range old.LookupList {
 		tNew := &gtab.LookupTable{
@@ -491,7 +566,7 @@ func (s *subsetter) SubsetGpos(old *gtab.Info) *gtab.Info {
 	}
 
 	res := *old
-	res.LookupList = nil
+	res.LookupList = gtab.LookupList{}
 	oldToNew := make([]int, 0, len(old.LookupList))
 	for _, tOld := range old.LookupList {
 		tNew := &gtab.LookupTable{
@@ -712,6 +787,32 @@ func (s *subsetter) SubsetGdef(old *gdef.Table) *gdef.Table {
 			}
 		}
 	}
+	// Walk s.glyphs in newGid order so the coverage indices come out in
+	// ascending-gid order, required by the encoder.
+	if old.AttachList != nil {
+		list := &gdef.AttachList{Cov: coverage.Table{}}
+		for newGid, oldGid := range s.glyphs {
+			if idx, ok := old.AttachList.Cov[oldGid]; ok {
+				list.Cov[glyph.ID(newGid)] = len(list.Points)
+				list.Points = append(list.Points, old.AttachList.Points[idx])
+			}
+		}
+		if len(list.Cov) > 0 {
+			res.AttachList = list
+		}
+	}
+	if old.LigCaretList != nil {
+		list := &gdef.LigCaretList{Cov: coverage.Table{}}
+		for newGid, oldGid := range s.glyphs {
+			if idx, ok := old.LigCaretList.Cov[oldGid]; ok {
+				list.Cov[glyph.ID(newGid)] = len(list.Carets)
+				list.Carets = append(list.Carets, old.LigCaretList.Carets[idx])
+			}
+		}
+		if len(list.Cov) > 0 {
+			res.LigCaretList = list
+		}
+	}
 	if old.MarkGlyphSets != nil {
 		res.MarkGlyphSets = make([]coverage.Set, len(old.MarkGlyphSets))
 		for i, set := range old.MarkGlyphSets {
@@ -724,6 +825,8 @@ func (s *subsetter) SubsetGdef(old *gdef.Table) *gdef.Table {
 			res.MarkGlyphSets[i] = newSet
 		}
 	}
+	// the store is indexed by device tables, not by glyph
+	res.ItemVarStore = old.ItemVarStore
 	return res
 }
 
@@ -778,29 +881,24 @@ func (s *subsetter) SubsetCFF(oldOutlines *cff.Outlines) *cff.Outlines {
 	return newOutlines
 }
 
+// closeGlyf adds the components of composite glyphs to the subset.
+func (s *subsetter) closeGlyf(oldOutlines *glyf.Outlines) {
+	// s.glyphs grows during the loop, so that components of components
+	// are visited, too
+	for i := 0; i < len(s.glyphs); i++ {
+		for _, component := range oldOutlines.Glyphs[s.glyphs[i]].Components() {
+			s.addGlyph(component)
+		}
+	}
+}
+
 func (s *subsetter) SubsetGlyf(oldOutlines *glyf.Outlines) *glyf.Outlines {
 	newOutlines := &glyf.Outlines{
 		Tables: oldOutlines.Tables,
 		Maxp:   oldOutlines.Maxp,
 	}
 
-	todo := make(map[glyph.ID]bool, len(s.glyphs))
-	for _, oldGid := range s.glyphs {
-		todo[oldGid] = true
-	}
-	for len(todo) > 0 {
-		oldGid := pop(todo)
-		cc := oldOutlines.Glyphs[oldGid].Components()
-		for _, componentGidOld := range cc {
-			if _, ok := s.newGid[componentGidOld]; ok {
-				continue
-			}
-			componendGidNew := glyph.ID(len(s.glyphs))
-			s.glyphs = append(s.glyphs, componentGidOld)
-			s.newGid[componentGidOld] = componendGidNew
-			todo[componentGidOld] = true
-		}
-	}
+	s.closeGlyf(oldOutlines)
 
 	newOutlines.Glyphs = make([]*glyf.Glyph, len(s.glyphs))
 	for newGid, oldGid := range s.glyphs {
@@ -822,12 +920,4 @@ func (s *subsetter) SubsetGlyf(oldOutlines *glyf.Outlines) *glyf.Outlines {
 	// TODO(voss): can anything be done to make the "fpgm" table smaller?
 
 	return newOutlines
-}
-
-func pop(todo map[glyph.ID]bool) glyph.ID {
-	for key := range todo {
-		delete(todo, key)
-		return key
-	}
-	panic("empty map")
 }

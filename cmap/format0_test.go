@@ -81,3 +81,34 @@ func TestFormat0(t *testing.T) {
 		}
 	})
 }
+
+// TestFormat0MacRoman checks that Table.Get translates the Mac Roman codes
+// of a Macintosh format 0 subtable to Unicode, as it does for the other
+// formats, while GetNoLang keeps the raw codes.
+func TestFormat0MacRoman(t *testing.T) {
+	s := &Format0{}
+	s.Data['A'] = 10
+	s.Data[0x80] = 20 // Mac Roman 0x80 is 'Ä'
+	key := Key{PlatformID: 1, EncodingID: 0}
+	tbl := Table{key: s.Encode(0)}
+
+	sub, err := tbl.Get(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for r, want := range map[rune]glyph.ID{'A': 10, 'Ä': 20, 0x80: 0} {
+		if got := sub.Lookup(r); got != want {
+			t.Errorf("Get: Lookup(%U) = %d, want %d", r, got, want)
+		}
+	}
+
+	raw, err := tbl.GetNoLang(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for r, want := range map[rune]glyph.ID{'A': 10, 0x80: 20} {
+		if got := raw.Lookup(r); got != want {
+			t.Errorf("GetNoLang: Lookup(%U) = %d, want %d", r, got, want)
+		}
+	}
+}

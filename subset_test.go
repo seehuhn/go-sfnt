@@ -22,14 +22,20 @@ import (
 	"math"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/cff"
 	"seehuhn.de/go/sfnt/cmap"
+	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
+	"seehuhn.de/go/sfnt/opentype/classdef"
+	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/gdef"
+	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -352,5 +358,217 @@ func TestIsFixedPitchCIDPerFDMatrix(t *testing.T) {
 	o.Glyphs[2].Width = 600
 	if f.IsFixedPitch() {
 		t.Errorf("IsFixedPitch=true, want false (gid 2 advances 0.6 em)")
+	}
+}
+
+// TestSubsetCMapMac checks that subsetting keeps the character codes of
+// Macintosh cmap subtables, which use Mac Roman rather than Unicode codes,
+// and that a format 0 subtable is subset rather than causing a panic.
+func TestSubsetCMapMac(t *testing.T) {
+	key := cmap.Key{PlatformID: 1, EncodingID: 0}
+
+	// glyphs 10, ..., 299 fill the subset, so that old glyph 3 gets the
+	// new glyph ID 292, which a format 0 subtable cannot hold
+	glyphs := []glyph.ID{0, 7, 12}
+	for gid := glyph.ID(10); gid < 300; gid++ {
+		if gid != 12 {
+			glyphs = append(glyphs, gid)
+		}
+	}
+	glyphs = append(glyphs, 3)
+
+	type testCase struct {
+		name  string
+		table []byte
+		want  map[rune]glyph.ID
+	}
+	format0 := &cmap.Format0{}
+	format0.Data['A'] = 7
+	format0.Data[0x80] = 12 // Mac Roman 0x80 is 'Ä'
+	format0.Data['B'] = 3
+	format0.Data['C'] = 5
+	cases := []testCase{
+		{
+			name: "format 4",
+			table: cmap.Format4{
+				'A':  7,
+				0x80: 12,
+				'B':  3,
+				'C':  5,
+			}.Encode(0),
+			want: map[rune]glyph.ID{'A': 1, 'Ä': 2, 'B': 292, 'C': 0},
+		},
+		{
+			name:  "format 0",
+			table: format0.Encode(0),
+			want:  map[rune]glyph.ID{'A': 1, 'Ä': 2, 'B': 0, 'C': 0},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			font := ttfFixture(t)
+			font.CMapTable = cmap.Table{key: tc.table}
+
+			orig, err := font.CMapTable.Get(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if orig.Lookup('Ä') != 12 {
+				t.Fatalf("test setup: 'Ä' maps to %d", orig.Lookup('Ä'))
+			}
+
+			subset, err := font.Subset(glyphs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			subset = writeReadTTF(t, subset)
+			sub, err := subset.CMapTable.Get(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for r, want := range tc.want {
+				if got := sub.Lookup(r); got != want {
+					t.Errorf("lookup %q = %d, want %d", r, got, want)
+				}
+			}
+		})
+	}
+}
+
+// compositeFixture returns a TrueType font in which glyph 10 is built from
+// glyph 20, glyph 30 from glyph 40, and glyph 10 is substituted by glyph 30
+// in GSUB.  GDEF classes the components as marks, and GPOS adjusts them.
+func compositeFixture(t *testing.T) *Font {
+	t.Helper()
+
+	font := ttfFixture(t)
+	outlines := font.Outlines.(*glyf.Outlines)
+	composite := func(component glyph.ID) *glyf.Glyph {
+		return &glyf.Glyph{
+			Rect16: outlines.Glyphs[component].Rect16,
+			Data: glyf.CompositeGlyph{Components: []glyf.GlyphComponent{{
+				Flags:      glyf.FlagArgsAreXYValues,
+				GlyphIndex: component,
+				Data:       []byte{0, 0},
+			}}},
+		}
+	}
+	outlines.Glyphs[10] = composite(20)
+	outlines.Glyphs[30] = composite(40)
+
+	font.Gsub = wrapLookup(1, &gtab.Gsub1_2{
+		Cov:                coverage.Table{10: 0},
+		SubstituteGlyphIDs: []glyph.ID{30},
+	})
+	font.Gpos = wrapLookup(1, &gtab.Gpos1_1{
+		Cov:    coverage.Table{20: 0, 40: 1},
+		Adjust: &gtab.GposValueRecord{XPlacement: 5},
+	})
+	font.Gdef = &gdef.Table{
+		GlyphClass: classdef.Table{
+			10: gdef.GlyphClassBase,
+			20: gdef.GlyphClassMark,
+			30: gdef.GlyphClassBase,
+			40: gdef.GlyphClassMark,
+		},
+	}
+	return font
+}
+
+// TestSubsetCompositeComponents checks that glyphs pulled into a subset as
+// composite components, also those of GSUB outputs, keep their GDEF and GPOS
+// data.
+func TestSubsetCompositeComponents(t *testing.T) {
+	font := compositeFixture(t)
+
+	subset, err := font.Subset([]glyph.ID{0, 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 0 → 0, 10 → 1, GSUB output 30 → 2, components 20 → 3 and 40 → 4
+	outlines := subset.Outlines.(*glyf.Outlines)
+	if len(outlines.Glyphs) != 5 {
+		t.Fatalf("got %d glyphs, want 5", len(outlines.Glyphs))
+	}
+	if diff := cmp.Diff([]glyph.ID{3}, outlines.Glyphs[1].Components()); diff != "" {
+		t.Errorf("components of glyph 1 (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]glyph.ID{4}, outlines.Glyphs[2].Components()); diff != "" {
+		t.Errorf("components of glyph 2 (-want +got):\n%s", diff)
+	}
+
+	wantClass := classdef.Table{
+		1: gdef.GlyphClassBase,
+		2: gdef.GlyphClassBase,
+		3: gdef.GlyphClassMark,
+		4: gdef.GlyphClassMark,
+	}
+	if diff := cmp.Diff(wantClass, subset.Gdef.GlyphClass); diff != "" {
+		t.Errorf("GDEF glyph classes (-want +got):\n%s", diff)
+	}
+
+	if len(subset.Gpos.LookupList) != 1 {
+		t.Fatalf("got %d GPOS lookups, want 1", len(subset.Gpos.LookupList))
+	}
+	wantCov := coverage.Table{3: 0, 4: 1}
+	gpos := subset.Gpos.LookupList[0].Subtables[0].(*gtab.Gpos1_1)
+	if diff := cmp.Diff(wantCov, gpos.Cov); diff != "" {
+		t.Errorf("GPOS coverage (-want +got):\n%s", diff)
+	}
+}
+
+// TestSubsetDeterministic checks that the glyphs added to a subset, as GSUB
+// outputs or as composite components, come in a fixed order.
+func TestSubsetDeterministic(t *testing.T) {
+	font := ttfFixture(t)
+	outlines := font.Outlines.(*glyf.Outlines)
+	var components []glyf.GlyphComponent
+	for gid := glyph.ID(100); gid < 120; gid++ {
+		components = append(components, glyf.GlyphComponent{
+			Flags:      glyf.FlagArgsAreXYValues,
+			GlyphIndex: gid,
+			Data:       []byte{0, 0},
+		})
+	}
+	outlines.Glyphs[10] = &glyf.Glyph{
+		Rect16: outlines.Glyphs[100].Rect16,
+		Data:   glyf.CompositeGlyph{Components: components},
+	}
+	sub := &gtab.Gsub1_2{Cov: coverage.Table{}}
+	for i, gid := range []glyph.ID{11, 12, 13, 14, 15, 16, 17, 18, 19} {
+		sub.Cov[gid] = i
+		sub.SubstituteGlyphIDs = append(sub.SubstituteGlyphIDs, 200+gid)
+	}
+	font.Gsub = wrapLookup(1, sub)
+
+	var first []string
+	for i := range 20 {
+		subset, err := font.Subset([]glyph.ID{0, 10, 19, 15, 11, 17, 13, 12, 18, 14, 16})
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := subset.Outlines.(*glyf.Outlines).Names
+		if i == 0 {
+			first = names
+		} else if diff := cmp.Diff(first, names); diff != "" {
+			t.Fatalf("glyph order differs between runs (-first +now):\n%s", diff)
+		}
+	}
+}
+
+// TestSubsetCMapFormat6 checks that a format 6 subtable keeps its character
+// codes, with unmapped codes at both ends trimmed.
+func TestSubsetCMapFormat6(t *testing.T) {
+	s := newSubsetter(0, 7, 5)
+	c := &cmap.Format6{FirstCode: 10, GlyphIDs: []glyph.ID{0, 3, 5, 0, 7, 9, 0}}
+	want := &cmap.Format6{FirstCode: 12, GlyphIDs: []glyph.ID{2, 0, 1}}
+	if diff := cmp.Diff(want, s.SubsetCMap(c)); diff != "" {
+		t.Errorf("wrong subtable (-want +got):\n%s", diff)
+	}
+
+	c = &cmap.Format6{FirstCode: 0xFFF0, GlyphIDs: []glyph.ID{3, 9}}
+	if diff := cmp.Diff(&cmap.Format6{}, s.SubsetCMap(c)); diff != "" {
+		t.Errorf("wrong empty subtable (-want +got):\n%s", diff)
 	}
 }

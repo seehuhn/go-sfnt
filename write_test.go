@@ -383,3 +383,43 @@ func TestWriteRejectsWidth(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteSparseEncoding checks that a CFF built-in encoding in which
+// unencoded glyphs sit between encoded ones survives a write/read cycle.
+func TestWriteSparseEncoding(t *testing.T) {
+	var glyphs []*cff.Glyph
+	for _, name := range []string{".notdef", "alpha", "unused", "beta", "gamma"} {
+		glyphs = append(glyphs, cff.NewGlyph(name, 500))
+	}
+	encoding := make([]glyph.ID, 256)
+	encoding['a'] = 1
+	encoding['b'] = 3
+	encoding['g'] = 4
+	encoding['G'] = 4
+	font := &Font{
+		FontName:   "Test",
+		UnitsPerEm: 1000,
+		FontMatrix: matrix.Matrix{0.001, 0, 0, 0.001, 0, 0},
+		Outlines: &cff.Outlines{
+			Glyphs:   glyphs,
+			Private:  []*type1.PrivateDict{{}},
+			FDSelect: func(glyph.ID) int { return 0 },
+			Encoding: encoding,
+		},
+	}
+
+	buf := &bytes.Buffer{}
+	_, err := font.Write(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	font2, err := Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := font2.Outlines.(*cff.Outlines).Encoding
+	if diff := cmp.Diff(encoding, got); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}

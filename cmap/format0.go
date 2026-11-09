@@ -24,15 +24,25 @@ import (
 
 // decodeFormat0 decodes a format 0 cmap subtable.
 //
+// If code2rune is nil, the result is a [*Format0], indexed by the character
+// codes of the subtable.  Otherwise the codes are translated by code2rune
+// and the result is a [Format4], like for the other byte-encoded formats.
+//
 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-0-byte-encoding-table
 func decodeFormat0(data []byte, code2rune func(c int) rune) (Subtable, error) {
-	if code2rune == nil {
-		code2rune = unicode
-	}
-
 	data = data[6:]
 	if len(data) != 256 {
 		return nil, fmt.Errorf("cmap: format 0: expected 256 bytes, got %d", len(data))
+	}
+
+	if code2rune != nil {
+		res := make(Format4)
+		for code, gid := range data {
+			if gid != 0 {
+				res[uint16(code2rune(code))] = glyph.ID(gid)
+			}
+		}
+		return res, nil
 	}
 
 	res := &Format0{}

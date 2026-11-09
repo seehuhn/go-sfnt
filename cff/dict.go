@@ -483,11 +483,11 @@ func (d cffDict) getPair(op dictOp) (int32, int32, bool) {
 
 // getFontMatrix reads the six FontMatrix operands from a CFF1 DICT.  See
 // getFontMatrixCFF2 in cff2read.go for the CFF2 counterpart: CFF1 operands
-// are always plain numbers, so this asserts float64 directly, while a CFF2
-// DICT may carry blended operands (dictBlendValue) that need resolving to
-// their default value; the two also pick their fallback matrix differently
-// (isCIDKeyed here vs. an explicit def argument there).  Keeping the two
-// separate avoids threading blend resolution through the CFF1 path.
+// are integers or reals, while a CFF2 DICT may carry blended operands
+// (dictBlendValue) that need resolving to their default value; the two also
+// pick their fallback matrix differently (isCIDKeyed here vs. an explicit
+// def argument there).  Keeping the two separate avoids threading blend
+// resolution through the CFF1 path.
 func (d cffDict) getFontMatrix(op dictOp, isCIDKeyed bool) (res matrix.Matrix) {
 	xx, ok := d[op]
 	if !ok || len(xx) != 6 {
@@ -498,14 +498,17 @@ func (d cffDict) getFontMatrix(op dictOp, isCIDKeyed bool) (res matrix.Matrix) {
 	}
 
 	for i, x := range xx {
-		xi, ok := x.(float64)
-		if !ok {
+		switch x := x.(type) {
+		case int32:
+			res[i] = float64(x)
+		case float64:
+			res[i] = x
+		default:
 			if isCIDKeyed {
 				return matrix.Identity
 			}
 			return defaultFontMatrix
 		}
-		res[i] = xi
 	}
 
 	return res

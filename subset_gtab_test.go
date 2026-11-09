@@ -29,6 +29,7 @@ import (
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/opentype/markarray"
+	"seehuhn.de/go/sfnt/variation"
 )
 
 // newSubsetter constructs a subsetter that keeps the given old glyph IDs,
@@ -1103,5 +1104,76 @@ func TestSubsetGdef(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("SubsetGdef mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestSubsetGdefLists checks that the attachment point and ligature caret
+// lists, and the item variation store, survive subsetting.
+func TestSubsetGdefLists(t *testing.T) {
+	s := newSubsetter(0, 7, 5)
+	point := uint16(4)
+	store := &variation.ItemVariationStore{}
+	old := &gdef.Table{
+		AttachList: &gdef.AttachList{
+			Cov:    coverage.Table{5: 0, 6: 1, 7: 2},
+			Points: [][]uint16{{1}, {2}, {3, 4}},
+		},
+		LigCaretList: &gdef.LigCaretList{
+			Cov: coverage.Table{5: 0, 6: 1, 7: 2},
+			Carets: [][]gdef.CaretValue{
+				{{Coordinate: 100}},
+				{{Coordinate: 200}},
+				{{Coordinate: 300}, {ContourPoint: &point}},
+			},
+		},
+		ItemVarStore: store,
+	}
+	got := s.SubsetGdef(old)
+	want := &gdef.Table{
+		AttachList: &gdef.AttachList{
+			Cov:    coverage.Table{1: 0, 2: 1}, // 7 → 1, 5 → 2
+			Points: [][]uint16{{3, 4}, {1}},
+		},
+		LigCaretList: &gdef.LigCaretList{
+			Cov: coverage.Table{1: 0, 2: 1},
+			Carets: [][]gdef.CaretValue{
+				{{Coordinate: 300}, {ContourPoint: &point}},
+				{{Coordinate: 100}},
+			},
+		},
+		ItemVarStore: store,
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("SubsetGdef mismatch (-want +got):\n%s", diff)
+	}
+
+	// lists covering no glyph of the subset are dropped
+	s = newSubsetter(0, 1)
+	got = s.SubsetGdef(old)
+	if got.AttachList != nil || got.LigCaretList != nil {
+		t.Errorf("empty lists kept: %v %v", got.AttachList, got.LigCaretList)
+	}
+}
+
+// TestSubsetGtabNoLookupsLeft checks that a GSUB or GPOS table in which no
+// lookup survives subsetting is still written with a lookup list.
+func TestSubsetGtabNoLookupsLeft(t *testing.T) {
+	gsub := wrapLookup(1, &gtab.Gsub1_2{
+		Cov: coverage.Table{50: 0}, SubstituteGlyphIDs: []glyph.ID{51},
+	})
+	gpos := wrapLookup(1, &gtab.Gpos1_1{
+		Cov: coverage.Table{50: 0}, Adjust: &gtab.GposValueRecord{XAdvance: 10},
+	})
+	for _, info := range []*gtab.Info{
+		newSubsetter(0, 1).SubsetGsub(gsub),
+		newSubsetter(0, 1).SubsetGpos(gpos),
+	} {
+		if len(info.LookupList) != 0 {
+			t.Fatalf("got %d lookups, want 0", len(info.LookupList))
+		}
+		data := info.Encode()
+		if lookupListOffset := int(data[8])<<8 | int(data[9]); lookupListOffset == 0 {
+			t.Error("lookup list offset is NULL")
+		}
 	}
 }

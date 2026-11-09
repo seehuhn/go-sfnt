@@ -548,3 +548,17 @@ func TestFontMatrixNearDefault(t *testing.T) {
 		})
 	}
 }
+
+// TestGetFontMatrixIntegerOperands checks that FontMatrix entries encoded as
+// integers are read, not discarded in favour of the default matrix.
+func TestGetFontMatrixIntegerOperands(t *testing.T) {
+	d := cffDict{
+		opFontMatrix: []any{1.0 / 2048, int32(0), int32(0), 1.0 / 2048, int32(0), int32(0)},
+	}
+	want := matrix.Matrix{1.0 / 2048, 0, 0, 1.0 / 2048, 0, 0}
+	for _, isCIDKeyed := range []bool{false, true} {
+		if got := d.getFontMatrix(opFontMatrix, isCIDKeyed); got != want {
+			t.Errorf("isCIDKeyed=%t: got %v, want %v", isCIDKeyed, got, want)
+		}
+	}
+}
