@@ -50,13 +50,19 @@ func (f *Font) Write(w io.Writer) error {
 	if len(f.Private) > maxFontDICTs {
 		return invalidSince("too many Font DICTs")
 	}
-	numGlyphs := uint16(len(f.Glyphs))
-
 	charStrings, defWidths, nomWidths, err := f.encodeCharStrings()
 	if err != nil {
 		return err
 	}
+	return f.writeCharStrings(w, charStrings, defWidths, nomWidths)
+}
 
+// writeCharStrings writes the font with the given encoded charstrings, which
+// use the default and nominal widths given for each private dictionary.
+func (f *Font) writeCharStrings(w io.Writer, charStrings cffIndex, defWidths, nomWidths []float64) error {
+	numGlyphs := uint16(len(f.Glyphs))
+
+	var err error
 	var blobs [][]byte
 	strings := &cffStrings{}
 

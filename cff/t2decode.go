@@ -45,10 +45,20 @@ const (
 	stageHintMask
 )
 
+// accentRef describes a glyph built from two other glyphs by a four-argument
+// endchar.  The accent is shifted by (dx, dy) relative to the base.  The
+// codes base and accent are StandardEncoding codes.
+type accentRef struct {
+	dx, dy       float64
+	base, accent byte
+}
+
 // decodeCharString returns the commands for the given charstring.
-func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
+// If the charstring ends in a valid four-argument endchar, the accent
+// arguments are returned as well; otherwise the second result is nil.
+func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, *accentRef, error) {
 	if err := info.budget.Charge(len(code)); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	res := &Glyph{
@@ -126,7 +136,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 	opLoop:
 		for len(code) > 0 {
 			if len(stack) > maxStack {
-				return nil, errStackOverflow
+				return nil, nil, errStackOverflow
 			}
 
 			op := t2op(code[0])
@@ -137,7 +147,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				continue
 			} else if op >= 247 && op <= 250 {
 				if len(code) < 2 {
-					return nil, errIncomplete
+					return nil, nil, errIncomplete
 				}
 				val := (int16(op)-247)*256 + int16(code[1]) + 108
 				stack = append(stack, float64(val))
@@ -145,7 +155,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				continue
 			} else if op >= 251 && op <= 254 {
 				if len(code) < 2 {
-					return nil, errIncomplete
+					return nil, nil, errIncomplete
 				}
 				val := (251-int16(op))*256 - int16(code[1]) - 108
 				stack = append(stack, float64(val))
@@ -153,7 +163,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				continue
 			} else if op == 28 {
 				if len(code) < 3 {
-					return nil, errIncomplete
+					return nil, nil, errIncomplete
 				}
 				val := int16(code[1])<<8 | int16(code[2])
 				stack = append(stack, float64(val))
@@ -161,7 +171,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				continue
 			} else if op == 255 {
 				if len(code) < 5 {
-					return nil, errIncomplete
+					return nil, nil, errIncomplete
 				}
 				val := int32(code[1])<<24 | int32(code[2])<<16 | int32(code[3])<<8 | int32(code[4])
 				stack = append(stack, float64(val)/65536)
@@ -171,7 +181,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 			if op == 12 {
 				if len(code) < 2 {
-					return nil, errIncomplete
+					return nil, nil, errIncomplete
 				}
 				op = op<<8 | t2op(code[1])
 				code = code[2:]
@@ -350,9 +360,9 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 			case t2hstem, t2hstemhm:
 				if stage > stageStems {
-					return nil, errors.New("too late for stem commands")
+					return nil, nil, errors.New("too late for stem commands")
 				} else if len(stack) < 2 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stage = stageStems
 				setGlyphWidth(len(stack)%2 == 1)
@@ -367,9 +377,9 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 			case t2vstem, t2vstemhm:
 				if stage > stageStems {
-					return nil, errors.New("too late for stem commands")
+					return nil, nil, errors.New("too late for stem commands")
 				} else if len(stack) < 2 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stage = stageStems
 				setGlyphWidth(len(stack)%2 == 1)
@@ -385,7 +395,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2hintmask, t2cntrmask:
 				if len(stack) >= 2 {
 					if stage > stageStems {
-						return nil, errors.New("too late for stem commands")
+						return nil, nil, errors.New("too late for stem commands")
 					}
 					stage = stageStems
 				}
@@ -404,17 +414,17 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 				}
 
 				if stage < stageStems {
-					return nil, errors.New("too early for hintmask")
+					return nil, nil, errors.New("too early for hintmask")
 				}
 				stage = stageHintMask
 
 				nStems := (len(res.HStem) + len(res.VStem)) / 2
 				if nStems == 0 {
-					return nil, errIncomplete
+					return nil, nil, errIncomplete
 				}
 				k := (nStems + 7) / 8
 				if k >= len(code) {
-					return nil, errIncomplete
+					return nil, nil, errIncomplete
 				}
 
 				cmd := GlyphOp{
@@ -434,7 +444,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2abs:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				if stack[k] < 0 {
 					stack[k] = -stack[k]
@@ -442,21 +452,21 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2add:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stack[k] += stack[k+1]
 				stack = stack[:k+1]
 			case t2sub:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stack[k] -= stack[k+1]
 				stack = stack[:k+1]
 			case t2div:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				var x float64
 				if stack[k+1] != 0 {
@@ -467,7 +477,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2neg:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stack[k] = -stack[k]
 			case t2random:
@@ -475,14 +485,14 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2mul:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stack[k] = float64(int64(stack[k]) * int64(stack[k+1]) >> 16)
 				stack = stack[:k+1]
 			case t2sqrt:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				var x float64
 				if stack[k] > 0 {
@@ -492,52 +502,52 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2drop:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stack = stack[:k]
 			case t2exch:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stack[k], stack[k+1] = stack[k+1], stack[k]
 			case t2index:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				idx := max(int(stack[k]), 0)
 				if k-idx-1 < 0 {
-					return nil, errors.New("invalid index")
+					return nil, nil, errors.New("invalid index")
 				}
 				stack[k] = stack[k-idx-1]
 			case t2roll:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				n := int(stack[k])
 				j := int(stack[k+1])
 				if n <= 0 || n > k {
-					return nil, errors.New("invalid roll count")
+					return nil, nil, errors.New("invalid roll count")
 				}
 				roll(stack[k-n:k], j)
 				stack = stack[:k]
 			case t2dup:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				stack = append(stack, stack[k])
 
 			case t2put:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				m := int(stack[k+1])
 				if m < 0 || m >= 32 {
-					return nil, errors.New("cff: invalid store index")
+					return nil, nil, errors.New("cff: invalid store index")
 				}
 				if storage == nil {
 					storage = make([]float64, 32)
@@ -547,18 +557,18 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2get:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				m := int(stack[k])
 				if m < 0 || m >= len(storage) {
-					return nil, errors.New("cff: invalid store index")
+					return nil, nil, errors.New("cff: invalid store index")
 				}
 				stack[k] = storage[m]
 
 			case t2and:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				var val float64
 				if stack[k] != 0 && stack[k+1] != 0 {
@@ -568,7 +578,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2or:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				var val float64
 				if stack[k] != 0 || stack[k+1] != 0 {
@@ -578,7 +588,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2not:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				if stack[k] == 0 {
 					stack[k] = float64(1)
@@ -588,7 +598,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2eq:
 				k := len(stack) - 2
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				if stack[k] == stack[k+1] {
 					stack[k] = float64(1)
@@ -599,7 +609,7 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2ifelse:
 				k := len(stack) - 4
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				var val float64
 				if stack[k+2] <= stack[k+3] {
@@ -612,14 +622,14 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 			case t2callsubr, t2callgsubr:
 				k := len(stack) - 1
 				if k < 0 {
-					return nil, errStackUnderflow
+					return nil, nil, errStackUnderflow
 				}
 				biased := int(stack[k])
 				stack = stack[:k]
 
 				cmdStack = append(cmdStack, code)
 				if len(cmdStack) > 10 {
-					return nil, invalidSince("maximum call stack size exceeded")
+					return nil, nil, invalidSince("maximum call stack size exceeded")
 				}
 
 				var err error
@@ -629,10 +639,10 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 					code, err = getSubr(info.gsubr, biased)
 				}
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if err := info.budget.Charge(len(code)); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 
 			case t2return:
@@ -640,21 +650,34 @@ func (info *decodeInfo) decodeCharString(code []byte) (*Glyph, error) {
 
 			case t2endchar:
 				setGlyphWidth(len(stack) == 1 || len(stack) > 4)
-				return res, nil
+				var ref *accentRef
+				if len(stack) == 4 {
+					bchar, achar := stack[2], stack[3]
+					if bchar == math.Trunc(bchar) && bchar >= 0 && bchar <= 255 &&
+						achar == math.Trunc(achar) && achar >= 0 && achar <= 255 {
+						ref = &accentRef{
+							dx:     fix(stack[0]),
+							dy:     fix(stack[1]),
+							base:   byte(bchar),
+							accent: byte(achar),
+						}
+					}
+				}
+				return res, ref, nil
 
 			default:
-				return nil, invalidSince(
+				return nil, nil, invalidSince(
 					fmt.Sprintf("unsupported type 2 opcode %d", op))
 			}
 
 			if moveError != nil {
-				return nil, moveError
+				return nil, nil, moveError
 			}
 		} // end of opLoop
 	}
 
 	// The normal exit from this function is via the t2endchar case above.
-	return nil, errIncomplete
+	return nil, nil, errIncomplete
 }
 
 // Fix a float64 to a 16.16 fixed point number in the range [-32000, 32000].

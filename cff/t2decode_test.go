@@ -25,6 +25,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/parser"
 )
@@ -60,7 +62,7 @@ func TestCharStringBudget(t *testing.T) {
 	// glyph body: push gsubr 0; callgsubr; endchar
 	glyphBody := []byte{pushGsubrIdx(0), byte(t2callgsubr), byte(t2endchar)}
 
-	_, err := info.decodeCharString(glyphBody)
+	_, _, err := info.decodeCharString(glyphBody)
 	if !errors.Is(err, membudget.ErrExceeded) {
 		t.Errorf("expected ErrExceeded, got %v", err)
 	}
@@ -173,7 +175,7 @@ func FuzzT2Decode(f *testing.F) {
 			nominalWidth: 666,
 			budget:       parser.NewBudget(0),
 		}
-		g1, err := info.decodeCharString(data1)
+		g1, _, err := info.decodeCharString(data1)
 		if err != nil {
 			return
 		}
@@ -190,7 +192,7 @@ func FuzzT2Decode(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		g2, err := info.decodeCharString(data2)
+		g2, _, err := info.decodeCharString(data2)
 		if err != nil {
 			fmt.Printf("A % x\n", data1)
 			fmt.Printf("A %s\n", g1)
@@ -342,4 +344,50 @@ func glyphsEqual(g1, g2 *Glyph) bool {
 		}
 	}
 	return true
+}
+
+func TestDecodeAccentRef(t *testing.T) {
+	fixed := func(v float64) []byte { // 16.16 fixed point operand
+		x := int32(v * 65536)
+		return []byte{0xff, byte(x >> 24), byte(x >> 16), byte(x >> 8), byte(x)}
+	}
+
+	cases := []struct {
+		name  string
+		code  []byte
+		width float64
+		want  *accentRef
+	}{
+		{"plain endchar", cs(t2endchar), 500, nil},
+		{"width only", cs(30, t2endchar), 530, nil},
+		{"four args", cs(10, -20, 65, 194, t2endchar), 500,
+			&accentRef{dx: 10, dy: -20, base: 65, accent: 194}},
+		{"five args", cs(30, 10, -20, 65, 194, t2endchar), 530,
+			&accentRef{dx: 10, dy: -20, base: 65, accent: 194}},
+		{"fractional offset", cs(fixed(10.5), 3, 65, 194, t2endchar), 500,
+			&accentRef{dx: 10.5, dy: 3, base: 65, accent: 194}},
+		{"fractional code", cs(10, 20, fixed(65.5), 194, t2endchar), 500, nil},
+		{"code too large", cs(10, 20, 65, 256, t2endchar), 500, nil},
+		{"negative code", cs(10, 20, -1, 194, t2endchar), 500, nil},
+		{"three args", cs(10, 20, 65, t2endchar), 500, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			info := &decodeInfo{
+				defaultWidth: 500,
+				nominalWidth: 500,
+				budget:       parser.NewBudget(0),
+			}
+			g, ref, err := info.decodeCharString(c.code)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g.Width != c.width {
+				t.Errorf("width %g, want %g", g.Width, c.width)
+			}
+			if diff := cmp.Diff(c.want, ref, cmp.AllowUnexported(accentRef{})); diff != "" {
+				t.Errorf("accentRef mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }

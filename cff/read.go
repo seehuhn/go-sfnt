@@ -289,12 +289,13 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Font, error) {
 	}
 
 	cff.Glyphs = make([]*Glyph, nGlyphs)
+	accents := make(map[int]*accentRef)
 	fdSelect := cff.FDSelect
 	for gid, code := range charStrings {
 		fdIdx := fdSelect(glyph.ID(gid))
 		info := decoders[fdIdx]
 
-		glyph, err := info.decodeCharString(code)
+		glyph, accent, err := info.decodeCharString(code)
 		if err != nil {
 			return nil, err
 		}
@@ -308,8 +309,14 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Font, error) {
 				return nil, err
 			}
 			glyph.Name = name
+			if accent != nil {
+				accents[gid] = accent
+			}
 		}
 		cff.Glyphs[gid] = glyph
+	}
+	if err := resolveAccents(cff.Glyphs, accents, p.Budget); err != nil {
+		return nil, err
 	}
 
 	// read the encoding
