@@ -21,7 +21,7 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// ReadGIDSlice reads a length followed by a sequence of GlyphID values.
+// readGIDSlice reads a length followed by a sequence of GlyphID values.
 func readGIDSlice(p *parser.Parser) ([]glyph.ID, error) {
 	n, err := p.ReadUint16()
 	if err != nil {
@@ -39,4 +39,14 @@ func readGIDSlice(p *parser.Parser) ([]glyph.ID, error) {
 		res[i] = glyph.ID(val)
 	}
 	return res, nil
+}
+
+// encodeGIDSlice encodes gids in the format read by [readGIDSlice].
+func encodeGIDSlice(gids []glyph.ID) []byte {
+	buf := make([]byte, 0, 2+2*len(gids))
+	buf = append(buf, byte(len(gids)>>8), byte(len(gids)))
+	for _, gid := range gids {
+		buf = append(buf, byte(gid>>8), byte(gid))
+	}
+	return buf
 }

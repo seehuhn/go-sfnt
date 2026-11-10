@@ -604,9 +604,12 @@ func (s *subsetter) SubsetGpos(old *gtab.Info) *gtab.Info {
 				if len(sNew.Cov) > 0 {
 					tNew.Subtables = append(tNew.Subtables, sNew)
 				}
-			case gtab.Gpos2_1:
-				sNew := gtab.Gpos2_1{}
-				for pair, adj := range sOld {
+			case *gtab.Gpos2_1:
+				sNew := &gtab.Gpos2_1{
+					Adjust:         map[glyph.Pair]*gtab.PairAdjust{},
+					PositionSecond: sOld.PositionSecond,
+				}
+				for pair, adj := range sOld.Adjust {
 					left, ok := s.newGid[pair.Left]
 					if !ok {
 						continue
@@ -615,9 +618,9 @@ func (s *subsetter) SubsetGpos(old *gtab.Info) *gtab.Info {
 					if !ok {
 						continue
 					}
-					sNew[glyph.Pair{Left: left, Right: right}] = adj
+					sNew.Adjust[glyph.Pair{Left: left, Right: right}] = adj
 				}
-				if len(sNew) > 0 {
+				if len(sNew.Adjust) > 0 {
 					tNew.Subtables = append(tNew.Subtables, sNew)
 				}
 			case *gtab.Gpos2_2:
@@ -643,10 +646,11 @@ func (s *subsetter) SubsetGpos(old *gtab.Info) *gtab.Info {
 					}
 				}
 				tNew.Subtables = append(tNew.Subtables, &gtab.Gpos2_2{
-					Cov:    newCov,
-					Class1: newClass1,
-					Class2: newClass2,
-					Adjust: sOld.Adjust,
+					Cov:            newCov,
+					Class1:         newClass1,
+					Class2:         newClass2,
+					Adjust:         sOld.Adjust,
+					PositionSecond: sOld.PositionSecond,
 				})
 			case *gtab.Gpos3_1:
 				sNew := &gtab.Gpos3_1{

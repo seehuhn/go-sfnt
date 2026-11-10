@@ -226,6 +226,10 @@ func doFuzz(t *testing.T, lookupType, lookupFormat uint16,
 	if err != nil {
 		return
 	}
+	if l1.fits() != nil {
+		// readLookupList drops such subtables
+		return
+	}
 
 	data2 := l1.encode()
 	if len(data2) != l1.encodeLen() {
@@ -251,5 +255,156 @@ func doFuzz(t *testing.T, lookupType, lookupFormat uint16,
 
 	if diff := cmp.Diff(l1, l2); diff != "" {
 		t.Errorf("different (-old +new):\n%s", diff)
+	}
+}
+
+func TestInfoEncodeHeaderOffsets(t *testing.T) {
+	smallFeats := FeatureListInfo{{Tag: "liga", Lookups: []LookupIndex{0}}}
+	smallScripts := ScriptListInfo{
+		language.MustParse("und-Latn-x-latn"): {Required: 0xFFFF, Optional: []FeatureIndex{0}},
+	}
+	bigScripts := func(n int) ScriptListInfo {
+		return ScriptListInfo{language.MustParse("und-Latn-x-latn"): bigFeatures(n)}
+	}
+	bigFeats := func(n int) FeatureListInfo {
+		return FeatureListInfo{{Tag: "liga", Lookups: make([]LookupIndex, n)}}
+	}
+
+	// FeatureVariations data makes the table use the version 1.1 header
+	for _, variations := range [][]FeatureVariationRecord{nil, {}} {
+		name := "v1.0"
+		if variations != nil {
+			name = "v1.1"
+		}
+		t.Run(name, func(t *testing.T) {
+			// In each case, the standard order puts a list out of reach,
+			// but storing the largest list last works.
+			fitting := []struct {
+				name     string
+				scripts  ScriptListInfo
+				features FeatureListInfo
+			}{
+				{"big script list", bigScripts(40000), smallFeats},
+				{"big feature list", smallScripts, bigFeats(40000)},
+				{"two medium lists", bigScripts(20000), bigFeats(20000)},
+				{"within limit", bigScripts(10000), bigFeats(10000)},
+			}
+			for _, c := range fitting {
+				t.Run(c.name, func(t *testing.T) {
+					info := &Info{
+						ScriptList:  c.scripts,
+						FeatureList: c.features,
+						LookupList:  LookupList{},
+						Variations:  variations,
+					}
+					data := info.Encode()
+					got, err := readGtab(bytes.NewReader(data),
+						parser.NewBudget(int64(len(data))), 0, readDummySubtable)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if diff := cmp.Diff(info, got); diff != "" {
+						t.Errorf("round trip failed (-want +got):\n%s", diff)
+					}
+				})
+			}
+
+			t.Run("too large", func(t *testing.T) {
+				info := &Info{
+					ScriptList:  bigScripts(40000),
+					FeatureList: bigFeats(40000),
+					LookupList:  LookupList{},
+					Variations:  variations,
+				}
+				assertPanics(t, func() { info.Encode() })
+			})
+		})
+	}
+}
+
+// TestReadGtabListsTooLarge checks that a table is rejected if its script
+// and feature lists are each valid, but cannot be reached together from the
+// header of the encoded table.  Two Script tables share one LangSys table
+// of about 40 kB, which is copied into both on write.
+func TestReadGtabListsTooLarge(t *testing.T) {
+	n := 20000
+
+	var langSys []byte
+	langSys = append(langSys, 0, 0, 0xFF, 0xFF, byte(n>>8), byte(n))
+	langSys = append(langSys, make([]byte, 2*n)...)
+
+	var scriptList []byte
+	scriptList = append(scriptList, 0, 2)
+	scriptList = append(scriptList, "cyrl"...)
+	scriptList = append(scriptList, 0, 14)
+	scriptList = append(scriptList, "latn"...)
+	scriptList = append(scriptList, 0, 24)
+	// Script tables at 14 and 24, the LangSys table at 34
+	scriptList = append(scriptList, 0, 0, 0, 1)
+	scriptList = append(scriptList, "RUS "...)
+	scriptList = append(scriptList, 0, 20)
+	scriptList = append(scriptList, 0, 0, 0, 1)
+	scriptList = append(scriptList, "DEU "...)
+	scriptList = append(scriptList, 0, 10)
+	scriptList = append(scriptList, langSys...)
+
+	featureList := FeatureListInfo{{Tag: "liga", Lookups: make([]LookupIndex, 40000)}}.encode()
+	lookupList := []byte{0, 0}
+
+	// the lookup list comes first, so that every offset fits
+	lookupOffset := 10
+	scriptOffset := lookupOffset + len(lookupList)
+	featureOffset := scriptOffset + len(scriptList)
+	if featureOffset > 0xFFFF {
+		t.Fatal("test data does not fit")
+	}
+	data := []byte{0, 1, 0, 0,
+		byte(scriptOffset >> 8), byte(scriptOffset),
+		byte(featureOffset >> 8), byte(featureOffset),
+		byte(lookupOffset >> 8), byte(lookupOffset),
+	}
+	data = append(data, lookupList...)
+	data = append(data, scriptList...)
+	data = append(data, featureList...)
+
+	// the script list on its own can be encoded
+	p := parser.New(bytes.NewReader(scriptList), parser.NewBudget(int64(len(scriptList))))
+	scripts, err := readScriptList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scripts) != 2 {
+		t.Fatalf("expected 2 language systems, got %d", len(scripts))
+	}
+
+	_, err = readGtab(bytes.NewReader(data), parser.NewBudget(int64(len(data))), 0, readDummySubtable)
+	if err == nil {
+		t.Error("expected error, got none")
+	}
+}
+
+func BenchmarkReadGtab(b *testing.B) {
+	info := &Info{
+		ScriptList: ScriptListInfo{
+			language.MustParse("und-Latn-x-latn-dflt"): {Required: 0xFFFF, Optional: []FeatureIndex{0, 1, 2}},
+			language.MustParse("und-Grek-x-grek-dflt"): {Required: 0xFFFF, Optional: []FeatureIndex{1, 2}},
+		},
+		LookupList: largeLookupList(20, 4, 500),
+	}
+	for i := range 40 {
+		info.FeatureList = append(info.FeatureList, &Feature{
+			Tag:     "liga",
+			Lookups: []LookupIndex{LookupIndex(i % len(info.LookupList))},
+		})
+	}
+	data := info.Encode()
+
+	b.SetBytes(int64(len(data)))
+	b.ReportAllocs()
+	for b.Loop() {
+		_, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))), TypeGsub)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }

@@ -423,7 +423,7 @@ func makeKerningTable(afm *afm.Metrics, name2gid map[string]glyph.ID, q float64)
 	// A pair which names a glyph the font program does not have is skipped,
 	// for the reason makeLigatures gives.
 	var skipped int
-	kern := gtab.Gpos2_1{}
+	kern := &gtab.Gpos2_1{Adjust: map[glyph.Pair]*gtab.PairAdjust{}}
 	for _, pair := range afm.Kern {
 		left, leftOK := name2gid[pair.Left]
 		right, rightOK := name2gid[pair.Right]
@@ -438,7 +438,7 @@ func makeKerningTable(afm *afm.Metrics, name2gid map[string]glyph.ID, q float64)
 			skipped++
 			continue
 		}
-		kern[glyph.Pair{
+		kern.Adjust[glyph.Pair{
 			Left:  left,
 			Right: right,
 		}] = &gtab.PairAdjust{
@@ -447,7 +447,7 @@ func makeKerningTable(afm *afm.Metrics, name2gid map[string]glyph.ID, q float64)
 			},
 		}
 	}
-	if len(kern) == 0 {
+	if len(kern.Adjust) == 0 {
 		return nil, skipped
 	}
 

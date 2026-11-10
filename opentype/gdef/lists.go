@@ -18,11 +18,14 @@ package gdef
 
 import (
 	"fmt"
+	"slices"
 
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/device"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
+	"seehuhn.de/go/sfnt/opentype/internal/readcache"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -70,6 +73,8 @@ func readAttachList(p *parser.Parser, pos int64) (*AttachList, error) {
 		cov.Prune(len(offsets))
 	}
 
+	// AttachPoint tables reached through several offsets are read once
+	cache := readcache.New[[]uint16]()
 	points, err := p.Budget.AllocSlice[[]uint16](len(offsets))
 	if err != nil {
 		return nil, err
@@ -78,71 +83,90 @@ func readAttachList(p *parser.Parser, pos int64) (*AttachList, error) {
 		if off == 0 {
 			continue
 		}
-		if err := p.SeekPos(pos + int64(off)); err != nil {
-			return nil, err
-		}
-		pointCount, err := p.ReadUint16()
-		if err != nil {
-			return nil, err
-		}
-		pts, err := p.Budget.AllocSlice[uint16](int(pointCount))
-		if err != nil {
-			return nil, err
-		}
-		for k := range pts {
-			pts[k], err = p.ReadUint16()
+		points[i], err = cache.Get(pos+int64(off), func(pos int64) ([]uint16, error) {
+			if err := p.SeekPos(pos); err != nil {
+				return nil, err
+			}
+			pointCount, err := p.ReadUint16()
 			if err != nil {
 				return nil, err
 			}
+			pts, err := p.Budget.AllocSlice[uint16](int(pointCount))
+			if err != nil {
+				return nil, err
+			}
+			for k := range pts {
+				pts[k], err = p.ReadUint16()
+				if err != nil {
+					return nil, err
+				}
+			}
+			return pts, nil
+		})
+		if err != nil {
+			return nil, err
 		}
-		points[i] = pts
 	}
 
 	return &AttachList{Cov: cov, Points: points}, nil
 }
 
-func (al *AttachList) encodeLen() int {
-	total := 4 + 2*len(al.Points) + al.Cov.EncodeLen()
-	for _, pts := range al.Points {
-		if pts != nil {
-			total += 2 + 2*len(pts)
-		}
-	}
-	return total
+// attachListLayout holds the positions of the tables of an attachment point
+// list.
+type attachListLayout struct {
+	covBytes []byte
+	offs     []uint16
+	pool     *offsetpool.Pool
 }
 
-func (al *AttachList) append(buf []byte) []byte {
-	glyphCount := len(al.Points)
-	coverageOffset := 4 + 2*glyphCount
+// layout computes the positions of the AttachPoint tables.  Tables with
+// identical encodings share one copy.  An error is returned if a table
+// cannot be reached through its Offset16.
+func (al *AttachList) layout() (*attachListLayout, error) {
+	coverageOffset := 4 + 2*len(al.Points)
+	if coverageOffset > 0xFFFF {
+		return nil, fmt.Errorf("attachment point coverage offset %d out of range", coverageOffset)
+	}
 	covBytes := al.Cov.Encode()
 
-	pos := coverageOffset + len(covBytes)
-	offsets := make([]int, glyphCount)
+	pool := offsetpool.New("attachment point", coverageOffset+len(covBytes))
+	offs := make([]uint16, len(al.Points))
 	for i, pts := range al.Points {
 		if pts == nil {
 			continue
 		}
-		offsets[i] = pos
-		pos += 2 + 2*len(pts)
+		var err error
+		offs[i], err = pool.AddFunc(offsetpool.SliceKey(pts), func() []byte {
+			enc := make([]byte, 2, 2+2*len(pts))
+			enc[0] = byte(len(pts) >> 8)
+			enc[1] = byte(len(pts))
+			for _, pt := range pts {
+				enc = append(enc, byte(pt>>8), byte(pt))
+			}
+			return enc
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
+	return &attachListLayout{covBytes: covBytes, offs: offs, pool: pool}, nil
+}
 
+func (l *attachListLayout) encodeLen() int {
+	return 4 + 2*len(l.offs) + len(l.covBytes) + l.pool.Len()
+}
+
+func (l *attachListLayout) append(buf []byte) []byte {
+	glyphCount := len(l.offs)
+	coverageOffset := 4 + 2*glyphCount
 	buf = append(buf,
 		byte(coverageOffset>>8), byte(coverageOffset),
 		byte(glyphCount>>8), byte(glyphCount))
-	for _, off := range offsets {
+	for _, off := range l.offs {
 		buf = append(buf, byte(off>>8), byte(off))
 	}
-	buf = append(buf, covBytes...)
-	for _, pts := range al.Points {
-		if pts == nil {
-			continue
-		}
-		buf = append(buf, byte(len(pts)>>8), byte(len(pts)))
-		for _, pt := range pts {
-			buf = append(buf, byte(pt>>8), byte(pt))
-		}
-	}
-	return buf
+	buf = append(buf, l.covBytes...)
+	return append(buf, l.pool.Bytes()...)
 }
 
 // LigCaretList is an OpenType "Ligature Caret List Table".  It records the
@@ -204,6 +228,10 @@ func readLigCaretList(p *parser.Parser, pos int64) (*LigCaretList, error) {
 		cov.Prune(len(offsets))
 	}
 
+	// LigGlyph and CaretValue tables reached through several offsets are
+	// read once
+	ligGlyphs := readcache.New[[]CaretValue]()
+	caretValues := readcache.New[CaretValue]()
 	carets, err := p.Budget.AllocSlice[[]CaretValue](len(offsets))
 	if err != nil {
 		return nil, err
@@ -212,94 +240,125 @@ func readLigCaretList(p *parser.Parser, pos int64) (*LigCaretList, error) {
 		if off == 0 {
 			continue
 		}
-		ligGlyphPos := pos + int64(off)
-		if err := p.SeekPos(ligGlyphPos); err != nil {
-			return nil, err
-		}
-		caretCount, err := p.ReadUint16()
-		if err != nil {
-			return nil, err
-		}
-		caretOffsets, err := p.Budget.AllocSlice[uint16](int(caretCount))
-		if err != nil {
-			return nil, err
-		}
-		for k := range caretOffsets {
-			caretOffsets[k], err = p.ReadUint16()
+		carets[i], err = ligGlyphs.Get(pos+int64(off), func(ligGlyphPos int64) ([]CaretValue, error) {
+			if err := p.SeekPos(ligGlyphPos); err != nil {
+				return nil, err
+			}
+			caretCount, err := p.ReadUint16()
 			if err != nil {
 				return nil, err
 			}
-		}
-		row, err := p.Budget.AllocSlice[CaretValue](int(caretCount))
-		if err != nil {
-			return nil, err
-		}
-		for k, co := range caretOffsets {
-			row[k], err = readCaretValue(p, ligGlyphPos+int64(co))
+			caretOffsets, err := p.Budget.AllocSlice[uint16](int(caretCount))
 			if err != nil {
 				return nil, err
 			}
+			for k := range caretOffsets {
+				caretOffsets[k], err = p.ReadUint16()
+				if err != nil {
+					return nil, err
+				}
+			}
+			row, err := p.Budget.AllocSlice[CaretValue](int(caretCount))
+			if err != nil {
+				return nil, err
+			}
+			for k, co := range caretOffsets {
+				row[k], err = caretValues.Get(ligGlyphPos+int64(co), func(pos int64) (CaretValue, error) {
+					return readCaretValue(p, pos)
+				})
+				if err != nil {
+					return nil, err
+				}
+			}
+			return row, nil
+		})
+		if err != nil {
+			return nil, err
 		}
-		carets[i] = row
 	}
 
 	return &LigCaretList{Cov: cov, Carets: carets}, nil
 }
 
-func (lcl *LigCaretList) encodeLen() int {
-	total := 4 + 2*len(lcl.Carets) + lcl.Cov.EncodeLen()
-	for _, row := range lcl.Carets {
-		if row == nil {
-			continue
-		}
-		total += 2 + 2*len(row)
-		for _, cv := range row {
-			total += cv.encodeLen()
-		}
-	}
-	return total
+// ligCaretListLayout holds the positions of the tables of a ligature caret
+// list.
+type ligCaretListLayout struct {
+	covBytes []byte
+	offs     []uint16
+	pool     *offsetpool.Pool
 }
 
-func (lcl *LigCaretList) append(buf []byte) []byte {
-	ligGlyphCount := len(lcl.Carets)
-	coverageOffset := 4 + 2*ligGlyphCount
+// layout computes the positions of the LigGlyph tables.  Tables with
+// identical encodings share one copy, and so do the CaretValue tables
+// within a LigGlyph table.  An error is returned if a table cannot be
+// reached through its Offset16.
+func (lcl *LigCaretList) layout() (*ligCaretListLayout, error) {
+	coverageOffset := 4 + 2*len(lcl.Carets)
+	if coverageOffset > 0xFFFF {
+		return nil, fmt.Errorf("ligature caret coverage offset %d out of range", coverageOffset)
+	}
 	covBytes := lcl.Cov.Encode()
 
-	pos := coverageOffset + len(covBytes)
-	offsets := make([]int, ligGlyphCount)
+	pool := offsetpool.New("ligature glyph", coverageOffset+len(covBytes))
+	offs := make([]uint16, len(lcl.Carets))
+	// LigGlyph tables with the same caret values are encoded once
+	var keys offsetpool.SeqKeys[CaretValue]
 	for i, row := range lcl.Carets {
 		if row == nil {
 			continue
 		}
-		offsets[i] = pos
-		pos += 2 + 2*len(row)
-		for _, cv := range row {
-			pos += cv.encodeLen()
+		var encErr error
+		off, err := pool.AddFunc(keys.Key(offsetpool.SliceKey(row), len(row), slices.Values(row)), func() []byte {
+			var enc []byte
+			enc, encErr = encodeLigGlyph(row)
+			return enc
+		})
+		if encErr != nil {
+			return nil, encErr
+		}
+		if err != nil {
+			return nil, err
+		}
+		offs[i] = off
+	}
+	return &ligCaretListLayout{covBytes: covBytes, offs: offs, pool: pool}, nil
+}
+
+// encodeLigGlyph encodes a LigGlyph table.
+func encodeLigGlyph(row []CaretValue) ([]byte, error) {
+	pool := offsetpool.New("caret value", 2+2*len(row))
+	offs := make([]uint16, len(row))
+	for i, cv := range row {
+		var err error
+		offs[i], err = pool.AddFunc(cv, func() []byte { return cv.append(nil) })
+		if err != nil {
+			return nil, err
 		}
 	}
+	buf := make([]byte, 2, 2+2*len(row)+pool.Len())
+	buf[0] = byte(len(row) >> 8)
+	buf[1] = byte(len(row))
+	for _, off := range offs {
+		buf = append(buf, byte(off>>8), byte(off))
+	}
+	return append(buf, pool.Bytes()...), nil
+}
 
+func (l *ligCaretListLayout) encodeLen() int {
+	return 4 + 2*len(l.offs) + len(l.covBytes) + l.pool.Len()
+}
+
+func (l *ligCaretListLayout) append(buf []byte) []byte {
+	ligGlyphCount := len(l.offs)
+	coverageOffset := 4 + 2*ligGlyphCount
 	buf = append(buf,
 		byte(coverageOffset>>8), byte(coverageOffset),
 		byte(ligGlyphCount>>8), byte(ligGlyphCount))
-	for _, off := range offsets {
+	for _, off := range l.offs {
 		buf = append(buf, byte(off>>8), byte(off))
 	}
-	buf = append(buf, covBytes...)
-	for _, row := range lcl.Carets {
-		if row == nil {
-			continue
-		}
-		buf = append(buf, byte(len(row)>>8), byte(len(row)))
-		caretOff := 2 + 2*len(row)
-		for _, cv := range row {
-			buf = append(buf, byte(caretOff>>8), byte(caretOff))
-			caretOff += cv.encodeLen()
-		}
-		for _, cv := range row {
-			buf = cv.append(buf)
-		}
-	}
-	return buf
+	buf = append(buf, l.covBytes...)
+	return append(buf, l.pool.Bytes()...)
 }
 
 func readCaretValue(p *parser.Parser, pos int64) (CaretValue, error) {
@@ -338,13 +397,6 @@ func readCaretValue(p *parser.Parser, pos int64) (CaretValue, error) {
 			Reason:    fmt.Sprintf("invalid caret value format %d", format),
 		}
 	}
-}
-
-func (cv CaretValue) encodeLen() int {
-	if cv.Device != nil {
-		return 6 + cv.Device.EncodeLen()
-	}
-	return 4
 }
 
 func (cv CaretValue) append(buf []byte) []byte {

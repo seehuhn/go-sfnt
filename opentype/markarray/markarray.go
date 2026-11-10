@@ -32,8 +32,9 @@ type Record struct {
 
 // Read reads a Mark Array Table from the given parser.
 // If there are more than numMarks entries in the table, the remaining entries
-// are ignored.
-func Read(p *parser.Parser, pos int64, numMarks int) ([]Record, error) {
+// are ignored.  Anchor tables are read via anchors, so that they can be
+// shared with other structures read by the same Reader.
+func Read(p *parser.Parser, anchors *anchor.Reader, pos int64, numMarks int) ([]Record, error) {
 	err := p.SeekPos(pos)
 	if err != nil {
 		return nil, err
@@ -68,10 +69,11 @@ func Read(p *parser.Parser, pos int64, numMarks int) ([]Record, error) {
 	}
 
 	for i, offs := range offsets {
-		res[i].Table, err = anchor.Read(p, pos+int64(offs))
+		a, err := anchors.Read(pos + int64(offs))
 		if err != nil {
 			return nil, err
 		}
+		res[i].Table = *a
 	}
 	return res, nil
 }

@@ -38,6 +38,8 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
+	anchors := anchor.NewReader(p)
+
 	mark1CoverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	mark2CoverageOffset := int64(buf[2])<<8 | int64(buf[3])
 	markClassCount := int(buf[4])<<8 | int(buf[5])
@@ -53,7 +55,7 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	mark1Array, err := markarray.Read(p, subtablePos+mark1ArrayOffset, len(mark1Cov))
+	mark1Array, err := markarray.Read(p, anchors, subtablePos+mark1ArrayOffset, len(mark1Cov))
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +91,7 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	numOffsets := uint(mark2Count) * uint(markClassCount)
 	if numOffsets > (65536-6-2)/2 {
 		// Offsets are 16-bit from mark2ArrayPos, and there must still be
-		// space for at least one achor table.
+		// space for at least one anchor table.
 		return nil, &parser.InvalidFontError{
 			SubSystem: "sfnt/opentype/gtab",
 			Reason:    "GPOS6.1 table too large",
@@ -119,11 +121,11 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			if offsets[j] == 0 {
 				continue
 			}
-			a, err := anchor.Read(p, mark2ArrayPos+int64(offsets[j]))
+			a, err := anchors.Read(mark2ArrayPos + int64(offsets[j]))
 			if err != nil {
 				return nil, err
 			}
-			row[j] = &a
+			row[j] = a
 		}
 		mark2Array[i] = row
 		offsets = offsets[markClassCount:]
@@ -180,9 +182,8 @@ func (l *Gpos6_1) apply(ctx *Context, a, b int) int {
 // countMarkClasses returns the markClassCount for this subtable.  It also
 // validates the structural invariants the encoder depends on: every row
 // in Mark2Array must have width markClassCount, and every Mark1Array
-// record's Class must be < markClassCount.  Both encodeLen and encode
-// call this, so inconsistent input is caught on the first pass instead
-// of leaving encodeLen happily returning a size for unencodable data.
+// record's Class must be < markClassCount.  It panics
+// if these are violated.
 func (l *Gpos6_1) countMarkClasses() int {
 	var count int
 	if len(l.Mark2Array) > 0 {
@@ -209,55 +210,35 @@ func (l *Gpos6_1) countMarkClasses() int {
 	return count
 }
 
-// arrays lays out the two mark arrays.
-func (l *Gpos6_1) arrays() (markClassCount int, marks1 *markArray, marks2 *anchorMatrix) {
-	markClassCount = l.countMarkClasses()
-	marks1 = newMarkArray("Gpos6_1", l.Mark1Array)
-	marks2 = newAnchorMatrix("Gpos6_1", l.Mark2Array, markClassCount)
-	return markClassCount, marks1, marks2
+// layout computes the encoded layout of the subtable.  The mark1 and mark2
+// coverage tables are stored once if they are identical.  An error is
+// returned if an offset does not fit into an Offset16.
+func (l *Gpos6_1) layout() (*markAttach, error) {
+	markClassCount := l.countMarkClasses()
+	marks1, err := newMarkArray("Gpos6_1", l.Mark1Array)
+	if err != nil {
+		return nil, err
+	}
+	marks2, err := newAnchorMatrix("Gpos6_1", l.Mark2Array, markClassCount)
+	if err != nil {
+		return nil, err
+	}
+	return newMarkAttach("Gpos6_1", l.Mark1Cov, l.Mark2Cov, markClassCount, marks1, marks2)
 }
 
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos6_1) encodeLen() int {
-	_, marks1, marks2 := l.arrays()
-	return 12 + l.Mark1Cov.EncodeLen() + l.Mark2Cov.EncodeLen() + marks1.size() + marks2.size()
+	return mustFit(l.layout()).size()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gpos6_1) encode() []byte {
-	markClassCount, marks1, marks2 := l.arrays()
+	lay := mustFit(l.layout())
+	return lay.append(make([]byte, 0, lay.size()))
+}
 
-	total := 12
-	mark1CoverageOffset := total
-	total += l.Mark1Cov.EncodeLen()
-	mark2CoverageOffset := total
-	total += l.Mark2Cov.EncodeLen()
-	mark1ArrayOffset := total
-	total += marks1.size()
-	mark2ArrayOffset := total
-	total += marks2.size()
-
-	// Each array addresses its anchors from its own start and bounds itself,
-	// so the subtable may reach past the 64 KiB an offset can cover.  What is
-	// left to check are the offsets in the subtable header, of which
-	// mark2ArrayOffset is the largest.
-	checkSubtableOffset16("Gpos6_1", mark2ArrayOffset)
-
-	res := make([]byte, 0, total)
-
-	res = append(res,
-		0, 1, // posFormat
-		byte(mark1CoverageOffset>>8), byte(mark1CoverageOffset),
-		byte(mark2CoverageOffset>>8), byte(mark2CoverageOffset),
-		byte(markClassCount>>8), byte(markClassCount),
-		byte(mark1ArrayOffset>>8), byte(mark1ArrayOffset),
-		byte(mark2ArrayOffset>>8), byte(mark2ArrayOffset),
-	)
-
-	res = append(res, l.Mark1Cov.Encode()...)
-	res = append(res, l.Mark2Cov.Encode()...)
-	res = marks1.append(res)
-	res = marks2.append(res)
-
-	return res
+// fits implements the [Subtable] interface.
+func (l *Gpos6_1) fits() error {
+	_, err := l.layout()
+	return err
 }

@@ -182,7 +182,7 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 	{
 		name: "Gpos2_1",
 		keep: []glyph.ID{0, 1, 3, 5, 7},
-		info: wrapLookup(2, gtab.Gpos2_1{
+		info: wrapLookup(2, &gtab.Gpos2_1{Adjust: map[glyph.Pair]*gtab.PairAdjust{
 			{Left: 1, Right: 3}: &gtab.PairAdjust{
 				First: &gtab.GposValueRecord{XAdvance: -10},
 			},
@@ -192,7 +192,7 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 			{Left: 5, Right: 7}: &gtab.PairAdjust{
 				First: &gtab.GposValueRecord{XAdvance: -30},
 			},
-		}),
+		}}),
 		tp:     gtab.TypeGpos,
 		subset: subsetGpos,
 	},

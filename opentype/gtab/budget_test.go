@@ -16,11 +16,11 @@
 
 package gtab
 
-// Memory-budget regression tests.  Each test crafts a hostile GSUB/GPOS
-// subtable that, without the per-table memory budget, would cause the
-// reader to allocate orders of magnitude more memory than the table
-// itself.  The expectation is that gtab.Read returns an error long
-// before exhausting heap memory.
+// Memory-budget regression tests.  Each test crafts a GSUB/GPOS subtable
+// which a naive reader would expand to orders of magnitude more memory than
+// the table itself.  The reader must either return an error before
+// exhausting heap memory, or, where the expansion comes from shared tables,
+// read each shared table only once.
 
 import (
 	"bytes"
@@ -40,9 +40,7 @@ func writeU16(buf *bytes.Buffer, v uint16) {
 
 // makeAliasedSeqContext2 builds a SeqContext2 subtable in which every
 // classSeqRuleSetOffset points to the same RuleSet, and every
-// seqRuleOffset inside that RuleSet points to the same Rule.  Used by
-// the parser via direct readSeqContext2 entry — see
-// TestSeqContext2BudgetedAliasing for the budget-aware caller.
+// seqRuleOffset inside that RuleSet points to the same Rule.
 func makeAliasedSeqContext2(N, M uint16) []byte {
 	sub := &bytes.Buffer{}
 	writeU16(sub, 2) // format 2
@@ -84,31 +82,11 @@ func makeAliasedSeqContext2(N, M uint16) []byte {
 	return subBytes
 }
 
-// budgetedReadSeqContext2 returns the result of reading sub via
-// readSeqContext2 with a budget sized for a hypothetical GSUB table of
-// the same size — the same envelope the production gtab.Read uses.
-func budgetedReadSeqContext2(t *testing.T, sub []byte) (Subtable, error) {
-	t.Helper()
-	p := parser.New(bytes.NewReader(sub), parser.NewBudget(int64(len(sub))))
-	format, err := p.ReadUint16()
-	if err != nil {
-		t.Fatalf("read format: %v", err)
-	}
-	if format != 2 {
-		t.Fatalf("unexpected format: %d", format)
-	}
-	return readSeqContext2(p, 0)
-}
-
-// TestSeqContext2BombBudgeted hands an aliasing bomb to readSeqContext2
-// and asserts the budget rejects it before memory is exhausted.
-func TestSeqContext2BombBudgeted(t *testing.T) {
-	// 1024×1024 = ~1M aliased rules expanded from a few KiB of input.
-	sub := makeAliasedSeqContext2(1024, 1024)
-	_, err := budgetedReadSeqContext2(t, sub)
-	if !errors.Is(err, membudget.ErrExceeded) {
-		t.Fatalf("err = %v, want ErrExceeded", err)
-	}
+// TestSeqContext2Aliased checks that a SeqContext2 subtable in which all
+// offsets reach the same RuleSet and Rule reads within the budget, since
+// the shared tables are read only once, and that it can be written back.
+func TestSeqContext2Aliased(t *testing.T) {
+	checkSharedRoundTripDeep(t, readSeqContext2, makeAliasedSeqContext2(1024, 1024))
 }
 
 // makeAliasedGsub4_1 builds a Gsub 4.1 subtable in which every
@@ -149,17 +127,10 @@ func makeAliasedGsub4_1(N, M uint16) []byte {
 	return subBytes
 }
 
-func TestGsub4_1BombBudgeted(t *testing.T) {
-	sub := makeAliasedGsub4_1(1024, 1024)
-	p := parser.New(bytes.NewReader(sub), parser.NewBudget(int64(len(sub))))
-	format, err := p.ReadUint16()
-	if err != nil || format != 1 {
-		t.Fatalf("format: %d, err: %v", format, err)
-	}
-	_, err = readGsub4_1(p, 0)
-	if !errors.Is(err, membudget.ErrExceeded) {
-		t.Fatalf("err = %v, want ErrExceeded", err)
-	}
+// TestGsub4_1Aliased is the counterpart of [TestSeqContext2Aliased] for
+// ligature substitutions.
+func TestGsub4_1Aliased(t *testing.T) {
+	checkSharedRoundTripDeep(t, readGsub4_1, makeAliasedGsub4_1(1024, 1024))
 }
 
 // TestCoverageFormat2BombBudgeted exercises a coverage Format 2 table

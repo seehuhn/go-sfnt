@@ -20,11 +20,14 @@ import (
 	"fmt"
 	"math/bits"
 	"strings"
+	"unsafe"
 
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/device"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
+	"seehuhn.de/go/sfnt/opentype/internal/readcache"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -41,16 +44,30 @@ type GposValueRecord struct {
 	YAdvanceDev   *device.Table // Device/VariationIndex for vertical advance
 }
 
+// decodeValueFormat decodes a valueFormat field from its first two bytes.
+// The reserved bits are cleared: they select no fields, and the spec
+// requires them to be zero.  Without this, a format consisting only of
+// reserved bits would give non-nil records which occupy no space in the
+// file.
+func decodeValueFormat(buf []byte) uint16 {
+	return (uint16(buf[0])<<8 | uint16(buf[1])) & 0x00FF
+}
+
 // readValueRecord reads the binary representation of a valueRecord.  The
 // valueFormat determines which fields are present in the inline portion of
 // the binary representation.  Device tables, if any, live elsewhere in the
-// subtable; their offsets are relative to subtablePos.
-func readValueRecord(p *parser.Parser, valueFormat uint16, subtablePos int64) (*GposValueRecord, error) {
+// subtable; their offsets are relative to subtablePos.  Device tables are
+// read via devices, so that records which refer to the same bytes share one
+// table.
+func readValueRecord(p *parser.Parser, valueFormat uint16, subtablePos int64, devices *readcache.Cache[*device.Table]) (*GposValueRecord, error) {
 	if valueFormat == 0 {
 		return nil, nil
 	}
 
 	res := &GposValueRecord{}
+	if err := p.Budget.Charge(int(unsafe.Sizeof(*res))); err != nil {
+		return nil, err
+	}
 	var devOffsets [4]uint16
 	if valueFormat&0x0001 != 0 {
 		tmp, err := p.ReadInt16()
@@ -121,7 +138,9 @@ func readValueRecord(p *parser.Parser, valueFormat uint16, subtablePos int64) (*
 			if offs == 0 {
 				continue
 			}
-			t, err := device.Read(p, subtablePos+int64(offs))
+			t, err := devices.Get(subtablePos+int64(offs), func(pos int64) (*device.Table, error) {
+				return device.Read(p, pos)
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -135,20 +154,27 @@ func readValueRecord(p *parser.Parser, valueFormat uint16, subtablePos int64) (*
 	return res, nil
 }
 
+// getFormat returns the valueFormat for encoding vr on its own.
 func (vr *GposValueRecord) getFormat() uint16 {
-	var format valueFormat
-	format.add(vr)
-	return format.get()
+	var b formatBuilder
+	b.add(vr)
+	return b.format()
 }
 
-// valueFormat collects the fields used by records sharing one encoded format.
-// A zero record needs a marker only when no record uses an actual field.
-type valueFormat struct {
+// formatBuilder computes the valueFormat for a group of value records which
+// share one format in the encoded subtable.  The format includes every field
+// which is non-zero in at least one record.
+//
+// On read, a valueFormat of 0 gives nil records.  If the records are all
+// non-nil but have no non-zero fields, the format includes the XAdvance
+// field, so that the records read back as zero records rather than nil.
+type formatBuilder struct {
 	bits      uint16
 	hasRecord bool
 }
 
-func (f *valueFormat) add(vr *GposValueRecord) {
+// add includes the fields of vr in the format.  A nil vr is ignored.
+func (f *formatBuilder) add(vr *GposValueRecord) {
 	if vr == nil {
 		return
 	}
@@ -183,9 +209,9 @@ func (f *valueFormat) add(vr *GposValueRecord) {
 	f.bits |= format
 }
 
-func (f valueFormat) get() uint16 {
+// format returns the valueFormat for the records added so far.
+func (f formatBuilder) format() uint16 {
 	if f.bits == 0 && f.hasRecord {
-		// Preserve the distinction between absent and all-zero records.
 		return 0x0004
 	}
 	return f.bits
@@ -207,60 +233,48 @@ func valueRecordEncodeLen(format uint16) int {
 // reference would emit its own copy, multiplying the encoded GPOS
 // size.
 //
-// The pool returns subtable-relative offsets directly: the caller
-// supplies the pool's base offset (the byte position where the pool's
-// concatenated tables begin) at construction time.  add returns 0 for
-// a nil input — matching the OpenType convention that offset 0 means
-// "no Device table".
-type devicePool struct {
-	name    string            // the subtable type, for the out-of-range panic
-	base    int               // subtable-relative byte offset of the first pool entry
-	seen    map[string]uint16 // encoded bytes → subtable-relative offset
-	encoded []byte            // concatenated bytes of unique tables, in offset order
+// The caller supplies the pool's base offset (the byte position where the
+// pool's tables begin) at construction time.  The offsets are assigned by
+// the Place method, once all tables are known.
+type devicePool struct{ *offsetpool.Deferred }
+
+func newDevicePool(name string, base int) devicePool {
+	return devicePool{offsetpool.NewDeferred(name, base)}
 }
 
-func newDevicePool(name string, base int) *devicePool {
-	return &devicePool{name: name, base: base, seen: map[string]uint16{}}
-}
-
-// add registers t and returns its subtable-relative offset.  Tables
-// with byte-identical Encode output share a single offset.
-//
-// The offset is checked here rather than left to the caller, for the
-// reason [anchorPool.add] gives.
-func (p *devicePool) add(t *device.Table) uint16 {
+// add registers t and returns its pool index, or -1 if t is nil.  Tables
+// with byte-identical Encode output share a single index.  An error is
+// returned if the tables cannot be reached through Offset16 fields.
+func (p devicePool) add(t *device.Table) (int, error) {
 	if t == nil {
-		return 0
+		return -1, nil
 	}
-	enc := t.Encode()
-	key := string(enc)
-	if off, ok := p.seen[key]; ok {
-		return off
-	}
-	off := p.base + len(p.encoded)
-	checkSubtableOffset16(p.name, off)
-	p.seen[key] = uint16(off)
-	p.encoded = append(p.encoded, enc...)
-	return uint16(off)
+	return p.AddFunc(t, t.Encode)
 }
 
-// addAll registers every non-nil Device table in vrs, in the canonical
-// order returned by deviceTables.  It is shorthand for sizing passes
-// that only need the pool's total length.
-func (p *devicePool) addAll(vrs ...*GposValueRecord) {
-	for _, vr := range vrs {
-		for _, d := range vr.deviceTables() {
-			p.add(d)
+// addRecord registers the Device tables of vr, in the canonical order
+// returned by deviceTables, and returns their pool indices.
+func (p devicePool) addRecord(vr *GposValueRecord) ([4]int, error) {
+	var indices [4]int
+	for k, d := range vr.deviceTables() {
+		idx, err := p.add(d)
+		if err != nil {
+			return indices, err
 		}
+		indices[k] = idx
 	}
+	return indices, nil
 }
 
-// len returns the total byte length of the pool's encoded data.
-func (p *devicePool) len() int { return len(p.encoded) }
-
-// bytes returns the concatenated bytes of the unique tables, in offset
-// order.  Callers append this to the end of the subtable.
-func (p *devicePool) bytes() []byte { return p.encoded }
+// deviceOffsets returns the offsets of the Device tables with the given pool
+// indices.  A negative index stands for an absent table and gives offset 0.
+func deviceOffsets(offs []uint16, indices [4]int) [4]uint16 {
+	var res [4]uint16
+	for k, idx := range indices {
+		res[k] = poolOffset(offs, idx)
+	}
+	return res
+}
 
 // deviceTables returns the four Device pointers in canonical order
 // (XPlacement, YPlacement, XAdvance, YAdvance).  A nil receiver

@@ -38,6 +38,8 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
+	anchors := anchor.NewReader(p)
+
 	markCoverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	baseCoverageOffset := int64(buf[2])<<8 | int64(buf[3])
 	markClassCount := int(buf[4])<<8 | int(buf[5])
@@ -53,7 +55,7 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	markArray, err := markarray.Read(p, subtablePos+markArrayOffset, len(markCov))
+	markArray, err := markarray.Read(p, anchors, subtablePos+markArrayOffset, len(markCov))
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +91,7 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	numOffsets := uint(baseCount) * uint(markClassCount)
 	if numOffsets > (65536-6-2)/2 {
 		// Offsets are 16-bit from baseArrayPos, and there must still be
-		// space for at least one achor table.
+		// space for at least one anchor table.
 		return nil, &parser.InvalidFontError{
 			SubSystem: "sfnt/opentype/gtab",
 			Reason:    "GPOS4.1 table too large",
@@ -119,11 +121,11 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			if offsets[j] == 0 {
 				continue
 			}
-			a, err := anchor.Read(p, baseArrayPos+int64(offsets[j]))
+			a, err := anchors.Read(baseArrayPos + int64(offsets[j]))
 			if err != nil {
 				return nil, err
 			}
-			row[j] = &a
+			row[j] = a
 		}
 		baseArray[i] = row
 		offsets = offsets[markClassCount:]
@@ -182,9 +184,8 @@ func (l *Gpos4_1) apply(ctx *Context, a, b int) int {
 // countMarkClasses returns the markClassCount for this subtable.  It also
 // validates the structural invariants the encoder depends on: every row in
 // BaseArray must have width markClassCount, and every MarkArray record's
-// Class must be < markClassCount.  Both encodeLen and encode call this, so
-// inconsistent input is caught on the first pass instead of leaving
-// encodeLen happily returning a size for unencodable data.
+// Class must be < markClassCount.  It panics
+// if these are violated.
 func (l *Gpos4_1) countMarkClasses() int {
 	var count int
 	if len(l.BaseArray) > 0 {
@@ -211,55 +212,35 @@ func (l *Gpos4_1) countMarkClasses() int {
 	return count
 }
 
-// arrays lays out the mark array and the base array.
-func (l *Gpos4_1) arrays() (markClassCount int, marks *markArray, bases *anchorMatrix) {
-	markClassCount = l.countMarkClasses()
-	marks = newMarkArray("Gpos4_1", l.MarkArray)
-	bases = newAnchorMatrix("Gpos4_1", l.BaseArray, markClassCount)
-	return markClassCount, marks, bases
+// layout computes the encoded layout of the subtable.  The mark and base
+// coverage tables are stored once if they are identical.  An error is returned
+// if an offset does not fit into an Offset16.
+func (l *Gpos4_1) layout() (*markAttach, error) {
+	markClassCount := l.countMarkClasses()
+	marks, err := newMarkArray("Gpos4_1", l.MarkArray)
+	if err != nil {
+		return nil, err
+	}
+	bases, err := newAnchorMatrix("Gpos4_1", l.BaseArray, markClassCount)
+	if err != nil {
+		return nil, err
+	}
+	return newMarkAttach("Gpos4_1", l.MarkCov, l.BaseCov, markClassCount, marks, bases)
 }
 
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos4_1) encodeLen() int {
-	_, marks, bases := l.arrays()
-	return 12 + l.MarkCov.EncodeLen() + l.BaseCov.EncodeLen() + marks.size() + bases.size()
+	return mustFit(l.layout()).size()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gpos4_1) encode() []byte {
-	markClassCount, marks, bases := l.arrays()
+	lay := mustFit(l.layout())
+	return lay.append(make([]byte, 0, lay.size()))
+}
 
-	total := 12
-	markCoverageOffset := total
-	total += l.MarkCov.EncodeLen()
-	baseCoverageOffset := total
-	total += l.BaseCov.EncodeLen()
-	markArrayOffset := total
-	total += marks.size()
-	baseArrayOffset := total
-	total += bases.size()
-
-	// Each array addresses its anchors from its own start and bounds itself,
-	// so the subtable may reach past the 64 KiB an offset can cover.  What is
-	// left to check are the offsets in the subtable header, of which
-	// baseArrayOffset is the largest.
-	checkSubtableOffset16("Gpos4_1", baseArrayOffset)
-
-	res := make([]byte, 0, total)
-
-	res = append(res,
-		0, 1, // posFormat
-		byte(markCoverageOffset>>8), byte(markCoverageOffset),
-		byte(baseCoverageOffset>>8), byte(baseCoverageOffset),
-		byte(markClassCount>>8), byte(markClassCount),
-		byte(markArrayOffset>>8), byte(markArrayOffset),
-		byte(baseArrayOffset>>8), byte(baseArrayOffset),
-	)
-
-	res = append(res, l.MarkCov.Encode()...)
-	res = append(res, l.BaseCov.Encode()...)
-	res = marks.append(res)
-	res = bases.append(res)
-
-	return res
+// fits implements the [Subtable] interface.
+func (l *Gpos4_1) fits() error {
+	_, err := l.layout()
+	return err
 }

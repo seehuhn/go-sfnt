@@ -18,8 +18,10 @@ package gtab
 
 import (
 	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/device"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
 	"seehuhn.de/go/sfnt/opentype/markarray"
 )
 
@@ -32,62 +34,102 @@ import (
 // left in place unchanged.
 //
 // The returned LookupList shares immutable structure with ll: only the value
-// records, anchors, subtables and lookups that carry a device table are
-// deep-copied, so ll itself is not modified.  This is used when instantiating a
-// variable font.
+// records, anchors, subtables and lookups that can carry a device table are
+// copied, so ll itself is not modified.  Values which are shared within ll,
+// as the readers return them for tables reached through several offsets, are
+// copied once and remain shared in the result.  This is used when
+// instantiating a variable font.
 func (ll LookupList) BakeVariationDevices(resolve func(outer, inner uint16) funit.Int16) LookupList {
+	b := &baker{
+		resolve: resolve,
+		values:  map[*GposValueRecord]*GposValueRecord{},
+		pairs:   map[*PairAdjust]*PairAdjust{},
+		anchors: map[*anchor.Table]*anchor.Table{},
+		slices:  map[any]any{},
+	}
 	out := make(LookupList, len(ll))
 	for i, lookup := range ll {
+		subtables := make([]Subtable, len(lookup.Subtables))
+		for j, st := range lookup.Subtables {
+			subtables[j] = b.subtable(st)
+		}
 		out[i] = &LookupTable{
 			Meta:      lookup.Meta,
-			Subtables: bakeSubtables(lookup.Subtables, resolve),
+			Subtables: subtables,
 		}
 	}
 	return out
 }
 
-func bakeSubtables(ss []Subtable, resolve func(uint16, uint16) funit.Int16) []Subtable {
-	out := make([]Subtable, len(ss))
-	for i, st := range ss {
-		out[i] = bakeSubtable(st, resolve)
-	}
-	return out
+// baker bakes VariationIndex tables into the values which refer to them.
+// Each value is baked once, so that shared values stay shared, and the
+// memory used is proportional to the size of the input.
+type baker struct {
+	resolve func(outer, inner uint16) funit.Int16
+	values  map[*GposValueRecord]*GposValueRecord
+	pairs   map[*PairAdjust]*PairAdjust
+	anchors map[*anchor.Table]*anchor.Table
+	slices  map[any]any // keyed by [offsetpool.SliceKey]
 }
 
-// bakeSubtable returns a copy of st with its VariationIndex device tables
+// memoSlice returns the result of bake for the slice s, calling bake only
+// once for each slice.
+func memoSlice[T, U any](b *baker, s []T, bake func([]T) []U) []U {
+	if s == nil {
+		return nil
+	}
+	key := offsetpool.SliceKey(s)
+	if res, ok := b.slices[key]; ok {
+		return res.([]U)
+	}
+	res := bake(s)
+	b.slices[key] = res
+	return res
+}
+
+// subtable returns a copy of st with its VariationIndex device tables
 // baked in.  Subtable types that cannot carry device tables (contextual
 // lookups, GSUB subtables) are returned unchanged.
-func bakeSubtable(st Subtable, resolve func(uint16, uint16) funit.Int16) Subtable {
+func (b *baker) subtable(st Subtable) Subtable {
 	switch l := st.(type) {
 	case *Gpos1_1:
-		return &Gpos1_1{Cov: l.Cov, Adjust: bakeValueRecord(l.Adjust, resolve)}
+		return &Gpos1_1{Cov: l.Cov, Adjust: b.valueRecord(l.Adjust)}
 	case *Gpos1_2:
 		adjust := make([]*GposValueRecord, len(l.Adjust))
 		for i, vr := range l.Adjust {
-			adjust[i] = bakeValueRecord(vr, resolve)
+			adjust[i] = b.valueRecord(vr)
 		}
 		return &Gpos1_2{Cov: l.Cov, Adjust: adjust}
-	case Gpos2_1:
-		out := make(Gpos2_1, len(l))
-		for pair, adj := range l {
-			out[pair] = bakePairAdjust(adj, resolve)
+	case *Gpos2_1:
+		adjust := make(map[glyph.Pair]*PairAdjust, len(l.Adjust))
+		for pair, adj := range l.Adjust {
+			adjust[pair] = b.pairAdjust(adj)
 		}
-		return out
+		return &Gpos2_1{Adjust: adjust, PositionSecond: l.PositionSecond}
 	case *Gpos2_2:
 		adjust := make([][]*PairAdjust, len(l.Adjust))
 		for i, row := range l.Adjust {
-			adjust[i] = make([]*PairAdjust, len(row))
-			for j, adj := range row {
-				adjust[i][j] = bakePairAdjust(adj, resolve)
-			}
+			adjust[i] = memoSlice(b, row, func(row []*PairAdjust) []*PairAdjust {
+				res := make([]*PairAdjust, len(row))
+				for j, adj := range row {
+					res[j] = b.pairAdjust(adj)
+				}
+				return res
+			})
 		}
-		return &Gpos2_2{Cov: l.Cov, Class1: l.Class1, Class2: l.Class2, Adjust: adjust}
+		return &Gpos2_2{
+			Cov:            l.Cov,
+			Class1:         l.Class1,
+			Class2:         l.Class2,
+			Adjust:         adjust,
+			PositionSecond: l.PositionSecond,
+		}
 	case *Gpos3_1:
 		records := make([]EntryExitRecord, len(l.Records))
 		for i, rec := range l.Records {
 			records[i] = EntryExitRecord{
-				Entry: bakeAnchor(rec.Entry, resolve),
-				Exit:  bakeAnchor(rec.Exit, resolve),
+				Entry: b.anchor(rec.Entry),
+				Exit:  b.anchor(rec.Exit),
 			}
 		}
 		return &Gpos3_1{Cov: l.Cov, Records: records}
@@ -95,101 +137,115 @@ func bakeSubtable(st Subtable, resolve func(uint16, uint16) funit.Int16) Subtabl
 		return &Gpos4_1{
 			MarkCov:   l.MarkCov,
 			BaseCov:   l.BaseCov,
-			MarkArray: bakeMarkArray(l.MarkArray, resolve),
-			BaseArray: bakeAnchorGrid(l.BaseArray, resolve),
+			MarkArray: b.markArray(l.MarkArray),
+			BaseArray: b.anchorGrid(l.BaseArray),
 		}
 	case *Gpos5_1:
 		ligArray := make([][][]*anchor.Table, len(l.LigArray))
 		for i, comp := range l.LigArray {
-			ligArray[i] = bakeAnchorGrid(comp, resolve)
+			ligArray[i] = b.anchorGrid(comp)
 		}
 		return &Gpos5_1{
 			MarkCov:   l.MarkCov,
 			LigCov:    l.LigCov,
-			MarkArray: bakeMarkArray(l.MarkArray, resolve),
+			MarkArray: b.markArray(l.MarkArray),
 			LigArray:  ligArray,
 		}
 	case *Gpos6_1:
 		return &Gpos6_1{
 			Mark1Cov:   l.Mark1Cov,
 			Mark2Cov:   l.Mark2Cov,
-			Mark1Array: bakeMarkArray(l.Mark1Array, resolve),
-			Mark2Array: bakeAnchorGrid(l.Mark2Array, resolve),
+			Mark1Array: b.markArray(l.Mark1Array),
+			Mark2Array: b.anchorGrid(l.Mark2Array),
 		}
 	default:
 		return st
 	}
 }
 
-func bakePairAdjust(adj *PairAdjust, resolve func(uint16, uint16) funit.Int16) *PairAdjust {
+func (b *baker) pairAdjust(adj *PairAdjust) *PairAdjust {
 	if adj == nil {
 		return nil
 	}
-	return &PairAdjust{
-		First:  bakeValueRecord(adj.First, resolve),
-		Second: bakeValueRecord(adj.Second, resolve),
+	if res, ok := b.pairs[adj]; ok {
+		return res
 	}
+	res := &PairAdjust{
+		First:  b.valueRecord(adj.First),
+		Second: b.valueRecord(adj.Second),
+	}
+	b.pairs[adj] = res
+	return res
 }
 
-func bakeMarkArray(marks []markarray.Record, resolve func(uint16, uint16) funit.Int16) []markarray.Record {
-	if marks == nil {
-		return nil
-	}
-	out := make([]markarray.Record, len(marks))
-	for i, rec := range marks {
-		out[i] = markarray.Record{Class: rec.Class, Table: bakeAnchorValue(rec.Table, resolve)}
-	}
-	return out
-}
-
-func bakeAnchorGrid(grid [][]*anchor.Table, resolve func(uint16, uint16) funit.Int16) [][]*anchor.Table {
-	if grid == nil {
-		return nil
-	}
-	out := make([][]*anchor.Table, len(grid))
-	for i, row := range grid {
-		out[i] = make([]*anchor.Table, len(row))
-		for j, a := range row {
-			out[i][j] = bakeAnchor(a, resolve)
+func (b *baker) markArray(marks []markarray.Record) []markarray.Record {
+	return memoSlice(b, marks, func(marks []markarray.Record) []markarray.Record {
+		out := make([]markarray.Record, len(marks))
+		for i, rec := range marks {
+			out[i] = markarray.Record{Class: rec.Class, Table: b.anchorValue(rec.Table)}
 		}
-	}
-	return out
+		return out
+	})
 }
 
-func bakeValueRecord(vr *GposValueRecord, resolve func(uint16, uint16) funit.Int16) *GposValueRecord {
+func (b *baker) anchorGrid(grid [][]*anchor.Table) [][]*anchor.Table {
+	return memoSlice(b, grid, func(grid [][]*anchor.Table) [][]*anchor.Table {
+		out := make([][]*anchor.Table, len(grid))
+		for i, row := range grid {
+			out[i] = memoSlice(b, row, func(row []*anchor.Table) []*anchor.Table {
+				res := make([]*anchor.Table, len(row))
+				for j, a := range row {
+					res[j] = b.anchor(a)
+				}
+				return res
+			})
+		}
+		return out
+	})
+}
+
+func (b *baker) valueRecord(vr *GposValueRecord) *GposValueRecord {
 	if vr == nil {
 		return nil
 	}
+	if res, ok := b.values[vr]; ok {
+		return res
+	}
 	c := *vr
-	c.XPlacement += bakeDevice(&c.XPlacementDev, resolve)
-	c.YPlacement += bakeDevice(&c.YPlacementDev, resolve)
-	c.XAdvance += bakeDevice(&c.XAdvanceDev, resolve)
-	c.YAdvance += bakeDevice(&c.YAdvanceDev, resolve)
+	c.XPlacement += b.device(&c.XPlacementDev)
+	c.YPlacement += b.device(&c.YPlacementDev)
+	c.XAdvance += b.device(&c.XAdvanceDev)
+	c.YAdvance += b.device(&c.YAdvanceDev)
+	b.values[vr] = &c
 	return &c
 }
 
-func bakeAnchor(a *anchor.Table, resolve func(uint16, uint16) funit.Int16) *anchor.Table {
+func (b *baker) anchor(a *anchor.Table) *anchor.Table {
 	if a == nil {
 		return nil
 	}
-	c := bakeAnchorValue(*a, resolve)
+	if res, ok := b.anchors[a]; ok {
+		return res
+	}
+	c := b.anchorValue(*a)
+	b.anchors[a] = &c
 	return &c
 }
 
-func bakeAnchorValue(a anchor.Table, resolve func(uint16, uint16) funit.Int16) anchor.Table {
-	a.X += bakeDevice(&a.XDev, resolve)
-	a.Y += bakeDevice(&a.YDev, resolve)
+func (b *baker) anchorValue(a anchor.Table) anchor.Table {
+	a.X += b.device(&a.XDev)
+	a.Y += b.device(&a.YDev)
 	return a
 }
 
-// bakeDevice returns the delta for a VariationIndex table and clears the
+// device returns the delta for a VariationIndex table and clears the
 // pointer.  For a plain Device table (or nil) it returns 0 and leaves the
 // pointer untouched.
-func bakeDevice(dev **device.Table, resolve func(uint16, uint16) funit.Int16) funit.Int16 {
+func (b *baker) device(dev **device.Table) funit.Int16 {
 	d := *dev
 	if d == nil || !d.IsVariationIndex() {
 		return 0
 	}
 	*dev = nil
-	return resolve(d.OuterIndex, d.InnerIndex)
+	return b.resolve(d.OuterIndex, d.InnerIndex)
 }

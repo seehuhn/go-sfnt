@@ -495,8 +495,8 @@ func (p *parser) readGpos2() *gtab.LookupTable {
 	for {
 		switch p.peek().typ {
 		default: // format 1
-			subtable := gtab.Gpos2_1{}
-			for {
+			subtable := &gtab.Gpos2_1{Adjust: map[glyph.Pair]*gtab.PairAdjust{}}
+			for i := 0; ; i++ {
 				from := p.readGlyphList()
 				if len(from) == 0 {
 					p.fatal("expected glyph pair, got %s", p.peek())
@@ -504,9 +504,10 @@ func (p *parser) readGpos2() *gtab.LookupTable {
 					p.fatal("expected glyph pair, got %v", from)
 				}
 				p.required(itemArrow, "\"->\"")
-				pair := p.readPairAdjust()
+				pair, hasSecond := p.readPairAdjust()
+				subtable.PositionSecond = p.checkPositionSecond(i, subtable.PositionSecond, hasSecond)
 
-				subtable[glyph.Pair{Left: from[0], Right: from[1]}] = pair
+				subtable.Adjust[glyph.Pair{Left: from[0], Right: from[1]}] = pair
 
 				if !p.optional(itemComma) {
 					break
@@ -568,23 +569,27 @@ func (p *parser) readGpos2() *gtab.LookupTable {
 
 			aa := make([]*gtab.PairAdjust, class1Count*class2Count)
 			adjust := make([][]*gtab.PairAdjust, class1Count)
+			positionSecond := false
 			for i := 0; i < class1Count; i++ {
 				adjust[i] = aa[i*class2Count : (i+1)*class2Count]
 				for j := 0; j < class2Count; j++ {
 					if j > 0 {
 						p.optional(itemComma)
 					}
-					adjust[i][j] = p.readPairAdjust()
+					pair, hasSecond := p.readPairAdjust()
+					positionSecond = p.checkPositionSecond(i*class2Count+j, positionSecond, hasSecond)
+					adjust[i][j] = pair
 				}
 				p.optional(itemComma, itemSemicolon)
 				p.optional(itemEOL)
 			}
 
 			subtable := &gtab.Gpos2_2{
-				Cov:    cov,
-				Class1: class1,
-				Class2: class2,
-				Adjust: adjust,
+				Cov:            cov,
+				Class1:         class1,
+				Class2:         class2,
+				Adjust:         adjust,
+				PositionSecond: positionSecond,
 			}
 			lookup.Subtables = append(lookup.Subtables, subtable)
 		}
@@ -1392,17 +1397,35 @@ valueRecordLoop:
 	return res
 }
 
-func (p *parser) readPairAdjust() *gtab.PairAdjust {
+// readPairAdjust reads the value records for a glyph pair.  The second
+// return value reports whether a record for the second glyph was given,
+// using "&".
+func (p *parser) readPairAdjust() (*gtab.PairAdjust, bool) {
 	adj1 := p.readGposValueRecord()
 	var adj2 *gtab.GposValueRecord
-	if p.optional(itemAmpersand) {
+	hasSecond := p.optional(itemAmpersand)
+	if hasSecond {
 		adj2 = p.readGposValueRecord()
 	}
 	pair := &gtab.PairAdjust{
 		First:  adj1,
 		Second: adj2,
 	}
-	return pair
+	return pair, hasSecond
+}
+
+// checkPositionSecond returns whether the pairs of a GPOS2 subtable have
+// records for the second glyph.  The first pair (i == 0) decides, and later
+// pairs must agree, since the encoded subtable has a single format for the
+// second records.
+func (p *parser) checkPositionSecond(i int, positionSecond, hasSecond bool) bool {
+	if i == 0 {
+		return hasSecond
+	}
+	if hasSecond != positionSecond {
+		p.fatal("pairs with and without \"&\" cannot share a subtable (use \"||\" to start a new one)")
+	}
+	return positionSecond
 }
 
 func (p *parser) readItem() item {

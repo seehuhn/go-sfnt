@@ -17,100 +17,108 @@
 package gtab
 
 import (
+	"bytes"
+	"cmp"
+	"fmt"
+	"slices"
+
 	"seehuhn.de/go/sfnt/opentype/anchor"
+	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
 	"seehuhn.de/go/sfnt/opentype/markarray"
 )
 
 // anchorPool collects the Anchor tables of a mark, base, ligature or mark2
 // array.  The tables are written after the offsets pointing at them, and the
-// pool returns each anchor's offset relative to the start of the array.
+// pool assigns each anchor an offset relative to the start of the array.
 //
 // Fonts commonly attach the same anchor to many glyphs, so anchors with
 // identical encodings share a single copy.  Without this the arrays of a
 // large font can outgrow the 64 KiB an Offset16 can reach.
 type anchorPool struct {
-	name    string
-	base    int
-	seen    map[string]uint16
-	encoded []byte
+	*offsetpool.Deferred
+	devIDs *deviceIDs
 }
 
 // newAnchorPool returns a pool for anchors stored at the given offset from
-// the start of the array.  name identifies the subtable in the panic raised
+// the start of the array.  name identifies the subtable in the error returned
 // when the array outgrows the offsets addressing it.
-func newAnchorPool(name string, base int) *anchorPool {
-	return &anchorPool{name: name, base: base, seen: map[string]uint16{}}
+func newAnchorPool(name string, base int) anchorPool {
+	return anchorPool{offsetpool.NewDeferred(name, base), &deviceIDs{}}
 }
 
-// add registers a and returns its array-relative offset.  A nil anchor is
-// absent from the array and yields offset 0.
-//
-// The offset is checked here rather than left to the caller, so that a full
-// array is refused wherever the pool is filled.  Sizing passes build a pool
-// without ever laying out the array around it, and would otherwise take a
-// truncated offset for a valid one.
-func (p *anchorPool) add(a *anchor.Table) uint16 {
+// add registers a and returns its pool index.  A nil anchor is absent from
+// the array and yields index -1.  An error is returned if the anchors cannot
+// be reached through Offset16 fields.
+func (p anchorPool) add(a *anchor.Table) (int, error) {
 	if a == nil {
-		return 0
+		return -1, nil
 	}
-	enc := a.Append(nil)
-	key := string(enc)
-	if off, ok := p.seen[key]; ok {
-		return off
-	}
-	off := p.base + len(p.encoded)
-	checkSubtableOffset16(p.name, off)
-	p.seen[key] = uint16(off)
-	p.encoded = append(p.encoded, enc...)
-	return uint16(off)
+	return p.AddFunc(p.key(a), func() []byte { return a.Append(nil) })
 }
 
-// len returns the total byte length of the pool's encoded data.
-func (p *anchorPool) len() int { return len(p.encoded) }
+// anchorKey identifies the encoding of an anchor table.
+type anchorKey struct {
+	x, y       int16
+	hasPoint   bool
+	point      uint16
+	xDev, yDev uint64
+}
 
-// bytes returns the concatenated bytes of the unique anchors, in offset
-// order.  Callers append this to the end of the array.
-func (p *anchorPool) bytes() []byte { return p.encoded }
+// key returns a key for [offsetpool.Pool.AddFunc] which identifies the
+// encoding of a.  Anchors are keyed by their content rather than their
+// address, so that many distinct anchors which refer to one large Device
+// table encode it only once.
+func (p anchorPool) key(a *anchor.Table) anchorKey {
+	k := anchorKey{
+		x:    int16(a.X),
+		y:    int16(a.Y),
+		xDev: p.devIDs.id(a.XDev),
+		yDev: p.devIDs.id(a.YDev),
+	}
+	if a.ContourPoint != nil {
+		k.hasPoint = true
+		k.point = *a.ContourPoint
+	}
+	return k
+}
 
 // markArray is the layout of a MarkArray table: a mark count, one
 // (class, offset) record per mark, and the anchors those offsets reach.
 // Gpos4_1, Gpos5_1 and Gpos6_1 all begin with one.
 type markArray struct {
-	recs []markarray.Record
-	offs []uint16
-	pool *anchorPool
+	recs    []markarray.Record
+	anchors []int // pool indices
+	pool    anchorPool
 }
 
 // newMarkArray pools the anchors of recs.  name identifies the enclosing
-// subtable in the panic raised when the array grows out of reach.
-func newMarkArray(name string, recs []markarray.Record) *markArray {
+// subtable in the error returned when the array grows out of reach.
+func newMarkArray(name string, recs []markarray.Record) (*markArray, error) {
 	pool := newAnchorPool(name, 2+4*len(recs))
-	offs := make([]uint16, len(recs))
+	anchors := make([]int, len(recs))
 	for i := range recs {
-		offs[i] = pool.add(&recs[i].Table)
+		var err error
+		anchors[i], err = pool.add(&recs[i].Table)
+		if err != nil {
+			return nil, err
+		}
 	}
-	a := &markArray{recs: recs, offs: offs, pool: pool}
-	// Every offset the array stores is reached from the array's own start, so
-	// bounding its length bounds them all.  The pool checks the offsets it
-	// hands out; this also catches an array of unreachable records whose
-	// anchors are all absent.
-	checkSubtableOffset16(name, a.size())
-	return a
+	return &markArray{recs: recs, anchors: anchors, pool: pool}, nil
 }
 
 // size returns the encoded length of the array.
-func (a *markArray) size() int { return 2 + 4*len(a.recs) + a.pool.len() }
+func (a *markArray) size() int { return 2 + 4*len(a.recs) + a.pool.Len() }
 
 // append appends the encoded array to buf.
 func (a *markArray) append(buf []byte) []byte {
-	buf = append(buf, byte(len(a.recs)>>8), byte(len(a.recs)))
+	offs, data := a.pool.Place()
+	buf = appendUint16(buf, len(a.recs))
 	for i, rec := range a.recs {
-		buf = append(buf,
-			byte(rec.Class>>8), byte(rec.Class),
-			byte(a.offs[i]>>8), byte(a.offs[i]),
-		)
+		buf = appendUint16(buf, int(rec.Class))
+		buf = appendUint16(buf, int(poolOffset(offs, a.anchors[i])))
 	}
-	return append(buf, a.pool.bytes()...)
+	return append(buf, data...)
 }
 
 // anchorMatrix is the layout of a BaseArray, LigatureAttach or Mark2Array
@@ -121,39 +129,133 @@ func (a *markArray) append(buf []byte) []byte {
 // would displace every anchor after it.  Callers establish this by way of
 // their countMarkClasses method, which supplies cols.
 type anchorMatrix struct {
-	rows [][]*anchor.Table
-	cols int
-	offs [][]uint16
-	pool *anchorPool
+	rows    [][]*anchor.Table
+	cols    int
+	anchors [][]int // pool indices
+	pool    anchorPool
 }
 
 // newAnchorMatrix pools the anchors of rows, each of which has cols entries.
-// name identifies the enclosing subtable in the panic raised when the table
+// name identifies the enclosing subtable in the error returned when the table
 // grows out of reach.
-func newAnchorMatrix(name string, rows [][]*anchor.Table, cols int) *anchorMatrix {
+func newAnchorMatrix(name string, rows [][]*anchor.Table, cols int) (*anchorMatrix, error) {
 	pool := newAnchorPool(name, 2+2*len(rows)*cols)
-	offs := make([][]uint16, len(rows))
+	anchors := make([][]int, len(rows))
 	for i, row := range rows {
-		offs[i] = make([]uint16, len(row))
+		anchors[i] = make([]int, len(row))
 		for j, a := range row {
-			offs[i][j] = pool.add(a)
+			var err error
+			anchors[i][j], err = pool.add(a)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
-	m := &anchorMatrix{rows: rows, cols: cols, offs: offs, pool: pool}
-	checkSubtableOffset16(name, m.size())
-	return m
+	return &anchorMatrix{rows: rows, cols: cols, anchors: anchors, pool: pool}, nil
 }
 
 // size returns the encoded length of the table.
-func (m *anchorMatrix) size() int { return 2 + 2*len(m.rows)*m.cols + m.pool.len() }
+func (m *anchorMatrix) size() int { return 2 + 2*len(m.rows)*m.cols + m.pool.Len() }
 
 // append appends the encoded table to buf.
 func (m *anchorMatrix) append(buf []byte) []byte {
-	buf = append(buf, byte(len(m.rows)>>8), byte(len(m.rows)))
-	for _, row := range m.offs {
-		for _, off := range row {
-			buf = append(buf, byte(off>>8), byte(off))
-		}
+	offs, data := m.pool.Place()
+	buf = appendUint16(buf, len(m.rows))
+	for _, row := range m.anchors {
+		buf = appendOffsets(buf, offs, row)
 	}
-	return append(buf, m.pool.bytes()...)
+	return append(buf, data...)
+}
+
+// attachArray is the array of base, ligature or mark2 data which follows the
+// mark array in a mark attachment subtable.
+type attachArray interface {
+	size() int
+	append(buf []byte) []byte
+}
+
+// markAttach is the layout of a mark attachment subtable (Gpos4_1, Gpos5_1
+// or Gpos6_1): the header, the two coverage tables, the mark array and the
+// array of attachment data.  The coverage tables are stored once if they
+// are identical.
+type markAttach struct {
+	markClassCount int
+	markCov        []byte
+	attachCov      []byte // nil if stored together with markCov
+	marks          *markArray
+	attach         attachArray
+	offs           []int // offsets of the four tables, in header order
+}
+
+// newMarkAttach computes the layout of a mark attachment subtable.  An error
+// is returned if an offset in the subtable header does not fit into an
+// Offset16.
+func newMarkAttach(name string, markCov, attachCov coverage.Table, markClassCount int, marks *markArray, attach attachArray) (*markAttach, error) {
+	m := &markAttach{
+		markClassCount: markClassCount,
+		markCov:        markCov.Encode(),
+		attachCov:      attachCov.Encode(),
+		marks:          marks,
+		attach:         attach,
+	}
+	shared := bytes.Equal(m.markCov, m.attachCov)
+	if shared {
+		m.attachCov = nil
+	}
+
+	// Each array addresses its anchors from its own start and bounds itself,
+	// so the subtable may reach past the 64 KiB an offset can cover.  What is
+	// left to check are the offsets in the subtable header.
+	var ok bool
+	m.offs, ok = offsetpool.Place(12, m.sizes())
+	if !ok {
+		return nil, fmt.Errorf("%s offset out of range", name)
+	}
+	if shared {
+		m.offs[1] = m.offs[0]
+	}
+	return m, nil
+}
+
+// sizes returns the encoded lengths of the four tables, in header order.
+// The size is -1 for an attachment coverage table which is not stored.
+func (m *markAttach) sizes() []int {
+	sizes := []int{len(m.markCov), len(m.attachCov), m.marks.size(), m.attach.size()}
+	if m.attachCov == nil {
+		sizes[1] = -1
+	}
+	return sizes
+}
+
+// size returns the encoded length of the subtable.
+func (m *markAttach) size() int {
+	total := 12
+	for _, size := range m.sizes() {
+		total += max(size, 0)
+	}
+	return total
+}
+
+// append appends the encoded subtable to buf.
+func (m *markAttach) append(buf []byte) []byte {
+	buf = appendUint16(buf, 1) // format
+	buf = appendUint16(buf, m.offs[0])
+	buf = appendUint16(buf, m.offs[1])
+	buf = appendUint16(buf, m.markClassCount)
+	buf = appendUint16(buf, m.offs[2])
+	buf = appendUint16(buf, m.offs[3])
+
+	// the tables in order of increasing offset
+	tables := []func([]byte) []byte{
+		func(buf []byte) []byte { return append(buf, m.markCov...) },
+		func(buf []byte) []byte { return append(buf, m.attachCov...) },
+		m.marks.append,
+		m.attach.append,
+	}
+	order := []int{0, 1, 2, 3}
+	slices.SortStableFunc(order, func(i, j int) int { return cmp.Compare(m.offs[i], m.offs[j]) })
+	for _, i := range order {
+		buf = tables[i](buf)
+	}
+	return buf
 }

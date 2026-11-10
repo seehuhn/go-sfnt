@@ -18,6 +18,7 @@ package gdef
 
 import (
 	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
 )
 
 // BakeVariationDevices returns a copy of table in which every VariationIndex
@@ -28,9 +29,12 @@ import (
 // place unchanged.
 //
 // The returned table shares immutable structure with table: only the ligature
-// caret list is deep-copied, so table itself is not modified.  ItemVarStore is
-// carried over unchanged; the caller clears it once every reference has been
-// baked out.  This is used when instantiating a variable font.
+// caret list is copied, so table itself is not modified.  Rows of caret
+// values which are shared within the list, as the reader returns them for
+// tables reached through several offsets, are copied once and remain shared
+// in the result.  ItemVarStore is carried over unchanged; the caller clears
+// it once every reference has been baked out.  This is used when
+// instantiating a variable font.
 func (table *Table) BakeVariationDevices(resolve func(outer, inner uint16) funit.Int16) *Table {
 	c := *table
 	c.LigCaretList = bakeLigCaretList(table.LigCaretList, resolve)
@@ -42,18 +46,26 @@ func bakeLigCaretList(lc *LigCaretList, resolve func(uint16, uint16) funit.Int16
 		return nil
 	}
 	carets := make([][]CaretValue, len(lc.Carets))
+	baked := map[any][]CaretValue{} // keyed by [offsetpool.SliceKey]
 	for i, row := range lc.Carets {
 		if row == nil {
 			continue
 		}
-		carets[i] = make([]CaretValue, len(row))
+		key := offsetpool.SliceKey(row)
+		if res, ok := baked[key]; ok {
+			carets[i] = res
+			continue
+		}
+		res := make([]CaretValue, len(row))
 		for j, cv := range row {
-			carets[i][j] = cv
+			res[j] = cv
 			if cv.Device != nil && cv.Device.IsVariationIndex() {
-				carets[i][j].Coordinate += resolve(cv.Device.OuterIndex, cv.Device.InnerIndex)
-				carets[i][j].Device = nil
+				res[j].Coordinate += resolve(cv.Device.OuterIndex, cv.Device.InnerIndex)
+				res[j].Device = nil
 			}
 		}
+		baked[key] = res
+		carets[i] = res
 	}
 	return &LigCaretList{Cov: lc.Cov, Carets: carets}
 }

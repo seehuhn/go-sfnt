@@ -319,6 +319,10 @@ func (st dummySubtable) apply(ctx *Context, a, b int) int {
 	return -1
 }
 
+func (st dummySubtable) fits() error {
+	return nil
+}
+
 func (st dummySubtable) encodeLen() int {
 	return len(st)
 }
@@ -367,6 +371,123 @@ func TestLookupListLayout(t *testing.T) {
 					len(again), len(data))
 			}
 		})
+	}
+}
+
+// TestLookupListGpos2_1Extension checks that a GPOS lookup list whose only
+// subtables are pair adjustments for glyph pairs uses the GPOS extension
+// lookup type, when its subtables are out of reach of their lookup table.
+func TestLookupListGpos2_1Extension(t *testing.T) {
+	ss := make([]Subtable, 3)
+	for j := range ss {
+		adjust := map[glyph.Pair]*PairAdjust{}
+		for i := range 6000 + 100*j {
+			pair := glyph.Pair{Left: glyph.ID(i + 1), Right: glyph.ID(i + 2)}
+			adjust[pair] = &PairAdjust{First: &GposValueRecord{XAdvance: -10}}
+		}
+		ss[j] = &Gpos2_1{Adjust: adjust}
+	}
+	want := LookupList{{
+		Meta:      &LookupMetaInfo{LookupType: 2},
+		Subtables: ss,
+	}}
+
+	data := want.encode()
+	if len(data) <= 0xFFFF {
+		t.Fatalf("lookup list is %d bytes; extension records are not needed", len(data))
+	}
+
+	// the lookup type of the first lookup table
+	lookupOffset := int(data[2])<<8 | int(data[3])
+	lookupType := uint16(data[lookupOffset])<<8 | uint16(data[lookupOffset+1])
+	if lookupType != gposExtensionLookupType {
+		t.Errorf("got lookup type %d, want %d", lookupType, gposExtensionLookupType)
+	}
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	got, err := readLookupList(p, 0, readGposSubtable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(want, got); d != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", d)
+	}
+}
+
+// TestLookupListDropsOverlappingPairSets checks that a Gpos2_1 subtable whose
+// pair sets are suffixes of one long pair set is dropped, since the sets
+// differ and cannot be written within the reach of an Offset16, while the
+// other subtables of the lookup are kept.
+func TestLookupListDropsOverlappingPairSets(t *testing.T) {
+	const n = 120 // pairs in the long pair set, and first glyphs
+	const pairLen = 10
+	const firstLen = 2 + n*pairLen
+
+	// Each pair has the fields XPlacement, YPlacement, XAdvance and
+	// YAdvance.  The last field of pair j equals the number of pairs after
+	// it, so it also serves as the pair count of a pair set which starts at
+	// pair j+1.
+	headerLen := 10 + 2*n
+	setPos := headerLen
+	covPos := setPos + firstLen
+	bad := markBE16(1, covPos, 0x000F, 0, n)
+	for i := range n {
+		bad = append(bad, markBE16(setPos+pairLen*i)...)
+	}
+	bad = append(bad, markBE16(n)...)
+	for j := range n {
+		bad = append(bad, markBE16(j+1, 1, 1, 2, n-1-j)...)
+	}
+	bad = append(bad, markBE16(2, 1, 1, n, 0)...)
+
+	good := &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{
+		{Left: 1, Right: 2}: {First: &GposValueRecord{XAdvance: -5}},
+	}}
+	goodEnc := good.encode()
+
+	badPos := 4 + 6 + 2*2 // lookup list header, lookup table header, two offsets
+	goodPos := badPos + len(bad)
+	list := markBE16(1, 4)
+	list = append(list, markBE16(2, 0, 2, badPos-4, goodPos-4)...)
+	list = append(list, bad...)
+	list = append(list, goodEnc...)
+
+	p := parser.New(bytes.NewReader(list), parser.NewBudget(int64(len(list))))
+	if err := p.SeekPos(int64(badPos)); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	badSub, err := readGpos2_1(p, int64(badPos))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if badSub.fits() == nil {
+		t.Fatal("test subtable fits; the pair sets must not")
+	}
+
+	p = parser.New(bytes.NewReader(list), parser.NewBudget(int64(len(list))))
+	got, err := readLookupList(p, 0, readGposSubtable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := LookupList{{
+		Meta:      &LookupMetaInfo{LookupType: 2},
+		Subtables: []Subtable{good},
+	}}
+	if d := cmp.Diff(want, got); d != "" {
+		t.Errorf("subtables read (-want +got):\n%s", d)
+	}
+
+	enc := got.encode()
+	p = parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
+	got2, err := readLookupList(p, 0, readGposSubtable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cmp.Diff(got, got2); d != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", d)
 	}
 }
 

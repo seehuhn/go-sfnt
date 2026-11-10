@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"seehuhn.de/go/membudget"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -182,14 +183,59 @@ func readGtab(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type, sr subt
 		}
 	}
 
+	if !info.headerFits() {
+		return nil, &parser.InvalidFontError{
+			SubSystem: "sfnt/opentype/gtab",
+			Reason:    fmt.Sprintf("%s lists too large to encode", tp),
+		}
+	}
+
 	return info, nil
+}
+
+// headerFits reports whether the script, feature and lookup lists can be
+// reached from the header of the encoded table.  The lists must be
+// encodable on their own, as checked by the readers.
+func (info *Info) headerFits() bool {
+	hdr := 10
+	if info.Variations != nil || info.VariationsRaw != nil {
+		hdr = 14
+	}
+	sizes := []int{-1, -1, -1}
+	if info.ScriptList != nil {
+		sizes[0] = mustFitList(info.ScriptList.layout()).encodeLen()
+	}
+	if info.FeatureList != nil {
+		sizes[1] = mustFitList(info.FeatureList.layout()).encodeLen()
+	}
+	if hdr+max(sizes[0], 0)+max(sizes[1], 0) <= 0xFFFF {
+		// the standard order works, whatever the length of the lookup list
+		return true
+	}
+	if info.LookupList != nil {
+		sizes[2] = len(info.LookupList.encode())
+	}
+	_, ok := offsetpool.Place(hdr, sizes)
+	return ok
+}
+
+// mustFitList returns the layout of a table which holds the data of the
+// whole GSUB or GPOS table, such as the script and feature lists, and
+// panics if the table cannot be encoded.  Such tables cannot be split.
+func mustFitList[T any](lay T, err error) T {
+	if err != nil {
+		panic("sfnt/gtab: " + err.Error())
+	}
+	return lay
 }
 
 // Encode returns the binary representation of a "GSUB" or "GPOS" table.
 func (info *Info) Encode() []byte {
-	scriptList := info.ScriptList.encode()
-	featureList := info.FeatureList.encode()
-	lookupList := info.LookupList.encode()
+	lists := [3][]byte{
+		info.ScriptList.encode(),
+		info.FeatureList.encode(),
+		info.LookupList.encode(),
+	}
 
 	var variations []byte
 	if info.VariationsRaw != nil {
@@ -198,56 +244,26 @@ func (info *Info) Encode() []byte {
 		variations = encodeFeatureVariations(info.Variations)
 	}
 
-	if variations == nil {
-		// version 1.0 header
-		total := 10
-		var scriptListOffset int
-		if scriptList != nil {
-			scriptListOffset = total
-			total += len(scriptList)
-		}
-		var featureListOffset int
-		if featureList != nil {
-			featureListOffset = total
-			total += len(featureList)
-		}
-		var lookupListOffset int
-		if lookupList != nil {
-			lookupListOffset = total
-			total += len(lookupList)
-		}
-
-		buf := make([]byte, total)
-		copy(buf, []byte{
-			0, 1, // major version
-			0, 0, // minor version
-			byte(scriptListOffset >> 8), byte(scriptListOffset),
-			byte(featureListOffset >> 8), byte(featureListOffset),
-			byte(lookupListOffset >> 8), byte(lookupListOffset),
-		})
-		copy(buf[scriptListOffset:], scriptList)
-		copy(buf[featureListOffset:], featureList)
-		copy(buf[lookupListOffset:], lookupList)
-
-		return buf
+	// version 1.1 adds a uint32 FeatureVariationsOffset to the header
+	hdr := 10
+	minorVersion := 0
+	if variations != nil {
+		hdr = 14
+		minorVersion = 1
 	}
 
-	// version 1.1 header (adds a uint32 FeatureVariationsOffset)
-	total := 14
-	var scriptListOffset int
-	if scriptList != nil {
-		scriptListOffset = total
-		total += len(scriptList)
+	sizes := make([]int, len(lists))
+	total := hdr
+	for i, list := range lists {
+		sizes[i] = -1
+		if list != nil {
+			sizes[i] = len(list)
+			total += len(list)
+		}
 	}
-	var featureListOffset int
-	if featureList != nil {
-		featureListOffset = total
-		total += len(featureList)
-	}
-	var lookupListOffset int
-	if lookupList != nil {
-		lookupListOffset = total
-		total += len(lookupList)
+	offs, ok := offsetpool.Place(hdr, sizes)
+	if !ok {
+		panic("sfnt/gtab: script, feature and lookup lists too large")
 	}
 	featureVariationsOffset := total
 	total += len(variations)
@@ -255,16 +271,17 @@ func (info *Info) Encode() []byte {
 	buf := make([]byte, total)
 	copy(buf, []byte{
 		0, 1, // major version
-		0, 1, // minor version
-		byte(scriptListOffset >> 8), byte(scriptListOffset),
-		byte(featureListOffset >> 8), byte(featureListOffset),
-		byte(lookupListOffset >> 8), byte(lookupListOffset),
-		byte(featureVariationsOffset >> 24), byte(featureVariationsOffset >> 16),
-		byte(featureVariationsOffset >> 8), byte(featureVariationsOffset),
+		0, byte(minorVersion),
+		byte(offs[0] >> 8), byte(offs[0]),
+		byte(offs[1] >> 8), byte(offs[1]),
+		byte(offs[2] >> 8), byte(offs[2]),
 	})
-	copy(buf[scriptListOffset:], scriptList)
-	copy(buf[featureListOffset:], featureList)
-	copy(buf[lookupListOffset:], lookupList)
+	if variations != nil {
+		binary.BigEndian.PutUint32(buf[10:], uint32(featureVariationsOffset))
+	}
+	for i, list := range lists {
+		copy(buf[offs[i]:], list)
+	}
 	copy(buf[featureVariationsOffset:], variations)
 
 	return buf

@@ -215,6 +215,75 @@ func readSubtable(t *testing.T, read func(*parser.Parser, int64) (Subtable, erro
 	return st
 }
 
+// checkSharedRoundTrip reads a subtable whose offsets share tables, and
+// checks that it can be written back without growing and that reading the
+// output gives the same subtable.
+func checkSharedRoundTrip(t *testing.T, read func(*parser.Parser, int64) (Subtable, error), data []byte) Subtable {
+	t.Helper()
+	sub := readSubtable(t, read, data)
+	enc := sub.encode()
+	if len(enc) != sub.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), sub.encodeLen())
+	}
+	if len(enc) > len(data) {
+		t.Errorf("re-encoded subtable has %d bytes, input has %d", len(enc), len(data))
+	}
+	sub2 := readSubtable(t, read, enc)
+	if diff := cmp.Diff(sub, sub2); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+	return sub
+}
+
+// TestGsub2_1SharedSequences checks that a subtable whose sequence offsets
+// all reach the same Sequence table can be written back.  Without sharing,
+// the output would need more than 64 KiB.
+func TestGsub2_1SharedSequences(t *testing.T) {
+	const n = 4000 // covered glyphs, all sharing one sequence
+	const m = 400  // glyphs in the shared sequence
+	seqPos := 6 + 2*n
+	covPos := seqPos + 2 + 2*m
+	data := &bytes.Buffer{}
+	writeU16(data, 1) // format
+	writeU16(data, uint16(covPos))
+	writeU16(data, n)
+	for range n {
+		writeU16(data, uint16(seqPos))
+	}
+	writeU16(data, m)
+	for j := range m {
+		writeU16(data, uint16(j+1))
+	}
+	writeU16(data, 2) // coverage format 2: glyphs 1..n
+	writeU16(data, 1)
+	writeU16(data, 1)
+	writeU16(data, n)
+	writeU16(data, 0)
+
+	sub := checkSharedRoundTrip(t, readGsub2_1, data.Bytes())
+	if got := len(sub.(*Gsub2_1).Repl); got != n {
+		t.Errorf("got %d sequences, want %d", got, n)
+	}
+}
+
+// TestGsub2_1SequenceSharing checks that only sequences with identical
+// content share a table.
+func TestGsub2_1SequenceSharing(t *testing.T) {
+	l := &Gsub2_1{
+		Cov:  coverage.Table{1: 0, 2: 1, 3: 2},
+		Repl: [][]glyph.ID{{5, 6}, {5}, {5, 6}},
+	}
+	enc := l.encode()
+	// header 12, sequences 6+4, coverage 10
+	if len(enc) != 32 || l.encodeLen() != 32 {
+		t.Errorf("got %d bytes (encodeLen %d), want 32", len(enc), l.encodeLen())
+	}
+	sub := readSubtable(t, readGsub2_1, enc)
+	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
 func FuzzGsub2_1(f *testing.F) {
 	l := &Gsub2_1{
 		Cov: map[glyph.ID]int{2: 0, 3: 1},
@@ -420,5 +489,271 @@ func TestGsubLongSubtables(t *testing.T) {
 				t.Errorf("round trip (-want +got):\n%s", d)
 			}
 		})
+	}
+}
+
+// TestGsub3_1SharedAlternateSets checks that a subtable whose alternate set
+// offsets all reach the same AlternateSet table can be written back.
+// Without sharing, the output would need more than 64 KiB.
+func TestGsub3_1SharedAlternateSets(t *testing.T) {
+	const n = 4000 // covered glyphs, all sharing one alternate set
+	const m = 400  // glyphs in the shared alternate set
+	setPos := 6 + 2*n
+	covPos := setPos + 2 + 2*m
+	data := &bytes.Buffer{}
+	writeU16(data, 1) // format
+	writeU16(data, uint16(covPos))
+	writeU16(data, n)
+	for range n {
+		writeU16(data, uint16(setPos))
+	}
+	writeU16(data, m)
+	for j := range m {
+		writeU16(data, uint16(j+1))
+	}
+	writeU16(data, 2) // coverage format 2: glyphs 1..n
+	writeU16(data, 1)
+	writeU16(data, 1)
+	writeU16(data, n)
+	writeU16(data, 0)
+
+	sub := checkSharedRoundTrip(t, readGsub3_1, data.Bytes())
+	if got := len(sub.(*Gsub3_1).Alternates); got != n {
+		t.Errorf("got %d alternate sets, want %d", got, n)
+	}
+}
+
+// TestGsub3_1AlternateSetSharing checks that only alternate sets with
+// identical content share a table.
+func TestGsub3_1AlternateSetSharing(t *testing.T) {
+	l := &Gsub3_1{
+		Cov:        coverage.Table{1: 0, 2: 1, 3: 2},
+		Alternates: [][]glyph.ID{{5, 6}, {5}, {5, 6}},
+	}
+	// header 12, alternate sets 6+4, coverage 10
+	if enc := l.encode(); len(enc) != 32 || l.encodeLen() != 32 {
+		t.Errorf("got %d bytes (encodeLen %d), want 32", len(enc), l.encodeLen())
+	}
+	sub := readSubtable(t, readGsub3_1, l.encode())
+	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+func TestGsub3_1LayoutOverflow(t *testing.T) {
+	l := &Gsub3_1{Cov: coverage.Table{}}
+	for i := range 0x4000 {
+		l.Cov[glyph.ID(i)] = i
+		l.Alternates = append(l.Alternates, []glyph.ID{glyph.ID(i)})
+	}
+	if _, err := l.layout(); err == nil {
+		t.Error("expected layout error")
+	}
+	assertPanics(t, func() { l.encode() })
+}
+
+// TestGsub4_1SharedLigatureSets checks that a subtable whose ligature set
+// offsets all reach one LigatureSet, and whose ligature offsets all reach one
+// Ligature, can be read and written back.  Without sharing, the output would
+// need more than 64 KiB.
+func TestGsub4_1SharedLigatureSets(t *testing.T) {
+	const n = 1000 // covered glyphs, all sharing one ligature set
+	const m = 100  // ligatures in the shared set, all sharing one table
+	setPos := 6 + 2*n
+	ligOff := 2 + 2*m
+	covPos := setPos + ligOff + 10
+	data := &bytes.Buffer{}
+	writeU16(data, 1) // format
+	writeU16(data, uint16(covPos))
+	writeU16(data, n)
+	for range n {
+		writeU16(data, uint16(setPos))
+	}
+	writeU16(data, m)
+	for range m {
+		writeU16(data, uint16(ligOff))
+	}
+	writeU16(data, 9) // ligature glyph
+	writeU16(data, 4) // component count
+	writeU16(data, 1)
+	writeU16(data, 2)
+	writeU16(data, 3)
+	writeU16(data, 2) // coverage format 2: glyphs 1..n
+	writeU16(data, 1)
+	writeU16(data, 1)
+	writeU16(data, n)
+	writeU16(data, 0)
+
+	sub := checkSharedRoundTrip(t, readGsub4_1, data.Bytes())
+	g := sub.(*Gsub4_1)
+	if len(g.Repl) != n || len(g.Repl[0]) != m {
+		t.Errorf("got %d sets of %d ligatures, want %d of %d",
+			len(g.Repl), len(g.Repl[0]), n, m)
+	}
+}
+
+// TestGsub4_1Sharing checks that only identical tables share, both for
+// LigatureSets and for Ligatures within a set.
+func TestGsub4_1Sharing(t *testing.T) {
+	a := Ligature{In: []glyph.ID{2}, Out: 9}
+	b := Ligature{In: []glyph.ID{3}, Out: 9}
+	l := &Gsub4_1{
+		Cov:  coverage.Table{1: 0, 2: 1, 3: 2},
+		Repl: [][]Ligature{{a, b, a}, {a}, {a, b, a}},
+	}
+	// header 12; set {a,b,a}: 2+6+2*6=20; set {a}: 2+2+6=10; coverage 10
+	if enc := l.encode(); len(enc) != 52 || l.encodeLen() != 52 {
+		t.Errorf("got %d bytes (encodeLen %d), want 52", len(enc), l.encodeLen())
+	}
+	sub := readSubtable(t, readGsub4_1, l.encode())
+	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+func TestGsub4_1LayoutOverflow(t *testing.T) {
+	// distinct ligatures within one set
+	var set []Ligature
+	for i := range 0x4000 {
+		set = append(set, Ligature{Out: glyph.ID(i)})
+	}
+	l := &Gsub4_1{Cov: coverage.Table{1: 0}, Repl: [][]Ligature{set}}
+	if _, err := l.layout(); err == nil {
+		t.Error("expected layout error for ligature offsets")
+	}
+	assertPanics(t, func() { l.encode() })
+
+	// distinct ligature sets
+	l = &Gsub4_1{Cov: coverage.Table{}}
+	for i := range 0x4000 {
+		l.Cov[glyph.ID(i)] = i
+		l.Repl = append(l.Repl, []Ligature{{Out: glyph.ID(i)}})
+	}
+	if _, err := l.layout(); err == nil {
+		t.Error("expected layout error for set offsets")
+	}
+	assertPanics(t, func() { l.encodeLen() })
+}
+
+// TestGsub8_1SharedCoverage checks that a subtable whose backtrack and
+// lookahead offsets all reach the same coverage table can be written back.
+// Without sharing, the output would need more than 64 KiB.
+func TestGsub8_1SharedCoverage(t *testing.T) {
+	const nb = 2000 // backtrack coverage tables
+	const na = 1000 // lookahead coverage tables
+	const k = 30    // glyphs in the shared coverage table
+	covLen := 4 + 2*k
+	hdr := 10 + 2*(nb+na+k)
+	sharedPos := hdr + covLen // after the input coverage
+	data := []byte{
+		0, 1, // format
+		byte(hdr >> 8), byte(hdr),
+		byte(nb >> 8), byte(nb & 0xFF),
+	}
+	for range nb {
+		data = append(data, byte(sharedPos>>8), byte(sharedPos))
+	}
+	data = append(data, byte(na>>8), byte(na&0xFF))
+	for range na {
+		data = append(data, byte(sharedPos>>8), byte(sharedPos))
+	}
+	data = append(data, 0, k)
+	for j := range k {
+		data = append(data, 0, byte(100+j)) // substitutes
+	}
+	// input coverage: glyphs 1..k, then the shared coverage: glyphs 1..k
+	for range 2 {
+		data = append(data, 0, 1, 0, k)
+		for j := range k {
+			data = append(data, 0, byte(j+1))
+		}
+	}
+
+	sub := checkSharedRoundTrip(t, readGsub8_1, data)
+	g := sub.(*Gsub8_1)
+	if len(g.Backtrack) != nb || len(g.Lookahead) != na {
+		t.Errorf("got %d+%d coverage tables, want %d+%d",
+			len(g.Backtrack), len(g.Lookahead), nb, na)
+	}
+}
+
+// TestGsub8_1CoverageSharing checks that only identical coverage tables
+// share, including the input coverage.
+func TestGsub8_1CoverageSharing(t *testing.T) {
+	l := &Gsub8_1{
+		Input:              coverage.Table{1: 0, 2: 1},
+		Backtrack:          []coverage.Table{{1: 0, 2: 1}, {3: 0}},
+		Lookahead:          []coverage.Table{{3: 0}, {4: 0}},
+		SubstituteGlyphIDs: []glyph.ID{7, 8},
+	}
+	// header 10+2*(2+2+2)=22; coverages {1,2}: 8, {3}: 6, {4}: 6
+	if enc := l.encode(); len(enc) != 42 || l.encodeLen() != 42 {
+		t.Errorf("got %d bytes (encodeLen %d), want 42", len(enc), l.encodeLen())
+	}
+	sub := readSubtable(t, readGsub8_1, l.encode())
+	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+func TestGsub8_1LayoutOverflow(t *testing.T) {
+	l := &Gsub8_1{Input: coverage.Table{}}
+	for i := range 0x2000 {
+		l.Backtrack = append(l.Backtrack, coverage.Table{glyph.ID(i): 0})
+	}
+	if _, err := l.layout(); err == nil {
+		t.Error("expected layout error")
+	}
+	assertPanics(t, func() { l.encode() })
+
+	l = &Gsub8_1{Input: coverage.Table{}}
+	for i := range 0x2000 {
+		l.Lookahead = append(l.Lookahead, coverage.Table{glyph.ID(i): 0})
+	}
+	if _, err := l.layout(); err == nil {
+		t.Error("expected layout error for lookahead")
+	}
+
+	l = &Gsub8_1{Input: coverage.Table{}, SubstituteGlyphIDs: make([]glyph.ID, 0x8000)}
+	if _, err := l.layout(); err == nil {
+		t.Error("expected layout error for input")
+	}
+}
+
+func TestGsub1_1Layout(t *testing.T) {
+	l := &Gsub1_1{Cov: coverage.Set{1: true, 2: true}, Delta: 3}
+	enc := l.encode()
+	if len(enc) != l.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+	}
+	sub := readSubtable(t, readGsub1_1, enc)
+	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+// TestGsub8_1PrunedInputSharesBacktrack checks that pruning the input
+// coverage does not change a backtrack coverage stored at the same position.
+func TestGsub8_1PrunedInputSharesBacktrack(t *testing.T) {
+	data := &bytes.Buffer{}
+	writeU16(data, 1)  // format
+	writeU16(data, 14) // input coverage offset
+	writeU16(data, 1)  // one backtrack coverage
+	writeU16(data, 14)
+	writeU16(data, 0) // no lookahead
+	writeU16(data, 1) // one substitute
+	writeU16(data, 7)
+	writeU16(data, 1) // coverage format 1: glyphs 1, 2, 3
+	writeU16(data, 3)
+	writeU16(data, 1)
+	writeU16(data, 2)
+	writeU16(data, 3)
+
+	sub := readSubtable(t, readGsub8_1, data.Bytes()).(*Gsub8_1)
+	if want := (coverage.Table{1: 0}); !cmp.Equal(sub.Input, want) {
+		t.Errorf("input coverage %v, want %v", sub.Input, want)
+	}
+	if want := (coverage.Table{1: 0, 2: 1, 3: 2}); !cmp.Equal(sub.Backtrack[0], want) {
+		t.Errorf("backtrack coverage %v, want %v", sub.Backtrack[0], want)
 	}
 }

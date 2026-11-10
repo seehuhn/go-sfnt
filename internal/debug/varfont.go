@@ -294,7 +294,7 @@ func MakeVarFont() *sfnt.Font {
 			{
 				Meta: &gtab.LookupMetaInfo{LookupType: 2},
 				Subtables: []gtab.Subtable{
-					gtab.Gpos2_1{
+					&gtab.Gpos2_1{Adjust: map[glyph.Pair]*gtab.PairAdjust{
 						glyph.Pair{Left: VarGidRect, Right: VarGidIUP}: &gtab.PairAdjust{
 							First: &gtab.GposValueRecord{
 								XAdvance: -40,
@@ -305,7 +305,7 @@ func MakeVarFont() *sfnt.Font {
 								},
 							},
 						},
-					},
+					}},
 				},
 			},
 		},

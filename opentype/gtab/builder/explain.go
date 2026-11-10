@@ -190,7 +190,7 @@ func ExplainGpos(fontInfo *sfnt.Font) []string {
 					ee.writeValueRecord(l.Adjust[l.Cov[gid]])
 				}
 
-			case gtab.Gpos2_1:
+			case *gtab.Gpos2_1:
 				checkType(2)
 				cov, adjust := l.CovAndAdjust()
 				firstGids := cov.Glyphs()
@@ -209,7 +209,7 @@ func ExplainGpos(fontInfo *sfnt.Font) []string {
 						ee.writeGlyphList([]glyph.ID{firstGid, secondGid})
 						ee.w.WriteString(" -> ")
 						col := row[secondGid]
-						ee.writePairAdjust(col)
+						ee.writePairAdjust(col, l.PositionSecond)
 					}
 				}
 
@@ -246,7 +246,7 @@ func ExplainGpos(fontInfo *sfnt.Font) []string {
 						if j > 0 {
 							ee.w.WriteString(", ")
 						}
-						ee.writePairAdjust(l.Adjust[i][j])
+						ee.writePairAdjust(l.Adjust[i][j], l.PositionSecond)
 					}
 					ee.w.WriteRune(';')
 				}
@@ -553,9 +553,9 @@ func (ee *explainer) writeValueRecord(adjust *gtab.GposValueRecord) {
 	}
 }
 
-func (ee *explainer) writePairAdjust(pair *gtab.PairAdjust) {
+func (ee *explainer) writePairAdjust(pair *gtab.PairAdjust, positionSecond bool) {
 	ee.writeValueRecord(pair.First)
-	if pair.Second != nil {
+	if positionSecond {
 		ee.w.WriteString(" & ")
 		ee.writeValueRecord(pair.Second)
 	}

@@ -161,30 +161,31 @@ func readFeatureParams(p *parser.Parser, pos int64, tag string) (FeatureParams, 
 		if err != nil {
 			return nil, err
 		}
-		charCount := int(buf[12])<<8 | int(buf[13])
-		if pos+14+3*int64(charCount) > p.Size() {
-			return nil, nil
-		}
-		chars, err := p.Budget.AllocSlice[rune](charCount)
-		if err != nil {
-			return nil, err
-		}
-		for i := range chars {
-			b, err := p.ReadBytes(3)
-			if err != nil {
-				return nil, err
-			}
-			chars[i] = rune(b[0])<<16 | rune(b[1])<<8 | rune(b[2])
-		}
-		return &FeatureParamsCharacterVariants{
+		// buf is only valid until the next read
+		res := &FeatureParamsCharacterVariants{
 			Format:                  uint16(buf[0])<<8 | uint16(buf[1]),
 			FeatUILabelNameID:       uint16(buf[2])<<8 | uint16(buf[3]),
 			FeatUITooltipTextNameID: uint16(buf[4])<<8 | uint16(buf[5]),
 			SampleTextNameID:        uint16(buf[6])<<8 | uint16(buf[7]),
 			NumNamedParameters:      uint16(buf[8])<<8 | uint16(buf[9]),
 			FirstParamUILabelNameID: uint16(buf[10])<<8 | uint16(buf[11]),
-			Characters:              chars,
-		}, nil
+		}
+		charCount := int(buf[12])<<8 | int(buf[13])
+		if pos+14+3*int64(charCount) > p.Size() {
+			return nil, nil
+		}
+		res.Characters, err = p.Budget.AllocSlice[rune](charCount)
+		if err != nil {
+			return nil, err
+		}
+		for i := range res.Characters {
+			b, err := p.ReadBytes(3)
+			if err != nil {
+				return nil, err
+			}
+			res.Characters[i] = rune(b[0])<<16 | rune(b[1])<<8 | rune(b[2])
+		}
+		return res, nil
 	default:
 		return nil, nil
 	}

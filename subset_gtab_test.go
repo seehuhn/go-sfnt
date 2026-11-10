@@ -1177,3 +1177,37 @@ func TestSubsetGtabNoLookupsLeft(t *testing.T) {
 		}
 	}
 }
+
+func TestSubsetGpos2PositionSecond(t *testing.T) {
+	s := newSubsetter(0, 5, 7)
+	adj := &gtab.PairAdjust{
+		First:  &gtab.GposValueRecord{XAdvance: 1},
+		Second: &gtab.GposValueRecord{XAdvance: 2},
+	}
+	for _, second := range []bool{false, true} {
+		pa := adj
+		if !second {
+			pa = &gtab.PairAdjust{First: adj.First}
+		}
+		old1 := wrapLookup(2, &gtab.Gpos2_1{
+			Adjust:         map[glyph.Pair]*gtab.PairAdjust{{Left: 5, Right: 7}: pa},
+			PositionSecond: second,
+		})
+		got1 := s.SubsetGpos(old1).LookupList[0].Subtables[0].(*gtab.Gpos2_1)
+		if got1.PositionSecond != second {
+			t.Errorf("Gpos2_1: PositionSecond = %t, want %t", got1.PositionSecond, second)
+		}
+
+		old2 := wrapLookup(2, &gtab.Gpos2_2{
+			Cov:            coverage.Set{5: true},
+			Class1:         classdef.Table{5: 1},
+			Class2:         classdef.Table{7: 1},
+			Adjust:         [][]*gtab.PairAdjust{{{}, {}}, {{}, pa}},
+			PositionSecond: second,
+		})
+		got2 := s.SubsetGpos(old2).LookupList[0].Subtables[0].(*gtab.Gpos2_2)
+		if got2.PositionSecond != second {
+			t.Errorf("Gpos2_2: PositionSecond = %t, want %t", got2.PositionSecond, second)
+		}
+	}
+}

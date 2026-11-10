@@ -194,9 +194,9 @@ func TestGposParser(t *testing.T) {
 	    /A L V W/
 	    first V W, A L;
 		second E O, V W;
-		_, _, _,
-		_, dx-50 & y-10, dx+10,
-		_, dx-10 & y+10, dx-30
+		_ & _, _ & _, _ & _,
+		_ & _, dx-50 & y-10, dx+10 & _,
+		_ & _, dx-10 & y+10, dx-30 & _
 	GPOS3:
 	  A: 1,1 to 2,2; B: 1,0 to 0,1; C: -1,-1 to 100,100 ||
 	  M: 1,1 to 2,2; N: 1,1 to 2,2
@@ -249,9 +249,10 @@ func FuzzGpos2(f *testing.F) {
 	f.Add(`/A L V W/
 		first V W, A L;
 		second E O, V W;
-		_, _, _,
-		_, dx-50 & y-10, dx+10,
-		_, dx-10 & y+10, dx-30`)
+		_ & _, _ & _, _ & _,
+		_ & _, dx-50 & y-10, dx+10 & _,
+		_ & _, dx-10 & y+10, dx-30 & _`)
+	f.Add(`A A -> y+0 & y+0`)
 	f.Fuzz(func(t *testing.T, desc string) {
 		fontInfo := debug.MakeSimpleFont()
 		lookups, err := Parse(fontInfo, "GPOS2: "+desc)
@@ -271,6 +272,61 @@ func FuzzGpos2(f *testing.F) {
 			t.Error(d)
 		}
 	})
+}
+
+func TestGpos2PositionSecond(t *testing.T) {
+	cases := []struct {
+		desc    string
+		want    bool
+		wantErr bool
+	}{
+		{desc: `A V -> dx-100, O O -> dx+100`, want: false},
+		{desc: `A V -> dx-100 & _, O O -> _ & x+1`, want: true},
+		{desc: `A A -> y+0 & y+0`, want: true},
+		{desc: `A V -> dx-100, O O -> dx+100 & x+1`, wantErr: true},
+		{desc: `A V -> dx-100 & _ || O O -> dx+100`, want: true},
+		{desc: "/A/ first A; second V; _, _, _, dx-1", want: false},
+		{desc: "/A/ first A; second V; _ & _, _ & _, _ & _, dx-1 & _", want: true},
+		{desc: "/A/ first A; second V; _, _, _, dx-1 & _", wantErr: true},
+	}
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			fontInfo := debug.MakeSimpleFont()
+			lookups, err := Parse(fontInfo, "GPOS2: "+c.desc)
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("mixed pairs accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var got bool
+			switch l := lookups[0].Subtables[0].(type) {
+			case *gtab.Gpos2_1:
+				got = l.PositionSecond
+			case *gtab.Gpos2_2:
+				got = l.PositionSecond
+			default:
+				t.Fatalf("unexpected subtable type %T", l)
+			}
+			if got != c.want {
+				t.Errorf("got PositionSecond=%t, want %t", got, c.want)
+			}
+
+			fontInfo.Gpos = &gtab.Info{LookupList: lookups}
+			explained := strings.Join(ExplainGpos(fontInfo), "\n")
+			lookups2, err := Parse(fontInfo, explained)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d := cmp.Diff(lookups, lookups2); d != "" {
+				t.Errorf("explain round trip failed (-want +got):\n%s", d)
+			}
+		})
+	}
 }
 
 func FuzzGpos3(f *testing.F) {

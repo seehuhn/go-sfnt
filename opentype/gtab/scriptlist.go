@@ -17,9 +17,13 @@
 package gtab
 
 import (
+	"cmp"
+	"slices"
 	"sort"
 
 	"golang.org/x/text/language"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
+	"seehuhn.de/go/sfnt/opentype/internal/readcache"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -93,66 +97,96 @@ func readScriptList(p *parser.Parser, pos int64) (ScriptListInfo, error) {
 		}
 	}
 
+	// tables reached through several offsets are read once and shared
+	scripts := readcache.New[*scriptBody]()
+	langSys := readcache.New[*Features]()
 	info := ScriptListInfo{}
 	for _, entry := range entries {
-		err = info.readScriptTable(entry.script, p, pos+int64(entry.offset))
+		body, err := scripts.Get(pos+int64(entry.offset), func(pos int64) (*scriptBody, error) {
+			return readScriptBody(p, pos, langSys)
+		})
 		if err != nil {
 			return nil, err
+		}
+		for _, rec := range body.records {
+			tag, err := otfToBCP47(entry.script, rec.lang)
+			if err != nil {
+				// TODO(voss): what to do here?
+				continue
+			}
+			info[tag] = rec.features
+		}
+	}
+
+	info.repair()
+	if _, err := info.layout(); err != nil {
+		return nil, &parser.InvalidFontError{
+			SubSystem: "sfnt/gtab",
+			Reason:    err.Error(),
 		}
 	}
 
 	return info, nil
 }
 
+// scriptBody holds the language systems of a Script table, in the order in
+// which they are applied.  The default language system has an empty language.
+type scriptBody struct {
+	records []scriptLang
+}
+
+type scriptLang struct {
+	lang     otfLang
+	features *Features
+}
+
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#script-table-and-language-system-record
-func (info ScriptListInfo) readScriptTable(script otfScript, p *parser.Parser, pos int64) error {
+func readScriptBody(p *parser.Parser, pos int64, cache *readcache.Cache[*Features]) (*scriptBody, error) {
 	err := p.SeekPos(pos)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	data, err := p.ReadBytes(4)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	defaultLangSysOffset := uint16(data[0])<<8 | uint16(data[1])
 	langSysCount := uint16(data[2])<<8 | uint16(data[3])
 
 	if defaultLangSysOffset > 0 && int(defaultLangSysOffset) < 4+6*int(langSysCount) {
-		return &parser.InvalidFontError{
+		return nil, &parser.InvalidFontError{
 			SubSystem: "sfnt/gtab",
 			Reason:    "invalid defaultLangSysOffset",
 		}
 	}
 	if 4+int64(langSysCount)*6 > p.Size() {
-		return &parser.InvalidFontError{
+		return nil, &parser.InvalidFontError{
 			SubSystem: "sfnt/gtab",
 			Reason:    "invalid langSysCount",
 		}
 	}
 
-	type langSysRecord struct {
+	type record struct {
 		lang   otfLang
 		offset uint16
 	}
 
-	var records []langSysRecord
+	var records []record
 	if defaultLangSysOffset != 0 {
-		records = append(records, langSysRecord{
+		records = append(records, record{
 			offset: defaultLangSysOffset,
 		})
 	}
 	for i := 0; i < int(langSysCount); i++ {
 		buf, err := p.ReadBytes(6)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		lang := otfLang(buf[:4])
-
-		records = append(records, langSysRecord{
-			lang:   lang,
+		records = append(records, record{
+			lang:   otfLang(buf[:4]),
 			offset: uint16(buf[4])<<8 | uint16(buf[5]),
 		})
 	}
@@ -160,20 +194,17 @@ func (info ScriptListInfo) readScriptTable(script otfScript, p *parser.Parser, p
 		return records[i].offset < records[j].offset
 	})
 
-	for _, record := range records {
-		ff, err := readLangSysTable(p, pos+int64(record.offset))
+	body := &scriptBody{}
+	for _, rec := range records {
+		ff, err := cache.Get(pos+int64(rec.offset), func(pos int64) (*Features, error) {
+			return readLangSysTable(p, pos)
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
-		tag, err := otfToBCP47(script, record.lang)
-		if err != nil {
-			// TODO(voss): what to do here?
-			continue
-		}
-		info[tag] = ff
+		body.records = append(body.records, scriptLang{lang: rec.lang, features: ff})
 	}
-
-	return nil
+	return body, nil
 }
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#language-system-table
@@ -222,11 +253,20 @@ func readLangSysTable(p *parser.Parser, pos int64) (*Features, error) {
 	}, nil
 }
 
-func (info ScriptListInfo) encode() []byte {
-	if info == nil {
-		return nil
-	}
+// scriptListLayout holds the positions of the tables of a script list.
+type scriptListLayout struct {
+	scripts []otfScript
+	offs    []uint16
+	pool    *offsetpool.Pool
+}
 
+func (l *scriptListLayout) encodeLen() int {
+	return 2 + 6*len(l.scripts) + l.pool.Len()
+}
+
+// byScript groups the language tags by script.  The scripts are returned
+// in sorted order.
+func (info ScriptListInfo) byScript() ([]otfScript, map[otfScript][]language.Tag) {
 	scriptLangs := map[otfScript][]language.Tag{}
 	for tag := range info {
 		script, _, err := bcp47ToOtf(tag)
@@ -236,123 +276,271 @@ func (info ScriptListInfo) encode() []byte {
 		scriptLangs[script] = append(scriptLangs[script], tag)
 	}
 
-	var scriptList []*scriptTableEntry
-	for otfScript := range scriptLangs {
-		scriptList = append(scriptList, &scriptTableEntry{
-			script: otfScript,
-		})
+	scripts := make([]otfScript, 0, len(scriptLangs))
+	for script := range scriptLangs {
+		scripts = append(scripts, script)
 	}
-	sort.Slice(scriptList, func(i, j int) bool {
-		return scriptList[i].script < scriptList[j].script
+	slices.Sort(scripts)
+	return scripts, scriptLangs
+}
+
+// layout computes the positions of the Script tables.  Script tables with
+// identical encodings share one copy, and so do the LangSys tables within
+// a Script table.  The Script tables are stored in the order of the scripts
+// if possible, and otherwise in order of increasing size.  An error is
+// returned if a table cannot be reached through its Offset16.
+func (info ScriptListInfo) layout() (*scriptListLayout, error) {
+	scripts, scriptLangs := info.byScript()
+
+	// script tables with the same language systems are encoded once
+	var keys offsetpool.SeqKeys[langSysRef]
+	scriptKeys := make([]any, len(scripts))
+	encs := map[any][]byte{}
+	for i, script := range scripts {
+		refs := info.langSysRefs(scriptLangs[script])
+		key := keys.Key(offsetpool.SliceKey(refs), len(refs), slices.Values(refs))
+		scriptKeys[i] = key
+		if _, ok := encs[key]; ok {
+			continue
+		}
+		enc, err := encodeScriptTable(refs)
+		if err != nil {
+			return nil, err
+		}
+		encs[key] = enc
+	}
+
+	order := make([]int, len(scripts))
+	for i := range order {
+		order[i] = i
+	}
+	place := func() ([]uint16, *offsetpool.Pool, error) {
+		pool := offsetpool.New("script", 2+6*len(scripts))
+		offs := make([]uint16, len(scripts))
+		for _, i := range order {
+			key := scriptKeys[i]
+			off, err := pool.AddFunc(key, func() []byte { return encs[key] })
+			if err != nil {
+				return nil, nil, err
+			}
+			offs[i] = off
+		}
+		return offs, pool, nil
+	}
+	offs, pool, err := place()
+	if err != nil {
+		slices.SortStableFunc(order, func(i, j int) int {
+			return cmp.Compare(len(encs[scriptKeys[i]]), len(encs[scriptKeys[j]]))
+		})
+		offs, pool, err = place()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &scriptListLayout{scripts: scripts, offs: offs, pool: pool}, nil
+}
+
+// repair removes the parts of a script list read from a file which cannot
+// be written back, and keeps the rest.  If the LangSys tables of a script
+// cannot all be reached from its Script table, language systems are
+// dropped, keeping as many LangSys tables as possible.  If then the Script
+// tables cannot all be reached from the script list, scripts are dropped,
+// keeping as many Script tables as possible.
+func (info ScriptListInfo) repair() {
+	if _, err := info.layout(); err == nil {
+		return
+	}
+
+	scripts, scriptLangs := info.byScript()
+	for _, script := range scripts {
+		tags := scriptLangs[script]
+		refs := info.langSysRefs(tags)
+		if _, err := encodeScriptTable(refs); err == nil {
+			continue
+		}
+		nRecords := 0
+		sizes := map[*Features]int{}
+		for _, ref := range refs {
+			if ref.lang != "" {
+				nRecords++
+			}
+			sizes[ref.features] = 6 + 2*len(ref.features.Optional)
+		}
+		keep := keepSmallest(4+6*nRecords, sizes)
+		for _, tag := range tags {
+			if !keep[info[tag]] {
+				delete(info, tag)
+			}
+		}
+	}
+
+	if _, err := info.layout(); err == nil {
+		return
+	}
+	scripts, scriptLangs = info.byScript()
+	sizes := map[otfScript]int{}
+	for _, script := range scripts {
+		enc, err := encodeScriptTable(info.langSysRefs(scriptLangs[script]))
+		if err != nil {
+			panic("sfnt/gtab: script table does not fit after repair")
+		}
+		sizes[script] = len(enc)
+	}
+	keep := keepSmallest(2+6*len(scripts), sizes)
+	for _, script := range scripts {
+		if !keep[script] {
+			for _, tag := range scriptLangs[script] {
+				delete(info, tag)
+			}
+		}
+	}
+}
+
+// keepSmallest returns the tables which can be reached through Offset16
+// fields when they are stored in order of increasing size after a header of
+// length hdr.  The sizes give the encoded lengths of the tables.
+func keepSmallest[K comparable](hdr int, sizes map[K]int) map[K]bool {
+	keys := make([]K, 0, len(sizes))
+	for key := range sizes {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(a, b K) int { return cmp.Compare(sizes[a], sizes[b]) })
+	keep := map[K]bool{}
+	pos := hdr
+	for _, key := range keys {
+		if pos > 0xFFFF {
+			break
+		}
+		keep[key] = true
+		pos += sizes[key]
+	}
+	return keep
+}
+
+// langSysRef refers to the LangSys table of a language.  The language is
+// empty for the default LangSys table.
+type langSysRef struct {
+	lang     otfLang
+	features *Features
+}
+
+// langSysRefs returns the language systems for the given language tags,
+// which all belong to the same script, sorted by OpenType language.  Ties
+// between tags which give the same language are broken by the tag, so that
+// the result does not depend on the order of tags.
+func (info ScriptListInfo) langSysRefs(tags []language.Tag) []langSysRef {
+	type entry struct {
+		langSysRef
+		tag string
+	}
+	entries := make([]entry, len(tags))
+	for i, tag := range tags {
+		_, lang, _ := bcp47ToOtf(tag)
+		if lang != "" && len(lang) != 4 {
+			panic("invalid language " + string(lang))
+		}
+		entries[i] = entry{langSysRef{lang, info[tag]}, tag.String()}
+	}
+	slices.SortFunc(entries, func(a, b entry) int {
+		if c := cmp.Compare(a.lang, b.lang); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.tag, b.tag)
 	})
-
-	totalSize := 2 + 6*len(scriptLangs) // scriptCount, scriptRecords
-	for _, sRec := range scriptList {
-		sRec.offset = uint16(totalSize)
-		langCount := 0
-		for _, tag := range scriptLangs[sRec.script] {
-			_, lang, _ := bcp47ToOtf(tag)
-			if lang != "" {
-				langCount++
-			}
-			langSys := info[tag]
-			// lookupOrderOffset, requiredFeatureIndex, featureIndexCount, featureIndices:
-			totalSize += 6 + len(langSys.Optional)*2
-		}
-		totalSize += 4 + 6*langCount // defaultLangSysOffset, langSysCount, langSysRecords
+	refs := make([]langSysRef, len(entries))
+	for i, e := range entries {
+		refs[i] = e.langSysRef
 	}
+	return refs
+}
 
-	buf := make([]byte, totalSize)
-
-	// write the ScriptList table
-	buf[0] = byte(len(scriptList) >> 8)
-	buf[1] = byte(len(scriptList))
-	for i, rec := range scriptList {
-		p := 2 + i*6
-		copy(buf[p:p+4], []byte(rec.script))
-		buf[p+4] = byte(rec.offset >> 8)
-		buf[p+5] = byte(rec.offset)
+// encodeScriptTable encodes the Script table for the given language
+// systems, as returned by [ScriptListInfo.langSysRefs].  If several
+// language systems are the default, the last one is used.  The LangSys
+// tables are stored in the order of the language systems if possible, and
+// otherwise in order of increasing size.
+func encodeScriptTable(refs []langSysRef) ([]byte, error) {
+	defaultIdx := -1
+	var records []int // indices of the non-default language systems
+	for i, ref := range refs {
+		if ref.lang == "" {
+			defaultIdx = i
+		} else {
+			records = append(records, i)
+		}
 	}
-	for _, sRec := range scriptList {
-		scriptTablePos := int(sRec.offset)
+	var used []int // indices of the LangSys tables to store
+	if defaultIdx >= 0 {
+		used = append(used, defaultIdx)
+	}
+	used = append(used, records...)
 
-		type langSysRecord struct {
-			langSys *Features
-			tag     otfLang
-			offs    uint16
-		}
-		var defaultRecord *langSysRecord
-		var langSysRecords []*langSysRecord
-		for _, tag := range scriptLangs[sRec.script] {
-			langSys := info[tag]
-			_, lang, _ := bcp47ToOtf(tag)
-			if lang == "" {
-				defaultRecord = &langSysRecord{
-					langSys: langSys,
-				}
-				continue
+	place := func() ([]uint16, *offsetpool.Pool, error) {
+		pool := offsetpool.New("langSys", 4+6*len(records))
+		offs := make([]uint16, len(refs))
+		for _, i := range used {
+			ff := refs[i].features
+			off, err := pool.AddFunc(ff, func() []byte { return encodeLangSys(ff) })
+			if err != nil {
+				return nil, nil, err
 			}
-			if len(lang) != 4 {
-				panic("invalid language " + string(lang))
-			}
-			langSysRecords = append(langSysRecords, &langSysRecord{
-				langSys: langSys,
-				tag:     lang,
-			})
+			offs[i] = off
 		}
-
-		sort.Slice(langSysRecords, func(i, j int) bool {
-			return langSysRecords[i].tag < langSysRecords[j].tag
+		return offs, pool, nil
+	}
+	offs, pool, err := place()
+	if err != nil {
+		slices.SortStableFunc(used, func(i, j int) int {
+			return cmp.Compare(len(refs[i].features.Optional), len(refs[j].features.Optional))
 		})
-		pos := 4 + 6*len(langSysRecords)
-		if defaultRecord != nil {
-			defaultRecord.offs = uint16(pos)
-			pos += 6 + len(defaultRecord.langSys.Optional)*2
-		}
-		for _, lRec := range langSysRecords {
-			lRec.offs = uint16(pos)
-			pos += 6 + len(lRec.langSys.Optional)*2
-		}
-
-		// write the Script table for sRec.tag
-		if defaultRecord != nil {
-			buf[scriptTablePos] = byte(defaultRecord.offs >> 8)
-			buf[scriptTablePos+1] = byte(defaultRecord.offs)
-		}
-		buf[scriptTablePos+2] = byte(len(langSysRecords) >> 8)
-		buf[scriptTablePos+3] = byte(len(langSysRecords))
-		for i, lRec := range langSysRecords {
-			p := scriptTablePos + 4 + i*6
-			copy(buf[p:p+4], []byte(lRec.tag))
-			buf[p+4] = byte(lRec.offs >> 8)
-			buf[p+5] = byte(lRec.offs)
-		}
-
-		if defaultRecord != nil {
-			p := scriptTablePos + int(defaultRecord.offs)
-			ff := defaultRecord.langSys
-			buf[p+2] = byte(ff.Required >> 8)
-			buf[p+3] = byte(ff.Required)
-			buf[p+4] = byte(len(ff.Optional) >> 8)
-			buf[p+5] = byte(len(ff.Optional))
-			for i, idx := range ff.Optional {
-				buf[p+6+2*i] = byte(idx >> 8)
-				buf[p+6+2*i+1] = byte(idx)
-			}
-		}
-		for _, lRec := range langSysRecords {
-			p := scriptTablePos + int(lRec.offs)
-			ff := lRec.langSys
-			buf[p+2] = byte(ff.Required >> 8)
-			buf[p+3] = byte(ff.Required)
-			buf[p+4] = byte(len(ff.Optional) >> 8)
-			buf[p+5] = byte(len(ff.Optional))
-			for i, idx := range ff.Optional {
-				buf[p+6+2*i] = byte(idx >> 8)
-				buf[p+6+2*i+1] = byte(idx)
-			}
+		offs, pool, err = place()
+		if err != nil {
+			return nil, err
 		}
 	}
 
+	var defaultOffs uint16
+	if defaultIdx >= 0 {
+		defaultOffs = offs[defaultIdx]
+	}
+	buf := make([]byte, 4, 4+6*len(records)+pool.Len())
+	buf[0] = byte(defaultOffs >> 8)
+	buf[1] = byte(defaultOffs)
+	buf[2] = byte(len(records) >> 8)
+	buf[3] = byte(len(records))
+	for _, i := range records {
+		buf = append(buf, refs[i].lang...)
+		buf = append(buf, byte(offs[i]>>8), byte(offs[i]))
+	}
+	return append(buf, pool.Bytes()...), nil
+}
+
+// encodeLangSys encodes a LangSys table.
+func encodeLangSys(ff *Features) []byte {
+	buf := make([]byte, 6, 6+2*len(ff.Optional))
+	// the first two bytes are lookupOrderOffset
+	buf[2] = byte(ff.Required >> 8)
+	buf[3] = byte(ff.Required)
+	buf[4] = byte(len(ff.Optional) >> 8)
+	buf[5] = byte(len(ff.Optional))
+	for _, idx := range ff.Optional {
+		buf = append(buf, byte(idx>>8), byte(idx))
+	}
 	return buf
+}
+
+func (info ScriptListInfo) encode() []byte {
+	if info == nil {
+		return nil
+	}
+	l := mustFitList(info.layout())
+
+	buf := make([]byte, 2, l.encodeLen())
+	buf[0] = byte(len(l.scripts) >> 8)
+	buf[1] = byte(len(l.scripts))
+	for i, script := range l.scripts {
+		buf = append(buf, script...)
+		buf = append(buf, byte(l.offs[i]>>8), byte(l.offs[i]))
+	}
+	return append(buf, l.pool.Bytes()...)
 }

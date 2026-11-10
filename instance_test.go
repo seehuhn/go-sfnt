@@ -139,8 +139,8 @@ func TestInstantiateInstance(t *testing.T) {
 	}
 
 	// GPOS kern pair: static -40 folded with the +15 VariationIndex delta
-	kern := inst.Gpos.LookupList[0].Subtables[0].(gtab.Gpos2_1)
-	pair := kern[glyph.Pair{Left: debug.VarGidRect, Right: debug.VarGidIUP}]
+	kern := inst.Gpos.LookupList[0].Subtables[0].(*gtab.Gpos2_1)
+	pair := kern.Adjust[glyph.Pair{Left: debug.VarGidRect, Right: debug.VarGidIUP}]
 	if pair.First.XAdvanceDev != nil {
 		t.Error("GPOS device table not baked out")
 	}

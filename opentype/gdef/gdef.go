@@ -18,12 +18,16 @@
 package gdef
 
 import (
+	"cmp"
+	"encoding/binary"
 	"fmt"
+	"slices"
 
 	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/classdef"
 	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/variation"
 )
@@ -94,16 +98,29 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 		}
 	}
 
+	var lists listLayouts
 	if attachListOffset != 0 {
 		table.AttachList, err = readAttachList(p, int64(attachListOffset))
 		if err != nil {
 			return nil, err
+		}
+		// an optional list which cannot be written is dropped
+		lists.attach, err = table.AttachList.layout()
+		if err != nil {
+			table.AttachList = nil
+			lists.attach = nil
 		}
 	}
 	if ligCaretListOffset != 0 {
 		table.LigCaretList, err = readLigCaretList(p, int64(ligCaretListOffset))
 		if err != nil {
 			return nil, err
+		}
+		// an optional list which cannot be written is dropped
+		lists.ligCaret, err = table.LigCaretList.layout()
+		if err != nil {
+			table.LigCaretList = nil
+			lists.ligCaret = nil
 		}
 	}
 
@@ -162,114 +179,201 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 		}
 	}
 
+	// optional tables which cannot be written back are dropped
+	table.dropUnreachable(lists)
+
 	return table, nil
+}
+
+// headerLen returns the length and the version of the GDEF header.  Version
+// 1.2 adds the mark glyph sets offset, version 1.3 the item variation store
+// offset.
+func (table *Table) headerLen() (int, uint32) {
+	switch {
+	case table.ItemVarStore != nil:
+		return 18, 0x00010003
+	case table.MarkGlyphSets != nil:
+		return 14, 0x00010002
+	default:
+		return 12, 0x00010000
+	}
+}
+
+// subtable is a table reached through an Offset16 field of the GDEF header.
+type subtable struct {
+	size   int // encoded length, or -1 if absent
+	append func([]byte) []byte
+}
+
+// listLayouts holds the encoded layouts of the attachment point list and
+// the ligature caret list.  The layout of an absent list is nil.
+type listLayouts struct {
+	attach   *attachListLayout
+	ligCaret *ligCaretListLayout
+}
+
+// layoutLists computes the layouts of the two lists, and panics if a list
+// cannot be encoded.
+func (table *Table) layoutLists() listLayouts {
+	var lists listLayouts
+	if table.AttachList != nil {
+		lists.attach = mustFit(table.AttachList.layout())
+	}
+	if table.LigCaretList != nil {
+		lists.ligCaret = mustFit(table.LigCaretList.layout())
+	}
+	return lists
+}
+
+// subtables returns the tables reached through Offset16 fields of the
+// header, in the order of the header fields.
+func (table *Table) subtables(lists listLayouts) []subtable {
+	res := make([]subtable, 5)
+	for i := range res {
+		res[i].size = -1
+	}
+	if cd := table.GlyphClass; cd != nil {
+		res[0] = subtable{cd.AppendLen(), cd.Append}
+	}
+	if lay := lists.attach; lay != nil {
+		res[1] = subtable{lay.encodeLen(), lay.append}
+	}
+	if lay := lists.ligCaret; lay != nil {
+		res[2] = subtable{lay.encodeLen(), lay.append}
+	}
+	if cd := table.MarkAttachClass; cd != nil {
+		res[3] = subtable{cd.AppendLen(), cd.Append}
+	}
+	if sets := table.MarkGlyphSets; sets != nil {
+		size := 4 + 4*len(sets)
+		for _, set := range sets {
+			size += set.ToTable().EncodeLen()
+		}
+		res[4] = subtable{size, func(buf []byte) []byte {
+			return appendMarkGlyphSets(buf, sets)
+		}}
+	}
+	return res
+}
+
+// appendMarkGlyphSets appends a MarkGlyphSets table to buf.
+func appendMarkGlyphSets(buf []byte, sets []coverage.Set) []byte {
+	n := len(sets)
+	buf = append(buf,
+		0, 1, // format
+		byte(n>>8), byte(n))
+	covs := make([]coverage.Table, n)
+	offs := 4 + 4*n
+	for i, set := range sets {
+		covs[i] = set.ToTable()
+		buf = append(buf,
+			byte(offs>>24), byte(offs>>16), byte(offs>>8), byte(offs))
+		offs += covs[i].EncodeLen()
+	}
+	for _, cov := range covs {
+		buf = append(buf, cov.Encode()...)
+	}
+	return buf
+}
+
+// sizes returns the encoded lengths of the subtables.
+func sizes(subtables []subtable) []int {
+	res := make([]int, len(subtables))
+	for i, st := range subtables {
+		res[i] = st.size
+	}
+	return res
+}
+
+// dropUnreachable drops tables which cannot be reached through the Offset16
+// fields of the encoded header.  The tables are considered in the order of
+// the header fields, and each is kept if it can be stored together with the
+// tables kept before it.
+func (table *Table) dropUnreachable(lists listLayouts) {
+	hdr, _ := table.headerLen()
+	all := sizes(table.subtables(lists))
+	kept := make([]int, len(all))
+	for i := range kept {
+		kept[i] = -1
+	}
+	for i, size := range all {
+		if size < 0 {
+			continue
+		}
+		kept[i] = size
+		if _, ok := offsetpool.Place(hdr, kept); ok {
+			continue
+		}
+		kept[i] = -1
+		switch i {
+		case 0:
+			table.GlyphClass = nil
+		case 1:
+			table.AttachList = nil
+		case 2:
+			table.LigCaretList = nil
+		case 3:
+			table.MarkAttachClass = nil
+		case 4:
+			table.MarkGlyphSets = nil
+		}
+	}
 }
 
 // Encode converts the GDEF table to its binary form.
 func (table *Table) Encode() []byte {
-	version := uint32(0x00010000)
-	total := 12
-
-	if table.MarkGlyphSets != nil || table.ItemVarStore != nil {
-		version = 0x00010002
-		total = 14
-	}
-	if table.ItemVarStore != nil {
-		version = 0x00010003
-		total = 18
+	hdr, version := table.headerLen()
+	subtables := table.subtables(table.layoutLists())
+	offs, ok := offsetpool.Place(hdr, sizes(subtables))
+	if !ok {
+		panic("sfnt/gdef: tables too large for GDEF header")
 	}
 
-	var glyphClassDefOffset int
-	if table.GlyphClass != nil {
-		glyphClassDefOffset = total
-		total += table.GlyphClass.AppendLen()
+	total := hdr
+	for _, st := range subtables {
+		total += max(st.size, 0)
 	}
-	var attachListOffset int
-	if table.AttachList != nil {
-		attachListOffset = total
-		total += table.AttachList.encodeLen()
-	}
-	var ligCaretListOffset int
-	if table.LigCaretList != nil {
-		ligCaretListOffset = total
-		total += table.LigCaretList.encodeLen()
-	}
-	var markAttachClassDefOffset int
-	if table.MarkAttachClass != nil {
-		markAttachClassDefOffset = total
-		total += table.MarkAttachClass.AppendLen()
-	}
-	var markGlyphSetsDefOffset int
-	if table.MarkGlyphSets != nil {
-		markGlyphSetsDefOffset = total
-		total += 4 + 4*len(table.MarkGlyphSets)
-		for _, set := range table.MarkGlyphSets {
-			cov := set.ToTable()
-			total += cov.EncodeLen()
-		}
-	}
-	var itemVarStoreOffset int
+	itemVarStoreOffset := total
 	if table.ItemVarStore != nil {
-		itemVarStoreOffset = total
 		total += table.ItemVarStore.EncodeLen()
 	}
 
-	buf := make([]byte, 12, total)
-	// version was selected above: 1.0, 1.2 for mark glyph sets, 1.3 for an
-	// item variation store
-	buf[0] = byte(version >> 24)
-	buf[1] = byte(version >> 16)
-	buf[2] = byte(version >> 8)
-	buf[3] = byte(version)
-	buf[4] = byte(glyphClassDefOffset >> 8)
-	buf[5] = byte(glyphClassDefOffset)
-	buf[6] = byte(attachListOffset >> 8)
-	buf[7] = byte(attachListOffset)
-	buf[8] = byte(ligCaretListOffset >> 8)
-	buf[9] = byte(ligCaretListOffset)
-	buf[10] = byte(markAttachClassDefOffset >> 8)
-	buf[11] = byte(markAttachClassDefOffset)
-	if version >= 0x00010002 {
-		buf = append(buf, byte(markGlyphSetsDefOffset>>8), byte(markGlyphSetsDefOffset))
+	buf := make([]byte, hdr, total)
+	binary.BigEndian.PutUint32(buf, version)
+	// the version 1.0 header has no MarkGlyphSets field
+	for i, off := range offs[:min(len(offs), (hdr-4)/2)] {
+		binary.BigEndian.PutUint16(buf[4+2*i:], uint16(off))
 	}
-	if version >= 0x00010003 {
-		buf = append(buf,
-			byte(itemVarStoreOffset>>24), byte(itemVarStoreOffset>>16),
-			byte(itemVarStoreOffset>>8), byte(itemVarStoreOffset))
+	if table.ItemVarStore != nil {
+		binary.BigEndian.PutUint32(buf[14:], uint32(itemVarStoreOffset))
 	}
-	if glyphClassDefOffset > 0 {
-		buf = table.GlyphClass.Append(buf)
-	}
-	if attachListOffset > 0 {
-		buf = table.AttachList.append(buf)
-	}
-	if ligCaretListOffset > 0 {
-		buf = table.LigCaretList.append(buf)
-	}
-	if markAttachClassDefOffset > 0 {
-		buf = table.MarkAttachClass.Append(buf)
-	}
-	if markGlyphSetsDefOffset > 0 {
-		markGlyphSetCount := len(table.MarkGlyphSets)
-		buf = append(buf,
-			0, 1, // format
-			byte(markGlyphSetCount>>8), byte(markGlyphSetCount))
-		offs := 4 + 4*markGlyphSetCount
-		for _, set := range table.MarkGlyphSets {
-			buf = append(buf,
-				byte(offs>>24), byte(offs>>16), byte(offs>>8), byte(offs))
-			cov := set.ToTable()
-			offs += cov.EncodeLen()
-		}
-		for _, set := range table.MarkGlyphSets {
-			cov := set.ToTable()
-			buf = append(buf, cov.Encode()...)
+
+	// the subtables in order of increasing offset
+	order := make([]int, 0, len(subtables))
+	for i, st := range subtables {
+		if st.size >= 0 {
+			order = append(order, i)
 		}
 	}
-	if itemVarStoreOffset > 0 {
+	slices.SortFunc(order, func(i, j int) int { return cmp.Compare(offs[i], offs[j]) })
+	for _, i := range order {
+		buf = subtables[i].append(buf)
+	}
+
+	if table.ItemVarStore != nil {
 		buf = append(buf, table.ItemVarStore.Encode()...)
 	}
 	return buf
+}
+
+// mustFit returns the layout of a table and panics if the table cannot be
+// encoded.  The encoders use it because their input comes from the API,
+// which is trusted.
+func mustFit[T any](lay T, err error) T {
+	if err != nil {
+		panic("sfnt/gdef: " + err.Error())
+	}
+	return lay
 }
 
 // Possible values for the GlyphClass field.

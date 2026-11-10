@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -147,4 +148,270 @@ func FuzzFeatureList(f *testing.F) {
 			t.Error("different")
 		}
 	})
+}
+
+func TestFeatureListOffsetRange(t *testing.T) {
+	lookups := func(n, first int) []LookupIndex {
+		res := make([]LookupIndex, n)
+		for i := range res {
+			res[i] = LookupIndex(first + i)
+		}
+		return res
+	}
+	chars := make([]rune, 30000)
+	for i := range chars {
+		chars[i] = rune('A' + i%26)
+	}
+
+	// In each case, the second feature only fits if the large one is
+	// stored last.
+	fitting := map[string]FeatureListInfo{
+		"lookups": {
+			{Tag: "liga", Lookups: lookups(40000, 0)},
+			{Tag: "kern"},
+		},
+		"params": {
+			{Tag: "cv01", Params: &FeatureParamsCharacterVariants{Characters: chars}},
+			{Tag: "kern"},
+		},
+		"within limit": {
+			{Tag: "liga", Lookups: lookups(30000, 0)},
+			{Tag: "kern", Lookups: []LookupIndex{1}},
+		},
+	}
+	for name, info := range fitting {
+		t.Run(name, func(t *testing.T) {
+			data := info.encode()
+			p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+			got, err := readFeatureList(p, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(info, got); diff != "" {
+				t.Errorf("round trip failed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	tooLarge := map[string]FeatureListInfo{
+		"three large features": {
+			{Tag: "liga", Lookups: lookups(30000, 0)},
+			{Tag: "dlig", Lookups: lookups(30000, 1)},
+			{Tag: "hlig", Lookups: lookups(30000, 2)},
+		},
+		"params offset": {
+			{Tag: "cv01", Lookups: lookups(40000, 0), Params: &FeatureParamsCharacterVariants{}},
+		},
+	}
+	for name, info := range tooLarge {
+		t.Run(name, func(t *testing.T) {
+			assertPanics(t, func() { info.encode() })
+		})
+	}
+}
+
+// TestFeatureListSharedTables checks that a feature list in which many
+// records reach the same Feature table, including its parameters, can be
+// written back.  Without sharing, the output would need more than 64 KiB.
+func TestFeatureListSharedTables(t *testing.T) {
+	const nFeatures = 200
+	const nChars = 200
+
+	featurePos := 2 + 6*nFeatures
+	data := []byte{0, nFeatures}
+	for range nFeatures {
+		data = append(data, "cv01"...)
+		data = append(data, byte(featurePos>>8), byte(featurePos))
+	}
+	// one lookup, parameters directly behind the lookup indices
+	data = append(data, 0, 6, 0, 1, 0, 7,
+		0, 0, 1, 2, 0, 3, 0, 4, 0, 1, 1, 5, byte(nChars>>8), byte(nChars))
+	for i := range nChars {
+		data = append(data, 0, 0, byte('A'+i%26))
+	}
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	info, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info) != nFeatures || info[nFeatures-1].Params == nil {
+		t.Fatalf("unexpected feature list %v", info)
+	}
+
+	l, err := info.layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := info.encode()
+	if len(enc) != l.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+	}
+	if len(enc) > len(data) {
+		t.Errorf("re-encoded list has %d bytes, input has %d", len(enc), len(data))
+	}
+	p = parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
+	info2, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(info, info2); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+// TestFeatureListSharingIdenticalOnly checks that only Feature tables with
+// identical encodings, parameters included, share storage.
+func TestFeatureListSharingIdenticalOnly(t *testing.T) {
+	size := func(info FeatureListInfo) int {
+		l, err := info.layout()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l.encodeLen()
+	}
+	ss := func(id uint16) FeatureParams { return &FeatureParamsStylisticSet{UINameID: id} }
+
+	cases := []struct {
+		name string
+		info FeatureListInfo
+		want int
+	}{
+		{"identical", FeatureListInfo{
+			{Tag: "ss01", Params: ss(1)}, {Tag: "ss01", Params: ss(1)}}, 2 + 12 + 8},
+		{"different params", FeatureListInfo{
+			{Tag: "ss01", Params: ss(1)}, {Tag: "ss01", Params: ss(2)}}, 2 + 12 + 16},
+		{"different lookups", FeatureListInfo{
+			{Tag: "liga", Lookups: []LookupIndex{1}}, {Tag: "liga", Lookups: []LookupIndex{2}}}, 2 + 12 + 12},
+		{"different tags", FeatureListInfo{
+			{Tag: "liga", Lookups: []LookupIndex{1}}, {Tag: "clig", Lookups: []LookupIndex{1}}}, 2 + 12 + 6},
+	}
+	for _, c := range cases {
+		if got := size(c.info); got != c.want {
+			t.Errorf("%s: got %d bytes, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// TestFeatureListRepair checks that a feature list whose Feature tables
+// cannot all be written back is repaired on read: the features keep their
+// tags, and as many as possible keep their lookups.  The Feature tables
+// overlap in the input, and each holds about 2000 lookups.
+func TestFeatureListRepair(t *testing.T) {
+	const nFeatures = 100
+	const base = 2000
+
+	data := []byte{0, nFeatures}
+	for i := range nFeatures {
+		off := 2 + 6*nFeatures + 2*i
+		data = append(data, 'l', 'i', 'g', 'a', byte(off>>8), byte(off))
+	}
+	for j := range 2*nFeatures + base + 10 {
+		w := base + j
+		data = append(data, byte(w>>8), byte(w))
+	}
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	info, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info) != nFeatures {
+		t.Fatalf("got %d features, want %d", len(info), nFeatures)
+	}
+	kept := 0
+	for _, f := range info {
+		if f.Tag != "liga" {
+			t.Errorf("unexpected tag %q", f.Tag)
+		}
+		if len(f.Lookups) > 0 {
+			kept++
+		}
+	}
+	// each Feature table takes about 4 kB, so about 15 fit
+	if kept < 10 || kept >= nFeatures {
+		t.Errorf("%d features kept their lookups", kept)
+	}
+
+	data2 := info.encode()
+	p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
+	info2, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(info, info2); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+// TestFeatureListRepairParams checks that feature parameters which cannot be
+// reached from their Feature table are dropped on read, while the lookups
+// are kept.
+func TestFeatureListRepairParams(t *testing.T) {
+	n := 40000
+	data := []byte{0, 1, 'c', 'v', '0', '1', 0, 8}
+	// the params offset points into the lookup list
+	data = append(data, 0, 4, byte(n>>8), byte(n))
+	data = append(data, make([]byte, 2*n)...)
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	info, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info) != 1 || len(info[0].Lookups) != n || info[0].Params != nil {
+		t.Fatalf("unexpected result %v", info)
+	}
+	info.encode()
+}
+
+// TestFeatureListSharedFeatures checks that many records reaching one Feature
+// table, including one with parameters, are read within the default budget
+// and can be written back.
+func TestFeatureListSharedFeatures(t *testing.T) {
+	nRecords := 3000
+	nLookups := 1000
+
+	hdr := 2 + 6*nRecords
+	data := []byte{byte(nRecords >> 8), byte(nRecords)}
+	for i := range nRecords {
+		tag := "liga"
+		if i%2 == 1 {
+			tag = "size"
+		}
+		data = append(data, tag...)
+		data = append(data, byte(hdr>>8), byte(hdr))
+	}
+	// one Feature table with parameters directly after the lookup indices
+	paramsOffs := 4 + 2*nLookups
+	data = append(data, byte(paramsOffs>>8), byte(paramsOffs), byte(nLookups>>8), byte(nLookups))
+	for i := range nLookups {
+		data = append(data, byte(i>>8), byte(i))
+	}
+	data = append(data, 0, 100, 0, 1, 1, 0, 0, 80, 0, 120)
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	info, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info) != nRecords {
+		t.Fatalf("got %d features, want %d", len(info), nRecords)
+	}
+	if info[1].Params == nil || info[0].Params != nil {
+		t.Error("wrong feature parameters")
+	}
+	if &info[0].Lookups[0] != &info[2].Lookups[0] {
+		t.Error("lookups not shared")
+	}
+
+	enc := info.encode()
+	p = parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
+	info2, err := readFeatureList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(info, info2); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
 }

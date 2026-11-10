@@ -611,9 +611,9 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		if err == nil {
 			kern, err := kern.Read(kernFd, budget)
 			if err == nil {
-				subtable := gtab.Gpos2_1{}
+				subtable := &gtab.Gpos2_1{Adjust: map[glyph.Pair]*gtab.PairAdjust{}}
 				for pair, val := range kern {
-					subtable[pair] = &gtab.PairAdjust{
+					subtable.Adjust[pair] = &gtab.PairAdjust{
 						First: &gtab.GposValueRecord{XAdvance: val},
 					}
 				}

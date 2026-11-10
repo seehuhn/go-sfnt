@@ -22,6 +22,8 @@ import (
 
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
+	"seehuhn.de/go/sfnt/opentype/internal/readcache"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -114,15 +116,13 @@ func (l *Gsub1_1) encodeLen() int {
 // encode implements the [Subtable] interface.
 func (l *Gsub1_1) encode() []byte {
 	cov := l.Cov.ToTable()
-	buf := make([]byte, 6+cov.EncodeLen())
-	// buf[0] = 0
-	buf[1] = 1
-	// buf[2] = 0
-	buf[3] = 6
-	buf[4] = byte(l.Delta >> 8)
-	buf[5] = byte(l.Delta)
-	copy(buf[6:], cov.Encode())
-	return buf
+	buf := make([]byte, 0, 6+cov.EncodeLen())
+	buf = append(buf,
+		0, 1, // format
+		0, 6, // coverage offset
+		byte(l.Delta>>8), byte(l.Delta),
+	)
+	return append(buf, cov.Encode()...)
 }
 
 // Gsub1_2 is a Single Substitution GSUB subtable (type 1, format 2).
@@ -178,6 +178,13 @@ func (l *Gsub1_2) apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
+// covOffset returns the offset of the coverage table, which follows the
+// substitute glyph IDs.  An error is returned if the offset does not fit
+// into an Offset16.
+func (l *Gsub1_2) covOffset() (uint16, error) {
+	return fitOffset16("Gsub1_2", 6+2*len(l.SubstituteGlyphIDs))
+}
+
 // encodeLen implements the [Subtable] interface.
 func (l *Gsub1_2) encodeLen() int {
 	return 6 + 2*len(l.SubstituteGlyphIDs) + l.Cov.EncodeLen()
@@ -185,25 +192,18 @@ func (l *Gsub1_2) encodeLen() int {
 
 // encode implements the [Subtable] interface.
 func (l *Gsub1_2) encode() []byte {
+	covOffset := mustFit(l.covOffset())
 	n := len(l.SubstituteGlyphIDs)
-	covOffs := 6 + 2*n
-	// The coverage table comes last and stores no offsets of its own, so it
-	// may extend past what the offset reaching it can address.
-	checkSubtableOffset16("Gsub1_2", covOffs)
-
-	buf := make([]byte, covOffs+l.Cov.EncodeLen())
-	// buf[0] = 0
-	buf[1] = 2
-	buf[2] = byte(covOffs >> 8)
-	buf[3] = byte(covOffs)
-	buf[4] = byte(n >> 8)
-	buf[5] = byte(n)
-	for i := range n {
-		buf[6+2*i] = byte(l.SubstituteGlyphIDs[i] >> 8)
-		buf[6+2*i+1] = byte(l.SubstituteGlyphIDs[i])
+	buf := make([]byte, 0, l.encodeLen())
+	buf = append(buf,
+		0, 2, // format
+		byte(covOffset>>8), byte(covOffset),
+		byte(n>>8), byte(n),
+	)
+	for _, gid := range l.SubstituteGlyphIDs {
+		buf = append(buf, byte(gid>>8), byte(gid))
 	}
-	copy(buf[covOffs:], l.Cov.Encode())
-	return buf
+	return append(buf, l.Cov.Encode()...)
 }
 
 // Gsub2_1 is a Multiple Substitution GSUB subtable (type 2, format 1).
@@ -245,12 +245,15 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
+	seqCache := readcache.New[[]glyph.ID]()
 	for i := range sequenceCount {
-		err := p.SeekPos(subtablePos + int64(sequenceOffsets[i]))
-		if err != nil {
-			return nil, err
-		}
-		repl[i], err = readGIDSlice(p)
+		repl[i], err = seqCache.Get(subtablePos+int64(sequenceOffsets[i]),
+			func(pos int64) ([]glyph.ID, error) {
+				if err := p.SeekPos(pos); err != nil {
+					return nil, err
+				}
+				return readGIDSlice(p)
+			})
 		if err != nil {
 			return nil, err
 		}
@@ -298,61 +301,87 @@ func (l *Gsub2_1) apply(ctx *Context, a, b int) int {
 	return a + k
 }
 
+// covSetLayout is the encoded layout of a subtable which holds a coverage
+// table and one table per covered glyph: the header with the offsets,
+// followed by the per-glyph tables and the coverage table.  Identical
+// tables are stored once.  The Gsub2_1, Gsub3_1 and Gsub4_1 subtables have
+// this form.
+type covSetLayout struct {
+	cov  int   // pool index of the coverage table
+	sets []int // pool indices of the per-glyph tables
+	pool *offsetpool.Deferred
+}
+
+func newCovSetLayout(name string, n int) *covSetLayout {
+	return &covSetLayout{
+		sets: make([]int, n),
+		pool: offsetpool.NewDeferred(name, 6+2*n),
+	}
+}
+
+// addSet stores the table for coverage index i.  The key and encode
+// arguments are as for [offsetpool.Pool.AddFunc].
+func (lay *covSetLayout) addSet(i int, key any, encode func() []byte) error {
+	idx, err := lay.pool.AddFunc(key, encode)
+	if err != nil {
+		return err
+	}
+	lay.sets[i] = idx
+	return nil
+}
+
+// addCoverage stores the coverage table.  It is called after the per-glyph
+// tables, so that the coverage table follows them where this fits.
+func (lay *covSetLayout) addCoverage(cov coverage.Table) error {
+	idx, err := lay.pool.Add(cov.Encode())
+	if err != nil {
+		return err
+	}
+	lay.cov = idx
+	return nil
+}
+
+func (lay *covSetLayout) encodeLen() int {
+	return 6 + 2*len(lay.sets) + lay.pool.Len()
+}
+
+func (lay *covSetLayout) encode() []byte {
+	offs, data := lay.pool.Place()
+	buf := make([]byte, 0, lay.encodeLen())
+	buf = appendUint16(buf, 1) // format
+	buf = appendUint16(buf, int(offs[lay.cov]))
+	buf = appendUint16(buf, len(lay.sets))
+	buf = appendOffsets(buf, offs, lay.sets)
+	return append(buf, data...)
+}
+
+// layout computes the encoded layout of the subtable.  An error is returned
+// if an offset does not fit into an Offset16.
+func (l *Gsub2_1) layout() (*covSetLayout, error) {
+	lay := newCovSetLayout("Gsub2_1", len(l.Repl))
+	for i, repl := range l.Repl {
+		if len(repl) == 0 {
+			panic("Gsub2_1: empty replacement sequence")
+		}
+		err := lay.addSet(i, offsetpool.SliceKey(repl), func() []byte { return encodeGIDSlice(repl) })
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := lay.addCoverage(l.Cov); err != nil {
+		return nil, err
+	}
+	return lay, nil
+}
+
 // encodeLen implements the [Subtable] interface.
 func (l *Gsub2_1) encodeLen() int {
-	total := 6 + 2*len(l.Repl)
-	for _, repl := range l.Repl {
-		total += 2 + 2*len(repl)
-	}
-	total += l.Cov.EncodeLen()
-	return total
+	return mustFit(l.layout()).encodeLen()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gsub2_1) encode() []byte {
-	for _, repl := range l.Repl {
-		if len(repl) == 0 {
-			panic("Gsub2_1: empty replacement sequence")
-		}
-	}
-	sequenceCount := len(l.Repl)
-	covOffs := 6 + 2*sequenceCount
-
-	sequenceOffsets := make([]uint16, sequenceCount)
-	for i, repl := range l.Repl {
-		sequenceOffsets[i] = uint16(covOffs)
-		covOffs += 2 + 2*len(repl)
-	}
-	// The sequences precede the coverage table, so bounding the coverage
-	// offset bounds every offset the subtable stores.  The coverage table
-	// itself comes last and may extend past the limit.
-	checkSubtableOffset16("Gsub2_1", covOffs)
-
-	buf := make([]byte, covOffs+l.Cov.EncodeLen())
-	// buf[0] = 0
-	buf[1] = 1
-	buf[2] = byte(covOffs >> 8)
-	buf[3] = byte(covOffs)
-	buf[4] = byte(len(l.Repl) >> 8)
-	buf[5] = byte(len(l.Repl))
-	pos := 6
-	for i := range l.Repl {
-		buf[pos] = byte(sequenceOffsets[i] >> 8)
-		buf[pos+1] = byte(sequenceOffsets[i])
-		pos += 2
-	}
-	for _, repl := range l.Repl {
-		buf[pos] = byte(len(repl) >> 8)
-		buf[pos+1] = byte(len(repl))
-		pos += 2
-		for _, gid := range repl {
-			buf[pos] = byte(gid >> 8)
-			buf[pos+1] = byte(gid)
-			pos += 2
-		}
-	}
-	copy(buf[covOffs:], l.Cov.Encode())
-	return buf
+	return mustFit(l.layout()).encode()
 }
 
 // Gsub3_1 is an Alternate Substitution GSUB subtable (type 3, format 1).
@@ -394,25 +423,17 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
+	altCache := readcache.New[[]glyph.ID]()
 	for i := range alternateSetCount {
-		err := p.SeekPos(subtablePos + int64(alternateSetOffsets[i]))
+		alt[i], err = altCache.Get(subtablePos+int64(alternateSetOffsets[i]),
+			func(pos int64) ([]glyph.ID, error) {
+				if err := p.SeekPos(pos); err != nil {
+					return nil, err
+				}
+				return readGIDSlice(p)
+			})
 		if err != nil {
 			return nil, err
-		}
-		glyphCount, err := p.ReadUint16()
-		if err != nil {
-			return nil, err
-		}
-		alt[i], err = p.Budget.AllocSlice[glyph.ID](int(glyphCount))
-		if err != nil {
-			return nil, err
-		}
-		for j := 0; j < int(glyphCount); j++ {
-			gid, err := p.ReadUint16()
-			if err != nil {
-				return nil, err
-			}
-			alt[i][j] = glyph.ID(gid)
 		}
 	}
 
@@ -442,61 +463,33 @@ func (l *Gsub3_1) apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
+// layout computes the encoded layout of the subtable.  An error is returned
+// if an offset does not fit into an Offset16.
+func (l *Gsub3_1) layout() (*covSetLayout, error) {
+	lay := newCovSetLayout("Gsub3_1", len(l.Alternates))
+	for i, alt := range l.Alternates {
+		if len(alt) == 0 {
+			panic("Gsub3_1: empty alternate set")
+		}
+		err := lay.addSet(i, offsetpool.SliceKey(alt), func() []byte { return encodeGIDSlice(alt) })
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := lay.addCoverage(l.Cov); err != nil {
+		return nil, err
+	}
+	return lay, nil
+}
+
 // encodeLen implements the [Subtable] interface.
 func (l *Gsub3_1) encodeLen() int {
-	total := 6 + 2*len(l.Alternates)
-	for _, repl := range l.Alternates {
-		total += 2 + 2*len(repl)
-	}
-	total += l.Cov.EncodeLen()
-	return total
+	return mustFit(l.layout()).encodeLen()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gsub3_1) encode() []byte {
-	for _, alt := range l.Alternates {
-		if len(alt) == 0 {
-			panic("Gsub3_1: empty alternate set")
-		}
-	}
-	alternateSetCount := len(l.Alternates)
-	covOffs := 6 + 2*alternateSetCount
-
-	alternateSetOffsets := make([]uint16, alternateSetCount)
-	for i, repl := range l.Alternates {
-		alternateSetOffsets[i] = uint16(covOffs)
-		covOffs += 2 + 2*len(repl)
-	}
-	// The alternate sets precede the coverage table, so bounding the coverage
-	// offset bounds every offset the subtable stores.  The coverage table
-	// itself comes last and may extend past the limit.
-	checkSubtableOffset16("Gsub3_1", covOffs)
-
-	buf := make([]byte, covOffs+l.Cov.EncodeLen())
-	// buf[0] = 0
-	buf[1] = 1
-	buf[2] = byte(covOffs >> 8)
-	buf[3] = byte(covOffs)
-	buf[4] = byte(len(l.Alternates) >> 8)
-	buf[5] = byte(len(l.Alternates))
-	pos := 6
-	for i := range l.Alternates {
-		buf[pos] = byte(alternateSetOffsets[i] >> 8)
-		buf[pos+1] = byte(alternateSetOffsets[i])
-		pos += 2
-	}
-	for _, alt := range l.Alternates {
-		buf[pos] = byte(len(alt) >> 8)
-		buf[pos+1] = byte(len(alt))
-		pos += 2
-		for _, gid := range alt {
-			buf[pos] = byte(gid >> 8)
-			buf[pos+1] = byte(gid)
-			pos += 2
-		}
-	}
-	copy(buf[covOffs:], l.Cov.Encode())
-	return buf
+	return mustFit(l.layout()).encode()
 }
 
 // Gsub4_1 is a Ligature Substitution GSUB subtable (type 4, format 1).
@@ -547,70 +540,63 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i, ligatureSetOffset := range ligatureSetOffsets {
-		ligatureSetPos := subtablePos + int64(ligatureSetOffset)
-		err := p.SeekPos(ligatureSetPos)
+	ligCache := readcache.New[Ligature]()
+	readLigature := func(pos int64) (Ligature, error) {
+		if err := p.SeekPos(pos); err != nil {
+			return Ligature{}, err
+		}
+		ligatureGlyph, err := p.ReadUint16()
 		if err != nil {
+			return Ligature{}, err
+		}
+		componentCount, err := p.ReadUint16()
+		if err != nil {
+			return Ligature{}, err
+		}
+		if componentCount == 0 {
+			return Ligature{}, &parser.InvalidFontError{
+				SubSystem: "sfnt/opentype/gtab",
+				Reason:    "ligature with zero component count",
+			}
+		}
+		componentGlyphIDs, err := p.Budget.AllocSlice[glyph.ID](int(componentCount) - 1)
+		if err != nil {
+			return Ligature{}, err
+		}
+		for k := range componentGlyphIDs {
+			gid, err := p.ReadUint16()
+			if err != nil {
+				return Ligature{}, err
+			}
+			componentGlyphIDs[k] = glyph.ID(gid)
+		}
+		return Ligature{In: componentGlyphIDs, Out: glyph.ID(ligatureGlyph)}, nil
+	}
+	setCache := readcache.New[[]Ligature]()
+	readSet := func(setPos int64) ([]Ligature, error) {
+		if err := p.SeekPos(setPos); err != nil {
 			return nil, err
 		}
 		ligatureOffsets, err := p.ReadUint16Slice()
 		if err != nil {
 			return nil, err
 		}
-
-		repl[i], err = p.Budget.AllocSlice[Ligature](len(ligatureOffsets))
+		set, err := p.Budget.AllocSlice[Ligature](len(ligatureOffsets))
 		if err != nil {
 			return nil, err
 		}
 		for j, ligatureOffset := range ligatureOffsets {
-			err = p.SeekPos(ligatureSetPos + int64(ligatureOffset))
+			set[j], err = ligCache.Get(setPos+int64(ligatureOffset), readLigature)
 			if err != nil {
 				return nil, err
 			}
-			ligatureGlyph, err := p.ReadUint16()
-			if err != nil {
-				return nil, err
-			}
-			componentCount, err := p.ReadUint16()
-			if err != nil {
-				return nil, err
-			}
-			if componentCount == 0 {
-				return nil, &parser.InvalidFontError{
-					SubSystem: "sfnt/opentype/gtab",
-					Reason:    "ligature with zero component count",
-				}
-			}
-			componentGlyphIDs, err := p.Budget.AllocSlice[glyph.ID](int(componentCount) - 1)
-			if err != nil {
-				return nil, err
-			}
-			for k := range componentGlyphIDs {
-				gid, err := p.ReadUint16()
-				if err != nil {
-					return nil, err
-				}
-				componentGlyphIDs[k] = glyph.ID(gid)
-			}
-
-			repl[i][j].In = componentGlyphIDs
-			repl[i][j].Out = glyph.ID(ligatureGlyph)
 		}
+		return set, nil
 	}
-
-	total := 6 + 2*len(repl)
-	for _, replI := range repl {
-		total += 2 + 2*len(replI)
-		for _, lig := range replI {
-			total += 4 + 2*len(lig.In)
-		}
-	}
-	// Now total is the coverage offset when encoding the subtable without
-	// overlapping data.
-	if total > 0xFFFF {
-		return nil, &parser.InvalidFontError{
-			SubSystem: "sfnt/opentype/gtab",
-			Reason:    "GSUB 4.1 too large",
+	for i, ligatureSetOffset := range ligatureSetOffsets {
+		repl[i], err = setCache.Get(subtablePos+int64(ligatureSetOffset), readSet)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -697,70 +683,85 @@ ligLoop:
 	return -1
 }
 
-// encodeLen implements the [Subtable] interface.
-func (l *Gsub4_1) encodeLen() int {
-	total := 6 + 2*len(l.Repl)
-	for _, repl := range l.Repl {
-		total += 2 + 2*len(repl)
-		for _, lig := range repl {
-			total += 4 + 2*len(lig.In)
+// ligatureKey identifies the encoding of a Ligature table.
+type ligatureKey struct {
+	in  any
+	out glyph.ID
+}
+
+func newLigatureKey(lig Ligature) ligatureKey {
+	return ligatureKey{offsetpool.SliceKey(lig.In), lig.Out}
+}
+
+// encodeLigatureSet encodes a LigatureSet table.  Identical Ligature tables
+// within the set are stored once.
+func encodeLigatureSet(ligs []Ligature) ([]byte, error) {
+	m := len(ligs)
+	pool := offsetpool.NewDeferred("Gsub4_1 LigatureSet", 2+2*m)
+	indices := make([]int, m)
+	for i, lig := range ligs {
+		var err error
+		indices[i], err = pool.AddFunc(newLigatureKey(lig), func() []byte {
+			enc := make([]byte, 0, 4+2*len(lig.In))
+			enc = appendUint16(enc, int(lig.Out))
+			enc = appendUint16(enc, len(lig.In)+1)
+			for _, gid := range lig.In {
+				enc = appendUint16(enc, int(gid))
+			}
+			return enc
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
-	total += l.Cov.EncodeLen()
-	return total
+	offs, data := pool.Place()
+	buf := make([]byte, 0, 2+2*m+len(data))
+	buf = appendUint16(buf, m)
+	buf = appendOffsets(buf, offs, indices)
+	return append(buf, data...), nil
+}
+
+// layout computes the encoded layout of the subtable.  An error is returned
+// if an offset does not fit into an Offset16.
+func (l *Gsub4_1) layout() (*covSetLayout, error) {
+	lay := newCovSetLayout("Gsub4_1", len(l.Repl))
+	// ligature sets with the same ligatures are encoded once
+	var keys offsetpool.SeqKeys[ligatureKey]
+	for i, ligs := range l.Repl {
+		var encErr error
+		key := keys.Key(offsetpool.SliceKey(ligs), len(ligs), func(yield func(ligatureKey) bool) {
+			for _, lig := range ligs {
+				if !yield(newLigatureKey(lig)) {
+					return
+				}
+			}
+		})
+		err := lay.addSet(i, key, func() []byte {
+			var enc []byte
+			enc, encErr = encodeLigatureSet(ligs)
+			return enc
+		})
+		if encErr != nil {
+			return nil, encErr
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := lay.addCoverage(l.Cov); err != nil {
+		return nil, err
+	}
+	return lay, nil
+}
+
+// encodeLen implements the [Subtable] interface.
+func (l *Gsub4_1) encodeLen() int {
+	return mustFit(l.layout()).encodeLen()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gsub4_1) encode() []byte {
-	ligatureSetCount := len(l.Repl)
-	total := 6 + 2*ligatureSetCount
-	ligatureSetOffsets := make([]uint16, ligatureSetCount)
-	for i, repl := range l.Repl {
-		ligatureSetOffsets[i] = uint16(total)
-		total += 2 + 2*len(repl)
-		for _, lig := range repl {
-			total += 4 + 2*len(lig.In)
-		}
-	}
-	// The ligature sets precede the coverage table, so bounding the coverage
-	// offset bounds every offset the subtable stores.  The coverage table
-	// itself comes last and may extend past the limit.
-	coverageOffset := total
-	total += l.Cov.EncodeLen()
-	checkSubtableOffset16("Gsub4_1", coverageOffset)
-
-	buf := make([]byte, 0, total)
-
-	buf = append(buf,
-		0, 1, // version
-		byte(coverageOffset>>8), byte(coverageOffset),
-		byte(ligatureSetCount>>8), byte(ligatureSetCount),
-	)
-	for _, offs := range ligatureSetOffsets {
-		buf = append(buf, byte(offs>>8), byte(offs))
-	}
-	for _, repl := range l.Repl {
-		ligatureCount := len(repl)
-		buf = append(buf, byte(ligatureCount>>8), byte(ligatureCount))
-		pos := 2 + 2*ligatureCount
-		for _, lig := range repl {
-			buf = append(buf, byte(pos>>8), byte(pos))
-			pos += 4 + 2*len(lig.In)
-		}
-		for _, lig := range repl {
-			componentCount := len(lig.In) + 1
-			buf = append(buf,
-				byte(lig.Out>>8), byte(lig.Out),
-				byte(componentCount>>8), byte(componentCount),
-			)
-			for _, gid := range lig.In {
-				buf = append(buf, byte(gid>>8), byte(gid))
-			}
-		}
-	}
-	buf = append(buf, l.Cov.Encode()...)
-
-	return buf
+	return mustFit(l.layout()).encode()
 }
 
 // Gsub8_1 is a Reverse Chaining Contextual Single Substitution GSUB subtable
@@ -801,8 +802,13 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
+	// the input coverage is pruned below, so it is not read via the cache
+	covCache := readcache.New[coverage.Table]()
+	readCov := func(pos int64) (coverage.Table, error) {
+		return coverage.Read(p, pos)
+	}
 	for i, offs := range backtrackCoverageOffsets {
-		backtrack[i], err = coverage.Read(p, subtablePos+int64(offs))
+		backtrack[i], err = covCache.Get(subtablePos+int64(offs), readCov)
 		if err != nil {
 			return nil, err
 		}
@@ -812,7 +818,7 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 	for i, offs := range lookaheadCoverageOffsets {
-		lookahead[i], err = coverage.Read(p, subtablePos+int64(offs))
+		lookahead[i], err = covCache.Get(subtablePos+int64(offs), readCov)
 		if err != nil {
 			return nil, err
 		}
@@ -874,79 +880,68 @@ func (l *Gsub8_1) apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
+// gsub8_1Layout is the encoded layout of a [Gsub8_1] subtable: the header
+// followed by the coverage tables.  Identical tables are stored once.
+type gsub8_1Layout struct {
+	input     int   // pool index of the input coverage table
+	backtrack []int // pool indices of the backtrack coverage tables
+	lookahead []int // pool indices of the lookahead coverage tables
+	pool      *offsetpool.Deferred
+}
+
+// layout computes the encoded layout of the subtable.  An error is returned
+// if an offset does not fit into an Offset16.
+func (l *Gsub8_1) layout() (*gsub8_1Layout, error) {
+	nb, na := len(l.Backtrack), len(l.Lookahead)
+	pool := offsetpool.NewDeferred("Gsub8_1", 10+2*(nb+na+len(l.SubstituteGlyphIDs)))
+	lay := &gsub8_1Layout{
+		backtrack: make([]int, nb),
+		lookahead: make([]int, na),
+		pool:      pool,
+	}
+	var err error
+	lay.input, err = pool.AddFunc(offsetpool.MapKey(l.Input), l.Input.Encode)
+	if err != nil {
+		return nil, err
+	}
+	for i, cov := range l.Backtrack {
+		lay.backtrack[i], err = pool.AddFunc(offsetpool.MapKey(cov), cov.Encode)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for i, cov := range l.Lookahead {
+		lay.lookahead[i], err = pool.AddFunc(offsetpool.MapKey(cov), cov.Encode)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return lay, nil
+}
+
 // encodeLen implements the [Subtable] interface.
 func (l *Gsub8_1) encodeLen() int {
-	total := 10
-	total += 2 * len(l.Backtrack)
-	total += 2 * len(l.Lookahead)
-	total += 2 * len(l.SubstituteGlyphIDs)
-	total += l.Input.EncodeLen()
-	for _, cov := range l.Backtrack {
-		total += cov.EncodeLen()
-	}
-	for _, cov := range l.Lookahead {
-		total += cov.EncodeLen()
-	}
-	return total
+	lay := mustFit(l.layout())
+	return 10 + 2*(len(lay.backtrack)+len(lay.lookahead)+len(l.SubstituteGlyphIDs)) + lay.pool.Len()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gsub8_1) encode() []byte {
-	backtrackGlyphCount := len(l.Backtrack)
-	lookaheadGlyphCount := len(l.Lookahead)
-	glyphCount := len(l.SubstituteGlyphIDs)
-
-	total := 10
-	total += 2 * backtrackGlyphCount
-	total += 2 * lookaheadGlyphCount
-	total += 2 * glyphCount
-	// The coverage tables store no offsets of their own, so only the offsets
-	// reaching them are bounded and the last table may extend past the limit.
-	// Each is checked where it is narrowed to a uint16, since a truncated
-	// offset would no longer show that it is out of range.
-	coverageOffset := total
-	checkSubtableOffset16("Gsub8_1", coverageOffset)
-	total += l.Input.EncodeLen()
-	backtrackCoverageOffsets := make([]uint16, backtrackGlyphCount)
-	for i, cov := range l.Backtrack {
-		checkSubtableOffset16("Gsub8_1", total)
-		backtrackCoverageOffsets[i] = uint16(total)
-		total += cov.EncodeLen()
-	}
-	lookaheadCoverageOffsets := make([]uint16, lookaheadGlyphCount)
-	for i, cov := range l.Lookahead {
-		checkSubtableOffset16("Gsub8_1", total)
-		lookaheadCoverageOffsets[i] = uint16(total)
-		total += cov.EncodeLen()
-	}
-
-	buf := make([]byte, 0, total)
-	buf = append(buf,
-		0, 1, // format
-		byte(coverageOffset>>8), byte(coverageOffset),
-		byte(backtrackGlyphCount>>8), byte(backtrackGlyphCount),
-	)
-	for _, offset := range backtrackCoverageOffsets {
-		buf = append(buf, byte(offset>>8), byte(offset))
-	}
-	buf = append(buf, byte(lookaheadGlyphCount>>8), byte(lookaheadGlyphCount))
-	for _, offset := range lookaheadCoverageOffsets {
-		buf = append(buf, byte(offset>>8), byte(offset))
-	}
-	buf = append(buf, byte(glyphCount>>8), byte(glyphCount))
+	lay := mustFit(l.layout())
+	nb, na, ng := len(lay.backtrack), len(lay.lookahead), len(l.SubstituteGlyphIDs)
+	offs, data := lay.pool.Place()
+	buf := make([]byte, 0, 10+2*(nb+na+ng)+len(data))
+	buf = appendUint16(buf, 1) // format
+	buf = appendUint16(buf, int(offs[lay.input]))
+	buf = appendUint16(buf, nb)
+	buf = appendOffsets(buf, offs, lay.backtrack)
+	buf = appendUint16(buf, na)
+	buf = appendOffsets(buf, offs, lay.lookahead)
+	buf = appendUint16(buf, ng)
 	for _, gid := range l.SubstituteGlyphIDs {
-		buf = append(buf, byte(gid>>8), byte(gid))
+		buf = appendUint16(buf, int(gid))
 	}
-
-	buf = append(buf, l.Input.Encode()...)
-	for _, cov := range l.Backtrack {
-		buf = append(buf, cov.Encode()...)
-	}
-	for _, cov := range l.Lookahead {
-		buf = append(buf, cov.Encode()...)
-	}
-
-	return buf
+	return append(buf, data...)
 }
 
 // dropEmptyEntries compacts items by removing empty inner slices and
@@ -982,4 +977,40 @@ func dropEmptyEntries(cov coverage.Table, items [][]glyph.ID) (coverage.Table, [
 		}
 	}
 	return cov, out
+}
+
+// fits implements the [Subtable] interface.
+func (l *Gsub1_1) fits() error {
+	// the coverage table follows the fixed-size header
+	return nil
+}
+
+// fits implements the [Subtable] interface.
+func (l *Gsub1_2) fits() error {
+	_, err := l.covOffset()
+	return err
+}
+
+// fits implements the [Subtable] interface.
+func (l *Gsub2_1) fits() error {
+	_, err := l.layout()
+	return err
+}
+
+// fits implements the [Subtable] interface.
+func (l *Gsub3_1) fits() error {
+	_, err := l.layout()
+	return err
+}
+
+// fits implements the [Subtable] interface.
+func (l *Gsub4_1) fits() error {
+	_, err := l.layout()
+	return err
+}
+
+// fits implements the [Subtable] interface.
+func (l *Gsub8_1) fits() error {
+	_, err := l.layout()
+	return err
 }

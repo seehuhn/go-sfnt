@@ -158,6 +158,13 @@ type Subtable interface {
 	// callers responsibility to ensure this.
 	apply(ctx *Context, a, b int) int
 
+	// fits returns an error if the subtable cannot be encoded, because an
+	// offset would not fit into an Offset16.  Readers use it to drop
+	// subtables which cannot be written back.  Like encode, it may panic
+	// for a subtable which violates the constraints documented on its
+	// type.
+	fits() error
+
 	encodeLen() int
 
 	encode() []byte
@@ -270,6 +277,13 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 				subtables[j] = subtable
 			}
 		}
+
+		// Overlapping data in a crafted font can expand on read into a
+		// subtable which cannot be written back.  Such subtables are
+		// dropped, so that every lookup read can be encoded.
+		subtables = slices.DeleteFunc(subtables, func(st Subtable) bool {
+			return st.fits() != nil
+		})
 
 		res[i] = &LookupTable{
 			Meta:      meta,
@@ -631,6 +645,10 @@ func readExtensionSubtable(p *parser.Parser, _ int64) (Subtable, error) {
 
 func (l *extensionSubtable) apply(*Context, int, int) int {
 	panic("unreachable")
+}
+
+func (l *extensionSubtable) fits() error {
+	return nil
 }
 
 func (l *extensionSubtable) encodeLen() int {

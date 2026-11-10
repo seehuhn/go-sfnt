@@ -18,9 +18,13 @@ package gtab
 
 import (
 	"bytes"
+	"errors"
+	"maps"
+	"reflect"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
@@ -33,9 +37,10 @@ import (
 
 func TestGpos2_2(t *testing.T) {
 	l1 := &Gpos2_2{
-		Cov:    coverage.Set{1: true, 12: true},
-		Class1: classdef.Table{1: 1, 2: 1, 12: 2},
-		Class2: classdef.Table{3: 1, 4: 2},
+		PositionSecond: true,
+		Cov:            coverage.Set{1: true, 12: true},
+		Class1:         classdef.Table{1: 1, 2: 1, 12: 2},
+		Class2:         classdef.Table{3: 1, 4: 2},
 		Adjust: [][]*PairAdjust{
 			{
 				{
@@ -489,15 +494,15 @@ func FuzzGpos1_2(f *testing.F) {
 }
 
 func FuzzGpos2_1(f *testing.F) {
-	l := Gpos2_1{}
+	l := &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{}}
 	f.Add(l.encode())
-	l = Gpos2_1{
+	l = &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{
 		glyph.Pair{Left: 1, Right: 2}: &PairAdjust{
 			First: &GposValueRecord{XAdvance: -10},
 		},
-	}
+	}}
 	f.Add(l.encode())
-	l = Gpos2_1{
+	l = &Gpos2_1{PositionSecond: true, Adjust: map[glyph.Pair]*PairAdjust{
 		glyph.Pair{Left: 1, Right: 2}: &PairAdjust{
 			First: &GposValueRecord{XAdvance: -10},
 		},
@@ -532,11 +537,45 @@ func FuzzGpos2_1(f *testing.F) {
 				},
 			},
 		},
-	}
+	}}
 	f.Add(l.encode())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 1, readGpos2_1, data)
+	})
+}
+
+func FuzzGpos2_2(f *testing.F) {
+	l := &Gpos2_2{
+		Cov:    coverage.Set{1: true, 2: true},
+		Class1: classdef.Table{2: 1},
+		Class2: classdef.Table{3: 1},
+		Adjust: [][]*PairAdjust{
+			{{}, {First: &GposValueRecord{XAdvance: -10}}},
+			{{}, {First: &GposValueRecord{XAdvance: 20}}},
+		},
+	}
+	f.Add(l.encode())
+	l = &Gpos2_2{
+		Cov:    coverage.Set{1: true},
+		Class1: classdef.Table{},
+		Class2: classdef.Table{3: 1, 4: 2},
+		Adjust: [][]*PairAdjust{{
+			{},
+			{First: &GposValueRecord{XAdvance: -10}, Second: &GposValueRecord{YPlacement: 5}},
+			{Second: &GposValueRecord{
+				XAdvanceDev: &device.Table{
+					OuterIndex: 7, InnerIndex: 3,
+					DeltaFormat: device.VariationIndexFormat,
+				},
+			}},
+		}},
+		PositionSecond: true,
+	}
+	f.Add(l.encode())
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		doFuzz(t, 2, 2, readGpos2_2, data)
 	})
 }
 
@@ -580,7 +619,7 @@ func TestGpos2_1PairSetDeviceBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := sub.(Gpos2_1)[glyph.Pair{Left: 5, Right: 9}]
+	got := sub.(*Gpos2_1).Adjust[glyph.Pair{Left: 5, Right: 9}]
 	want := &PairAdjust{First: &GposValueRecord{XPlacement: 100, XPlacementDev: dev}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("device resolved from wrong base (-want +got):\n%s", diff)
@@ -895,10 +934,11 @@ func TestSubtableSizeOverflow(t *testing.T) {
 		}
 	}
 	l := &Gpos2_2{
-		Cov:    coverage.Set{1: true},
-		Class1: classdef.Table{1: 1},
-		Class2: classdef.Table{1: 1},
-		Adjust: adj,
+		Cov:            coverage.Set{1: true},
+		Class1:         classdef.Table{1: 1},
+		Class2:         classdef.Table{1: 1},
+		Adjust:         adj,
+		PositionSecond: true,
 	}
 	assertPanics(t, func() { _ = l.encode() })
 }
@@ -1210,7 +1250,7 @@ func TestGpos5_1LigArrayTooLong(t *testing.T) {
 	ligCov := coverage.Table{}
 	ligArray := make([][][]*anchor.Table, n)
 	for i := range ligArray {
-		ligArray[i] = [][]*anchor.Table{{{X: 100, Y: 200}}}
+		ligArray[i] = [][]*anchor.Table{{{X: funit.Int16(i), Y: 200}}}
 		ligCov[glyph.ID(i+1)] = i
 	}
 	l := &Gpos5_1{
@@ -1341,9 +1381,9 @@ func TestGposLongSubtables(t *testing.T) {
 
 		{"Gpos2_1", func() Subtable {
 			const n = 6000
-			l := Gpos2_1{}
+			l := &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{}}
 			for i := range n {
-				l[glyph.Pair{Left: gid(i), Right: gid(i) + 1}] = &PairAdjust{
+				l.Adjust[glyph.Pair{Left: gid(i), Right: gid(i) + 1}] = &PairAdjust{
 					First: &GposValueRecord{
 						XAdvance:    funit.Int16(i%100 - 50),
 						XAdvanceDev: dev(uint16(i % 7)),
@@ -1377,6 +1417,811 @@ func TestGposLongSubtables(t *testing.T) {
 			}
 			if d := cmp.Diff(l1, l2); d != "" {
 				t.Errorf("round trip (-want +got):\n%s", d)
+			}
+		})
+	}
+}
+
+// TestGpos2PositionSecondRequired checks that encoding panics when a subtable
+// without second value records is given a non-nil Second.
+func TestGpos2PositionSecondRequired(t *testing.T) {
+	adj := &PairAdjust{
+		First:  &GposValueRecord{XAdvance: 1},
+		Second: &GposValueRecord{XAdvance: 2},
+	}
+	l1 := &Gpos2_1{
+		Adjust: map[glyph.Pair]*PairAdjust{{Left: 1, Right: 2}: adj},
+	}
+	l2 := &Gpos2_2{
+		Cov:    coverage.Set{1: true},
+		Class1: classdef.Table{1: 1},
+		Class2: classdef.Table{2: 1},
+		Adjust: [][]*PairAdjust{{{}, {}}, {{}, adj}},
+	}
+	for _, l := range []Subtable{l1, l2} {
+		assertPanics(t, func() { _ = l.encodeLen() })
+		assertPanics(t, func() { _ = l.encode() })
+	}
+}
+
+// TestGpos2_1ApplyPositionSecond checks which glyphs a pair adjustment
+// consumes: with PositionSecond the second glyph is used up, without it the
+// second glyph can start the next match.
+func TestGpos2_1ApplyPositionSecond(t *testing.T) {
+	// pairs (1,2) and (2,3) both match the sequence 1 2 3
+	pairs := func(second bool) *Gpos2_1 {
+		adj := func() *PairAdjust {
+			return &PairAdjust{First: &GposValueRecord{XAdvance: 10}}
+		}
+		return &Gpos2_1{
+			PositionSecond: second,
+			Adjust: map[glyph.Pair]*PairAdjust{
+				{Left: 1, Right: 2}: adj(),
+				{Left: 2, Right: 3}: adj(),
+			},
+		}
+	}
+	run := func(l *Gpos2_1) []glyph.Info {
+		lookupList := []*LookupTable{
+			{Meta: &LookupMetaInfo{LookupType: 2}, Subtables: []Subtable{l}},
+		}
+		seq := []glyph.Info{{GID: 1}, {GID: 2}, {GID: 3}}
+		return NewContext(lookupList, nil, []LookupIndex{0}).Apply(seq)
+	}
+
+	out := run(pairs(true))
+	if out[0].Advance != 10 || out[1].Advance != 0 {
+		t.Errorf("PositionSecond=true: advances %d, %d; want 10, 0",
+			out[0].Advance, out[1].Advance)
+	}
+	out = run(pairs(false))
+	if out[0].Advance != 10 || out[1].Advance != 10 {
+		t.Errorf("PositionSecond=false: advances %d, %d; want 10, 10",
+			out[0].Advance, out[1].Advance)
+	}
+}
+
+// TestGpos2_1SharedPairSets checks that pair sets shared between first glyphs
+// in the input stay shared when the subtable is written back out, so that a
+// subtable which fits into a font can be re-encoded.
+func TestGpos2_1SharedPairSets(t *testing.T) {
+	const n = 400 // first glyphs, all sharing one pair set
+	const m = 40  // pairs in the shared pair set
+	pairSetPos := 10 + 2*n
+	covPos := pairSetPos + 2 + 4*m
+	data := []byte{
+		0, 1, // posFormat
+		byte(covPos >> 8), byte(covPos & 0xFF),
+		0, 4, // valueFormat1: XAdvance
+		0, 0, // valueFormat2
+		byte(n >> 8), byte(n & 0xFF), // pairSetCount
+	}
+	for range n {
+		data = append(data, byte(pairSetPos>>8), byte(pairSetPos))
+	}
+	data = append(data, 0, m) // pairValueCount
+	for j := range m {
+		data = append(data, 0, byte(j+1), 0xFF, 0xF0) // second glyph, XAdvance -16
+	}
+	data = append(data, 0, 2, 0, 1, 0, 1, byte(n>>8), byte(n&0xFF), 0, 0) // glyphs 1..n
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	sub, err := readGpos2_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(sub.(*Gpos2_1).Adjust); got != n*m {
+		t.Fatalf("got %d pairs, want %d", got, n*m)
+	}
+
+	enc := sub.encode()
+	if len(enc) != sub.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), sub.encodeLen())
+	}
+	if len(enc) > len(data) {
+		t.Errorf("re-encoded subtable has %d bytes, input has %d", len(enc), len(data))
+	}
+
+	p = parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	sub2, err := readGpos2_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(sub, sub2); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+// TestGpos2_1SharedPairSetsBudget checks that a pair set shared by many first
+// glyphs is expanded once per glyph in the flat map of pairs, and that this is
+// charged to the memory budget.
+func TestGpos2_1SharedPairSetsBudget(t *testing.T) {
+	const n = 3000 // first glyphs, all sharing one pair set
+	const m = 3000 // pairs in the shared pair set
+	pairSetPos := 10 + 2*n
+	covPos := pairSetPos + 2 + 2*m
+	data := markBE16(1, covPos, 0, 0, n)
+	for range n {
+		data = append(data, markBE16(pairSetPos)...)
+	}
+	data = append(data, markBE16(m)...)
+	for j := range m {
+		data = append(data, markBE16(j+1)...)
+	}
+	data = append(data, markBE16(2, 1, 1, n, 0)...)
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readGpos2_1(p, 0); !errors.Is(err, membudget.ErrExceeded) {
+		t.Errorf("got error %v, want budget exceeded", err)
+	}
+}
+
+// TestGpos2_1PairSetSharing checks that only pair sets with identical
+// content are shared.
+func TestGpos2_1PairSetSharing(t *testing.T) {
+	dev := &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1}
+	l := &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{
+		{Left: 1, Right: 5}: {First: &GposValueRecord{XAdvance: -10, XAdvanceDev: dev}},
+		{Left: 2, Right: 5}: {First: &GposValueRecord{XAdvance: -10, XAdvanceDev: dev}},
+		{Left: 3, Right: 5}: {First: &GposValueRecord{XAdvance: -11, XAdvanceDev: dev}},
+		{Left: 4, Right: 6}: {First: &GposValueRecord{XAdvance: -10, XAdvanceDev: dev}},
+		{Left: 5, Right: 5}: {First: &GposValueRecord{XAdvance: -10}},
+	}}
+	ps, err := l.layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]int{0, 0, 1, 2, 3}, ps.setOf); diff != "" {
+		t.Errorf("pair set assignment (-want +got):\n%s", diff)
+	}
+
+	enc := l.encode()
+	if len(enc) != l.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+	}
+	p := parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
+	if err := p.Discard(2); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readGpos2_1(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(l, got); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+func markBE16(vals ...int) []byte {
+	var buf []byte
+	for _, v := range vals {
+		buf = append(buf, byte(v>>8), byte(v))
+	}
+	return buf
+}
+
+// TestGpos5_1SharedLigatureAttach checks that a subtable whose ligature
+// offsets all reach the same LigatureAttach table can be read and written
+// back.  Without sharing, the Go data would exceed the memory budget and the
+// output would need more than 64 KiB.
+func TestGpos5_1SharedLigatureAttach(t *testing.T) {
+	const n = 200     // ligatures, all sharing one LigatureAttach table
+	const comps = 100 // components in the shared table
+	const classes = 8 // mark classes
+
+	markCov := markBE16(1, 1, 7) // format 1, glyph 7
+	ligCov := markBE16(2, 1, 1, n, 0)
+	markArray := markBE16(1, classes-1, 6, 1, 3, 4) // one mark, anchor at 6
+
+	// every cell refers to the same anchor
+	cells := comps * classes
+	anchorOff := 2 + 2*cells
+	attach := markBE16(comps)
+	for range cells {
+		attach = append(attach, markBE16(anchorOff)...)
+	}
+	attach = append(attach, markBE16(1, 5, 6)...)
+
+	markCovOff := 12
+	ligCovOff := markCovOff + len(markCov)
+	markArrayOff := ligCovOff + len(ligCov)
+	ligArrayOff := markArrayOff + len(markArray)
+	data := markBE16(1, markCovOff, ligCovOff, classes, markArrayOff, ligArrayOff)
+	data = append(data, markCov...)
+	data = append(data, ligCov...)
+	data = append(data, markArray...)
+	attachOff := 2 + 2*n
+	data = append(data, markBE16(n)...)
+	for range n {
+		data = append(data, markBE16(attachOff)...)
+	}
+	data = append(data, attach...)
+
+	sub := checkSharedRoundTrip(t, readGpos5_1, data).(*Gpos5_1)
+	if len(sub.LigArray) != n || len(sub.LigArray[0]) != comps {
+		t.Fatalf("got %d ligatures, want %d", len(sub.LigArray), n)
+	}
+	if &sub.LigArray[0][0] != &sub.LigArray[n-1][0] {
+		t.Error("LigatureAttach table not shared")
+	}
+	if n*len(attach) <= 0xFFFF {
+		t.Fatal("test data too small")
+	}
+}
+
+// checkSharedRoundTripDeep is like checkSharedRoundTrip, but compares the two
+// reads with [reflect.DeepEqual].  Unlike cmp.Diff, it visits a pointer shared
+// by many references only once, which keeps tests with large shared Device
+// tables fast.
+func checkSharedRoundTripDeep(t *testing.T, read func(*parser.Parser, int64) (Subtable, error), data []byte) Subtable {
+	t.Helper()
+	sub := readSubtable(t, read, data)
+	enc := sub.encode()
+	if len(enc) != sub.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), sub.encodeLen())
+	}
+	if len(enc) > len(data) {
+		t.Errorf("re-encoded subtable has %d bytes, input has %d", len(enc), len(data))
+	}
+	if sub2 := readSubtable(t, read, enc); !reflect.DeepEqual(sub, sub2) {
+		t.Error("round trip failed")
+	}
+	return sub
+}
+
+// sharedDeviceProbe returns an encoded Device table which is large enough
+// that reading it many times exceeds the default memory budget.
+func sharedDeviceProbe(t *testing.T) []byte {
+	t.Helper()
+	const sizes = 4000
+	dev := &device.Table{StartSize: 1, EndSize: sizes, Deltas: make([]int8, sizes), DeltaFormat: 2}
+	return dev.Encode()
+}
+
+// TestGpos3_1SharedAnchors checks that many entry and exit offsets which
+// reach one anchor, with a large Device table, can be read and written back.
+func TestGpos3_1SharedAnchors(t *testing.T) {
+	const n = 2000
+	devEnc := sharedDeviceProbe(t)
+
+	headerLen := 6 + 4*n
+	covOff := headerLen + 10 + len(devEnc)
+	data := markBE16(1, covOff, n)
+	for range 2 * n {
+		data = append(data, markBE16(headerLen)...)
+	}
+	data = append(data, markBE16(3, 1, 2, 10, 10)...)
+	data = append(data, devEnc...)
+	data = append(data, markBE16(2, 1, 1, n, 0)...)
+
+	sub := checkSharedRoundTripDeep(t, readGpos3_1, data).(*Gpos3_1)
+	if len(sub.Records) != n {
+		t.Fatalf("got %d records, want %d", len(sub.Records), n)
+	}
+	if sub.Records[0].Entry != sub.Records[n-1].Exit {
+		t.Error("anchors not shared")
+	}
+	if sub.Records[0].Entry.XDev != sub.Records[0].Entry.YDev {
+		t.Error("Device tables not shared")
+	}
+}
+
+// TestMarkAttachSharedAnchors checks that base and mark2 arrays whose cells
+// all reach one anchor, with a large Device table, can be read and written
+// back.
+func TestMarkAttachSharedAnchors(t *testing.T) {
+	const bases = 200
+	const classes = 2
+	devEnc := sharedDeviceProbe(t)
+
+	markCov := markBE16(1, 1, 7)
+	baseCov := markBE16(2, 1, 1, bases, 0)
+	markArray := markBE16(1, classes-1, 6, 1, 3, 4)
+
+	cells := bases * classes
+	anchorOff := 2 + 2*cells
+	baseArray := markBE16(bases)
+	for range cells {
+		baseArray = append(baseArray, markBE16(anchorOff)...)
+	}
+	baseArray = append(baseArray, markBE16(3, 1, 2, 10, 10)...)
+	baseArray = append(baseArray, devEnc...)
+
+	markCovOff := 12
+	baseCovOff := markCovOff + len(markCov)
+	markArrayOff := baseCovOff + len(baseCov)
+	baseArrayOff := markArrayOff + len(markArray)
+	data := markBE16(1, markCovOff, baseCovOff, classes, markArrayOff, baseArrayOff)
+	data = append(data, markCov...)
+	data = append(data, baseCov...)
+	data = append(data, markArray...)
+	data = append(data, baseArray...)
+
+	t.Run("Gpos4_1", func(t *testing.T) {
+		sub := checkSharedRoundTripDeep(t, readGpos4_1, data).(*Gpos4_1)
+		if len(sub.BaseArray) != bases || sub.BaseArray[0][0] != sub.BaseArray[bases-1][classes-1] {
+			t.Error("anchors not shared")
+		}
+	})
+	t.Run("Gpos6_1", func(t *testing.T) {
+		sub := checkSharedRoundTripDeep(t, readGpos6_1, data).(*Gpos6_1)
+		if len(sub.Mark2Array) != bases || sub.Mark2Array[0][0] != sub.Mark2Array[bases-1][classes-1] {
+			t.Error("anchors not shared")
+		}
+	})
+}
+
+// TestMarkArraySharedAnchors checks that mark records which reach one anchor
+// share its Device table.
+func TestMarkArraySharedAnchors(t *testing.T) {
+	const marks = 600
+	devEnc := sharedDeviceProbe(t)
+
+	markCov := markBE16(2, 1, 1, marks, 0)
+	baseCov := markBE16(1, 1, 7)
+	anchorOff := 2 + 4*marks
+	markArray := markBE16(marks)
+	for range marks {
+		markArray = append(markArray, markBE16(0, anchorOff)...)
+	}
+	markArray = append(markArray, markBE16(3, 1, 2, 10, 10)...)
+	markArray = append(markArray, devEnc...)
+	baseArray := markBE16(1, 4, 1, 1, 1) // one base, one anchor at 4
+
+	markCovOff := 12
+	baseCovOff := markCovOff + len(markCov)
+	markArrayOff := baseCovOff + len(baseCov)
+	baseArrayOff := markArrayOff + len(markArray)
+	data := markBE16(1, markCovOff, baseCovOff, 1, markArrayOff, baseArrayOff)
+	data = append(data, markCov...)
+	data = append(data, baseCov...)
+	data = append(data, markArray...)
+	data = append(data, baseArray...)
+
+	sub := checkSharedRoundTripDeep(t, readGpos4_1, data).(*Gpos4_1)
+	if len(sub.MarkArray) != marks {
+		t.Fatalf("got %d marks, want %d", len(sub.MarkArray), marks)
+	}
+	if sub.MarkArray[0].XDev != sub.MarkArray[marks-1].YDev {
+		t.Error("Device tables not shared")
+	}
+}
+
+// TestValueRecordSharedDevice checks that value records which reach one large
+// Device table can be read and written back.
+func TestValueRecordSharedDevice(t *testing.T) {
+	const n = 300
+	devEnc := sharedDeviceProbe(t)
+
+	t.Run("Gpos1_2", func(t *testing.T) {
+		devOff := 8 + 2*n
+		covOff := devOff + len(devEnc)
+		data := markBE16(2, covOff, 0x0040, n)
+		for range n {
+			data = append(data, markBE16(devOff)...)
+		}
+		data = append(data, devEnc...)
+		data = append(data, markBE16(2, 1, 1, n, 0)...)
+
+		sub := checkSharedRoundTripDeep(t, readGpos1_2, data).(*Gpos1_2)
+		if sub.Adjust[0].XAdvanceDev != sub.Adjust[n-1].XAdvanceDev {
+			t.Error("Device tables not shared")
+		}
+	})
+
+	t.Run("Gpos2_1", func(t *testing.T) {
+		psOff := 12
+		devOff := 2 + 4*n
+		covOff := psOff + devOff + len(devEnc)
+		data := markBE16(1, covOff, 0x0040, 0, 1, psOff)
+		data = append(data, markBE16(n)...)
+		for j := range n {
+			data = append(data, markBE16(j+1, devOff)...)
+		}
+		data = append(data, devEnc...)
+		data = append(data, markBE16(1, 1, 1)...)
+
+		sub := checkSharedRoundTripDeep(t, readGpos2_1, data).(*Gpos2_1)
+		if len(sub.Adjust) != n {
+			t.Fatalf("got %d pairs, want %d", len(sub.Adjust), n)
+		}
+		a := sub.Adjust[glyph.Pair{Left: 1, Right: 1}].First.XAdvanceDev
+		b := sub.Adjust[glyph.Pair{Left: 1, Right: n}].First.XAdvanceDev
+		if a == nil || a != b {
+			t.Error("Device tables not shared")
+		}
+	})
+
+	t.Run("Gpos2_2", func(t *testing.T) {
+		classDef := markBE16(2, 0) // format 2, no ranges
+		devOff := 16 + 2*n
+		cdOff := devOff + len(devEnc)
+		covOff := cdOff + 2*len(classDef)
+		data := markBE16(2, covOff, 0x0040, 0, cdOff, cdOff+len(classDef), 1, n)
+		for range n {
+			data = append(data, markBE16(devOff)...)
+		}
+		data = append(data, devEnc...)
+		data = append(data, classDef...)
+		data = append(data, classDef...)
+		data = append(data, markBE16(1, 1, 1)...)
+
+		sub := checkSharedRoundTripDeep(t, readGpos2_2, data).(*Gpos2_2)
+		row := sub.Adjust[0]
+		if len(row) != n || row[0].First.XAdvanceDev != row[n-1].First.XAdvanceDev {
+			t.Error("Device tables not shared")
+		}
+	})
+}
+
+// TestGpos3_1SharedDevice checks that an anchor whose two Device offsets
+// reach the same 32 KiB table is written back with one copy of that table.
+// Without sharing, the anchor which follows it would lie beyond the reach of
+// an Offset16.
+func TestGpos3_1SharedDevice(t *testing.T) {
+	const sizes = 65524 // four bits each, so 6+2*16381 bytes
+	dev := &device.Table{StartSize: 1, EndSize: sizes, Deltas: make([]int8, sizes), DeltaFormat: 2}
+	devEnc := dev.Encode()
+	if len(devEnc) != 32768 {
+		t.Fatalf("device table has %d bytes", len(devEnc))
+	}
+
+	a1 := append(markBE16(3, 1, 0, 10, 10), devEnc...)
+	a2 := markBE16(1, 2, 0)
+
+	a1Off := 10
+	a2Off := a1Off + len(a1)
+	covOff := a2Off + len(a2)
+	data := markBE16(1, covOff, 1, a1Off, a2Off)
+	data = append(data, a1...)
+	data = append(data, a2...)
+	data = append(data, markBE16(1, 1, 1)...)
+
+	sub := checkSharedRoundTrip(t, readGpos3_1, data).(*Gpos3_1)
+	rec := sub.Records[0]
+	if rec.Entry == nil || rec.Exit == nil || rec.Entry.XDev == nil || rec.Entry.YDev == nil {
+		t.Fatal("anchors not read")
+	}
+	if want := 10 + len(devEnc); rec.Entry.EncodeLen() != want {
+		t.Errorf("anchor length %d, want %d", rec.Entry.EncodeLen(), want)
+	}
+	if 20+2*len(devEnc) <= 0xFFFF {
+		t.Fatal("test data too small")
+	}
+}
+
+// TestMarkAttachCoverageSharing checks that identical coverage tables are
+// stored once, and that different ones are not.
+func TestMarkAttachCoverageSharing(t *testing.T) {
+	cov := coverage.Table{3: 0, 5: 1}
+	other := coverage.Table{3: 0, 6: 1}
+	covLen := cov.EncodeLen()
+	if other.EncodeLen() != covLen {
+		t.Fatal("test coverages differ in length")
+	}
+
+	anchors := func() []*anchor.Table { return []*anchor.Table{{X: 1, Y: 2}} }
+	marks := []markarray.Record{
+		{Class: 0, X: 1, Y: 2},
+		{Class: 0, X: 3, Y: 4},
+	}
+	base := [][]*anchor.Table{anchors(), anchors()}
+
+	cases := []struct {
+		name string
+		make func(c1, c2 coverage.Table) Subtable
+		read func(*parser.Parser, int64) (Subtable, error)
+	}{
+		{"Gpos4_1", func(c1, c2 coverage.Table) Subtable {
+			return &Gpos4_1{MarkCov: c1, BaseCov: c2, MarkArray: marks, BaseArray: base}
+		}, readGpos4_1},
+		{"Gpos5_1", func(c1, c2 coverage.Table) Subtable {
+			return &Gpos5_1{MarkCov: c1, LigCov: c2, MarkArray: marks,
+				LigArray: [][][]*anchor.Table{{anchors()}, {anchors()}}}
+		}, readGpos5_1},
+		{"Gpos6_1", func(c1, c2 coverage.Table) Subtable {
+			return &Gpos6_1{Mark1Cov: c1, Mark2Cov: c2, Mark1Array: marks, Mark2Array: base}
+		}, readGpos6_1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			same := c.make(cov, cov)
+			diff := c.make(cov, other)
+			if got := diff.encodeLen() - same.encodeLen(); got != covLen {
+				t.Errorf("sharing saves %d bytes, want %d", got, covLen)
+			}
+			for _, l := range []Subtable{same, diff} {
+				enc := l.encode()
+				if len(enc) != l.encodeLen() {
+					t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+				}
+				got := readSubtable(t, c.read, enc)
+				if d := cmp.Diff(l, got); d != "" {
+					t.Errorf("round trip failed (-want +got):\n%s", d)
+				}
+			}
+		})
+	}
+}
+
+// TestGpos5_1LigatureAttachSharing checks that only identical LigatureAttach
+// tables are shared.
+func TestGpos5_1LigatureAttachSharing(t *testing.T) {
+	lig := func(x int) [][]*anchor.Table {
+		return [][]*anchor.Table{{{X: funit.Int16(x)}}}
+	}
+	mk := func(a, b int) *Gpos5_1 {
+		return &Gpos5_1{
+			MarkCov:   coverage.Table{9: 0},
+			LigCov:    coverage.Table{1: 0, 2: 1},
+			MarkArray: []markarray.Record{{Class: 0, X: 1, Y: 2}},
+			LigArray:  [][][]*anchor.Table{lig(a), lig(b)},
+		}
+	}
+	same, diff := mk(5, 5), mk(5, 6)
+	if got := diff.encodeLen() - same.encodeLen(); got != 2+2+6 {
+		t.Errorf("sharing saves %d bytes, want 10", got)
+	}
+	for _, l := range []*Gpos5_1{same, diff} {
+		got := readSubtable(t, readGpos5_1, l.encode())
+		if d := cmp.Diff(l, got); d != "" {
+			t.Errorf("round trip failed (-want +got):\n%s", d)
+		}
+	}
+}
+
+// TestGpos2_2TableSharing checks that identical class definitions are stored
+// once.
+func TestGpos2_2TableSharing(t *testing.T) {
+	mk := func(c2 classdef.Table) *Gpos2_2 {
+		return &Gpos2_2{
+			Cov:    coverage.Set{1: true, 2: true},
+			Class1: classdef.Table{1: 1, 2: 1},
+			Class2: c2,
+			Adjust: [][]*PairAdjust{
+				{{First: &GposValueRecord{XAdvance: 3}}, {First: &GposValueRecord{XAdvance: 4}}},
+				{{First: &GposValueRecord{XAdvance: 1}}, {First: &GposValueRecord{XAdvance: 2}}},
+			},
+		}
+	}
+	same := mk(classdef.Table{1: 1, 2: 1})
+	diff := mk(classdef.Table{1: 1, 3: 1})
+	if got := diff.encodeLen() - same.encodeLen(); got != diff.Class2.AppendLen() {
+		t.Errorf("sharing saves %d bytes, want %d", got, diff.Class2.AppendLen())
+	}
+	for _, l := range []*Gpos2_2{same, diff} {
+		enc := l.encode()
+		if len(enc) != l.encodeLen() {
+			t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+		}
+		got := readSubtable(t, readGpos2_2, enc)
+		if d := cmp.Diff(l, got); d != "" {
+			t.Errorf("round trip failed (-want +got):\n%s", d)
+		}
+	}
+}
+
+// TestGposLayoutErrors checks that layout reports an offset which does not
+// fit, instead of panicking.
+func TestGposLayoutErrors(t *testing.T) {
+	const n = 12000
+	cov := coverage.Table{}
+	records := make([]EntryExitRecord, n)
+	bases := make([][]*anchor.Table, n)
+	adjust := make([]*GposValueRecord, n)
+	pairs := map[glyph.Pair]*PairAdjust{}
+	for i := range n {
+		cov[glyph.ID(i+1)] = i
+		a := &anchor.Table{X: funit.Int16(i)}
+		records[i] = EntryExitRecord{Entry: a}
+		bases[i] = []*anchor.Table{a}
+		dev := &device.Table{OuterIndex: uint16(i), DeltaFormat: device.VariationIndexFormat}
+		adjust[i] = &GposValueRecord{XAdvanceDev: dev}
+		pairs[glyph.Pair{Left: glyph.ID(i + 1), Right: 1}] = &PairAdjust{First: adjust[i]}
+	}
+	marks := []markarray.Record{{Class: 0, X: 1, Y: 2}}
+
+	cases := []struct {
+		name string
+		err  func() error
+	}{
+		{"Gpos1_2", func() error { _, err := (&Gpos1_2{Cov: cov, Adjust: adjust}).layout(); return err }},
+		{"Gpos2_1", func() error { _, err := (&Gpos2_1{Adjust: pairs}).layout(); return err }},
+		{"Gpos3_1", func() error { _, err := (&Gpos3_1{Cov: cov, Records: records}).layout(); return err }},
+		{"Gpos4_1", func() error {
+			_, err := (&Gpos4_1{MarkCov: coverage.Table{60000: 0}, BaseCov: cov, MarkArray: marks, BaseArray: bases}).layout()
+			return err
+		}},
+		{"Gpos6_1", func() error {
+			_, err := (&Gpos6_1{Mark1Cov: coverage.Table{60000: 0}, Mark2Cov: cov, Mark1Array: marks, Mark2Array: bases}).layout()
+			return err
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.err() == nil {
+				t.Error("expected an error")
+			}
+		})
+	}
+}
+
+// TestGpos2_2ClassCountRange checks that a class count which does not fit
+// into a uint16 is reported, even when the class records are empty.
+func TestGpos2_2ClassCountRange(t *testing.T) {
+	l := &Gpos2_2{
+		Cov:    coverage.Set{1: true},
+		Adjust: make([][]*PairAdjust, 0x10000),
+	}
+	if err := l.fits(); err == nil {
+		t.Error("expected error")
+	}
+}
+
+// TestLayoutOffsetErrors checks that the layout of a subtable reports
+// tables which cannot be reached, at each stage where this can happen.
+func TestLayoutOffsetErrors(t *testing.T) {
+	const n = 12000
+	varDev := func(i int) *device.Table {
+		return &device.Table{OuterIndex: uint16(i), DeltaFormat: device.VariationIndexFormat}
+	}
+	// a Device table of about 64 KiB
+	largeDev := &device.Table{EndSize: 65534, Deltas: make([]int8, 65535), DeltaFormat: 3}
+	largeDev2 := &device.Table{EndSize: 65533, Deltas: make([]int8, 65534), DeltaFormat: 3}
+
+	// coverage tables with n glyphs and with close to 32768 glyphs, which
+	// cannot be stored as ranges
+	cov := coverage.Table{}
+	for i := range n {
+		cov[glyph.ID(2*i+1)] = i
+	}
+	const m = 32760
+	wide := coverage.Table{}
+	for i := range m {
+		wide[glyph.ID(2*i+1)] = i
+	}
+
+	wider := maps.Clone(wide)
+	for i := m; i < m+4; i++ {
+		wider[glyph.ID(2*i+1)] = i
+	}
+
+	// one long per-glyph table, with all other glyphs sharing a short one
+	long := make([]glyph.ID, 25000)
+	short := []glyph.ID{1}
+	const k = 20000
+	kCov := coverage.Table{}
+	seqs := make([][]glyph.ID, k)
+	ligs := make([][]Ligature, k)
+	shortLigs := []Ligature{{In: short, Out: 2}}
+	for i := range k {
+		kCov[glyph.ID(2*i+1)] = i
+		seqs[i] = short
+		ligs[i] = shortLigs
+	}
+	seqs[0] = long
+	ligs[0] = []Ligature{{In: long, Out: 1}}
+
+	secondDevs := map[glyph.Pair]*PairAdjust{}
+	firstDevs := map[glyph.Pair]*PairAdjust{}
+	exits := make([]EntryExitRecord, n)
+	marks := make([]markarray.Record, n)
+	rows := make([][]*anchor.Table, n)
+	for i := range n {
+		pair := glyph.Pair{Left: 1, Right: glyph.ID(i)}
+		firstDevs[pair] = &PairAdjust{First: &GposValueRecord{XAdvanceDev: varDev(i)}}
+		secondDevs[pair] = &PairAdjust{Second: &GposValueRecord{XAdvanceDev: varDev(i)}}
+		a := &anchor.Table{X: funit.Int16(i)}
+		exits[i] = EntryExitRecord{Exit: a}
+		marks[i] = markarray.Record{Table: *a}
+		rows[i] = []*anchor.Table{a}
+	}
+	classDevs := func(second bool) [][]*PairAdjust {
+		res := make([][]*PairAdjust, 100)
+		for i := range res {
+			res[i] = make([]*PairAdjust, 120)
+			for j := range res[i] {
+				vr := &GposValueRecord{XAdvanceDev: varDev(120*i + j)}
+				if second {
+					res[i][j] = &PairAdjust{Second: vr}
+				} else {
+					res[i][j] = &PairAdjust{First: vr}
+				}
+			}
+		}
+		return res
+	}
+	oneMark := []markarray.Record{{X: 1}}
+	shared := &anchor.Table{X: 1}
+	wideRows := make([][]*anchor.Table, m)
+	for i := range wideRows {
+		wideRows[i] = []*anchor.Table{shared}
+	}
+
+	cases := []struct {
+		name string
+		sub  Subtable
+	}{
+		{"Gsub2_1 sequence", &Gsub2_1{
+			Cov:  coverage.Table{1: 0, 2: 1},
+			Repl: [][]glyph.ID{make([]glyph.ID, 40000), make([]glyph.ID, 40001)},
+		}},
+		{"Gsub2_1 coverage", &Gsub2_1{Cov: kCov, Repl: seqs}},
+		{"Gsub3_1 coverage", &Gsub3_1{Cov: kCov, Alternates: seqs}},
+		{"Gsub4_1 coverage", &Gsub4_1{Cov: kCov, Repl: ligs}},
+		{"Gpos1_1 device", &Gpos1_1{
+			Cov: coverage.Table{1: 0},
+			Adjust: &GposValueRecord{
+				XPlacementDev: largeDev,
+				YPlacementDev: largeDev2,
+				XAdvanceDev:   varDev(1),
+			},
+		}},
+		{"Gpos1_1 coverage", &Gpos1_1{
+			Cov:    wider,
+			Adjust: &GposValueRecord{XAdvanceDev: largeDev},
+		}},
+		{"Gpos1_2 coverage", &Gpos1_2{
+			Cov:    kCov,
+			Adjust: append(make([]*GposValueRecord, k-1), &GposValueRecord{XAdvanceDev: largeDev}),
+		}},
+		{"Gpos2_1 first device", &Gpos2_1{Adjust: firstDevs}},
+		{"Gpos2_1 second device", &Gpos2_1{Adjust: secondDevs, PositionSecond: true}},
+		{"Gpos2_2 first device", &Gpos2_2{Cov: coverage.Set{1: true}, Adjust: classDevs(false)}},
+		{"Gpos2_2 second device", &Gpos2_2{
+			Cov:            coverage.Set{1: true},
+			Adjust:         classDevs(true),
+			PositionSecond: true,
+		}},
+		{"Gpos3_1 exit anchor", &Gpos3_1{Cov: cov, Records: exits}},
+		{"Gpos3_1 coverage", &Gpos3_1{
+			Cov:     cov,
+			Records: append(make([]EntryExitRecord, n-1), EntryExitRecord{Entry: &anchor.Table{XDev: largeDev}}),
+		}},
+		{"Gpos4_1 mark array", &Gpos4_1{
+			MarkCov:   cov,
+			BaseCov:   coverage.Table{1: 0},
+			MarkArray: marks,
+			BaseArray: [][]*anchor.Table{{shared}},
+		}},
+		{"Gpos4_1 header", &Gpos4_1{
+			MarkCov:   coverage.Table{60000: 0},
+			BaseCov:   wide,
+			MarkArray: oneMark,
+			BaseArray: wideRows,
+		}},
+		{"Gpos5_1 mark array", &Gpos5_1{
+			MarkCov:   cov,
+			LigCov:    coverage.Table{1: 0},
+			MarkArray: marks,
+			LigArray:  [][][]*anchor.Table{{{shared}}},
+		}},
+		{"Gpos5_1 ligature attach", &Gpos5_1{
+			MarkCov:   coverage.Table{60000: 0},
+			LigCov:    coverage.Table{1: 0},
+			MarkArray: oneMark,
+			LigArray:  [][][]*anchor.Table{rows},
+		}},
+		{"Gpos6_1 mark array", &Gpos6_1{
+			Mark1Cov:   cov,
+			Mark2Cov:   coverage.Table{1: 0},
+			Mark1Array: marks,
+			Mark2Array: [][]*anchor.Table{{shared}},
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := c.sub.fits(); err == nil {
+				t.Error("expected an error")
 			}
 		})
 	}

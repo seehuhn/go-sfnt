@@ -18,11 +18,13 @@
 package anchor
 
 import (
+	"bytes"
 	"fmt"
 
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/opentype/device"
+	"seehuhn.de/go/sfnt/opentype/internal/readcache"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -48,6 +50,43 @@ type Table struct {
 
 // Read reads an anchor table from the given parser.
 func Read(p *parser.Parser, pos int64) (Table, error) {
+	return NewReader(p).read(pos)
+}
+
+// A Reader reads anchor tables and the Device tables they refer to.
+// Tables at the same file position are read once and shared between all
+// references, so the result of [Reader.Read] must not be modified.
+type Reader struct {
+	p       *parser.Parser
+	anchors *readcache.Cache[*Table]
+	devices *readcache.Cache[*device.Table]
+	fit     map[[2]*device.Table]bool
+}
+
+// NewReader returns a Reader which reads from p.
+func NewReader(p *parser.Parser) *Reader {
+	return &Reader{
+		p:       p,
+		anchors: readcache.New[*Table](),
+		devices: readcache.New[*device.Table](),
+		fit:     map[[2]*device.Table]bool{},
+	}
+}
+
+// Read reads the anchor table at pos.  The returned table is shared with
+// all other reads at the same position.
+func (r *Reader) Read(pos int64) (*Table, error) {
+	return r.anchors.Get(pos, func(pos int64) (*Table, error) {
+		t, err := r.read(pos)
+		if err != nil {
+			return nil, err
+		}
+		return &t, nil
+	})
+}
+
+func (r *Reader) read(pos int64) (Table, error) {
+	p := r.p
 	err := p.SeekPos(pos)
 	if err != nil {
 		return Table{}, err
@@ -81,16 +120,22 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 		xDevOffset := uint16(buf[0])<<8 | uint16(buf[1])
 		yDevOffset := uint16(buf[2])<<8 | uint16(buf[3])
 		if xDevOffset != 0 {
-			res.XDev, err = device.Read(p, pos+int64(xDevOffset))
+			res.XDev, err = r.devices.Get(pos+int64(xDevOffset), r.readDevice)
 			if err != nil {
 				return Table{}, err
 			}
 		}
 		if yDevOffset != 0 {
-			res.YDev, err = device.Read(p, pos+int64(yDevOffset))
+			res.YDev, err = r.devices.Get(pos+int64(yDevOffset), r.readDevice)
 			if err != nil {
 				return Table{}, err
 			}
+		}
+		// Two Device tables can be too large to both be reached from the
+		// anchor.  The YDev table is dropped in this case, so that the
+		// anchor can be written back.
+		if !r.fits(&res) {
+			res.YDev = nil
 		}
 	default:
 		return Table{}, &parser.InvalidFontError{
@@ -102,19 +147,76 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 	return res, nil
 }
 
+func (r *Reader) readDevice(pos int64) (*device.Table, error) {
+	return device.Read(r.p, pos)
+}
+
+// maxDevStart is the largest length of the part of a format 3 anchor table
+// before the second Device table, which keeps the offset of the second
+// table within the range of an Offset16.
+const maxDevStart = 0xFFFF
+
+// fits reports whether the anchor can be encoded.  This fails only if both
+// Device tables are present, differ, and are each so long that the other one
+// cannot be reached after it.
+//
+// The result is remembered for each pair of Device tables, since many
+// anchors may refer to the same shared tables.
+func (r *Reader) fits(rec *Table) bool {
+	x, y := rec.XDev, rec.YDev
+	if x == nil || y == nil || x == y {
+		return true
+	}
+	if 10+min(x.EncodeLen(), y.EncodeLen()) <= maxDevStart {
+		return true
+	}
+	key := [2]*device.Table{x, y}
+	ok, seen := r.fit[key]
+	if !seen {
+		ok = bytes.Equal(x.Encode(), y.Encode())
+		r.fit[key] = ok
+	}
+	return ok
+}
+
+// format3Layout returns the encoded Device tables of a format 3 anchor and
+// the offsets of the two tables from the start of the anchor.  If both
+// tables encode to the same bytes, they are stored once.  Otherwise the
+// shorter table is stored first, so that the offset of the second table is
+// as small as possible.  The function panics if the second table cannot be
+// reached through its Offset16.
+func (rec Table) format3Layout() (xEnc, yEnc []byte, xOff, yOff int) {
+	if rec.XDev != nil {
+		xEnc = rec.XDev.Encode()
+		xOff = 10
+	}
+	if rec.YDev != nil {
+		yEnc = rec.YDev.Encode()
+		yOff = 10
+	}
+	switch {
+	case xEnc == nil || yEnc == nil:
+		// at most one table
+	case bytes.Equal(xEnc, yEnc):
+		yEnc = nil
+	case len(yEnc) < len(xEnc):
+		xOff = 10 + len(yEnc)
+	default:
+		yOff = 10 + len(xEnc)
+	}
+	if xOff > maxDevStart || yOff > maxDevStart {
+		panic("sfnt/anchor: Device tables too large for one anchor")
+	}
+	return xEnc, yEnc, xOff, yOff
+}
+
 // EncodeLen returns the number of bytes in the binary representation of the
 // anchor table.
 func (rec Table) EncodeLen() int {
 	switch {
 	case rec.XDev != nil || rec.YDev != nil:
-		total := 10
-		if rec.XDev != nil {
-			total += rec.XDev.EncodeLen()
-		}
-		if rec.YDev != nil {
-			total += rec.YDev.EncodeLen()
-		}
-		return total
+		xEnc, yEnc, _, _ := rec.format3Layout()
+		return 10 + len(xEnc) + len(yEnc)
 	case rec.ContourPoint != nil:
 		return 8
 	default:
@@ -123,19 +225,14 @@ func (rec Table) EncodeLen() int {
 }
 
 // Append appends the binary representation of the Anchor Table to buf.
+//
+// If XDev and YDev encode to the same bytes, the Device table is written
+// once and both offsets point at it.
 func (rec Table) Append(buf []byte) []byte {
 	switch {
 	case rec.XDev != nil || rec.YDev != nil:
 		// format 3: device offsets are relative to the anchor table start
-		var xDevOffset, yDevOffset int
-		next := 10
-		if rec.XDev != nil {
-			xDevOffset = next
-			next += rec.XDev.EncodeLen()
-		}
-		if rec.YDev != nil {
-			yDevOffset = next
-		}
+		xEnc, yEnc, xDevOffset, yDevOffset := rec.format3Layout()
 		buf = append(buf,
 			0, 3, // anchorFormat
 			byte(rec.X>>8), byte(rec.X),
@@ -143,13 +240,12 @@ func (rec Table) Append(buf []byte) []byte {
 			byte(xDevOffset>>8), byte(xDevOffset),
 			byte(yDevOffset>>8), byte(yDevOffset),
 		)
-		if rec.XDev != nil {
-			buf = append(buf, rec.XDev.Encode()...)
+		if yDevOffset < xDevOffset {
+			buf = append(buf, yEnc...)
+			return append(buf, xEnc...)
 		}
-		if rec.YDev != nil {
-			buf = append(buf, rec.YDev.Encode()...)
-		}
-		return buf
+		buf = append(buf, xEnc...)
+		return append(buf, yEnc...)
 	case rec.ContourPoint != nil:
 		return append(buf,
 			0, 2, // anchorFormat

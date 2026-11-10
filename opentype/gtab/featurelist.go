@@ -17,8 +17,12 @@
 package gtab
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
+	"seehuhn.de/go/sfnt/opentype/internal/readcache"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -78,45 +82,33 @@ func readFeatureList(p *parser.Parser, pos int64) (FeatureListInfo, error) {
 		})
 	}
 
-	info := FeatureListInfo{}
-	totalSize := 2 + 6*len(featureList)
+	// tables reached through several offsets are read once and shared
+	bodies := readcache.New[*featureBody]()
+	params := map[string]*readcache.Cache[FeatureParams]{}
+	info := make(FeatureListInfo, 0, len(featureList))
 	for _, rec := range featureList {
-		err = p.SeekPos(pos + int64(rec.offs))
+		featurePos := pos + int64(rec.offs)
+		body, err := bodies.Get(featurePos, func(pos int64) (*featureBody, error) {
+			return readFeatureBody(p, pos)
+		})
 		if err != nil {
 			return nil, err
-		}
-		buf, err := p.ReadBytes(4)
-		if err != nil {
-			return nil, err
-		}
-		featureParamsOffset := uint16(buf[0])<<8 | uint16(buf[1])
-		featureLookupCount := uint16(buf[2])<<8 | uint16(buf[3])
-
-		if totalSize > 0xFFFF {
-			// this condition also ensures featureCount < 0xFFFF
-			return nil, &parser.InvalidFontError{
-				SubSystem: "sfnt/gtab",
-				Reason:    "feature list overflow",
-			}
-		}
-		totalSize += 4 + 2*int(featureLookupCount)
-
-		var lookupListIndices []LookupIndex
-		for i := 0; i < int(featureLookupCount); i++ {
-			idx, err := p.ReadUint16()
-			if err != nil {
-				return nil, err
-			}
-			lookupListIndices = append(lookupListIndices, LookupIndex(idx))
 		}
 
 		feature := &Feature{
 			Tag:     rec.tag,
-			Lookups: lookupListIndices,
+			Lookups: body.lookups,
 		}
-		if featureParamsOffset != 0 {
+		if body.paramsOffset != 0 {
 			// the offset is measured from the start of the Feature table
-			feature.Params, err = readFeatureParams(p, pos+int64(rec.offs)+int64(featureParamsOffset), rec.tag)
+			c := params[rec.tag]
+			if c == nil {
+				c = readcache.New[FeatureParams]()
+				params[rec.tag] = c
+			}
+			feature.Params, err = c.Get(featurePos+int64(body.paramsOffset), func(pos int64) (FeatureParams, error) {
+				return readFeatureParams(p, pos, rec.tag)
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -124,56 +116,223 @@ func readFeatureList(p *parser.Parser, pos int64) (FeatureListInfo, error) {
 		info = append(info, feature)
 	}
 
+	info.repair()
+	if _, err := info.layout(); err != nil {
+		return nil, &parser.InvalidFontError{
+			SubSystem: "sfnt/gtab",
+			Reason:    err.Error(),
+		}
+	}
+
 	return info, nil
+}
+
+// repair removes the parts of a feature list read from a file which cannot
+// be written back, and keeps the rest.  Feature parameters are dropped if
+// their offset does not fit.  If the Feature tables cannot all be reached
+// from the feature list, the lookups of some features are dropped, keeping
+// as many Feature tables as possible.  Such features keep their tag, so
+// that the feature indices used in the script list remain valid.
+//
+// The features must not be shared with other feature lists.
+func (info FeatureListInfo) repair() {
+	for _, f := range info {
+		if f.Params != nil && 4+2*len(f.Lookups) > 0xFFFF {
+			f.Params = nil
+		}
+	}
+	if _, err := info.layout(); err == nil {
+		return
+	}
+
+	// Place the distinct Feature tables in order of increasing size, as
+	// layout does, and keep those which fit.  The empty Feature table
+	// which replaces the others is the smallest, so it is placed first.
+	empty := featureKey(&Feature{})
+	sizes := map[featureKeyType]int{empty: 4}
+	paramSizes := map[FeatureParams]int{}
+	for _, f := range info {
+		sizes[featureKey(f)] = f.encodeLen(paramSizes)
+	}
+	keys := make([]featureKeyType, 0, len(sizes))
+	for key := range sizes {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(a, b featureKeyType) int {
+		return cmp.Compare(sizes[a], sizes[b])
+	})
+	keep := map[featureKeyType]bool{}
+	pos := 2 + 6*len(info)
+	for _, key := range keys {
+		if pos > 0xFFFF {
+			break
+		}
+		keep[key] = true
+		pos += sizes[key]
+	}
+
+	for _, f := range info {
+		if !keep[featureKey(f)] {
+			f.Lookups = nil
+			f.Params = nil
+		}
+	}
+}
+
+// featureBody holds the fields of a Feature table which do not depend on the
+// feature tag.
+type featureBody struct {
+	paramsOffset uint16
+	lookups      []LookupIndex
+}
+
+func readFeatureBody(p *parser.Parser, pos int64) (*featureBody, error) {
+	err := p.SeekPos(pos)
+	if err != nil {
+		return nil, err
+	}
+	buf, err := p.ReadBytes(4)
+	if err != nil {
+		return nil, err
+	}
+	body := &featureBody{
+		paramsOffset: uint16(buf[0])<<8 | uint16(buf[1]),
+	}
+	n := int(buf[2])<<8 | int(buf[3])
+	if n > 0 {
+		body.lookups, err = p.Budget.AllocSlice[LookupIndex](n)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for i := range body.lookups {
+		idx, err := p.ReadUint16()
+		if err != nil {
+			return nil, err
+		}
+		body.lookups[i] = LookupIndex(idx)
+	}
+	return body, nil
+}
+
+// featureListLayout holds the positions of the tables of a feature list.
+type featureListLayout struct {
+	offs []uint16
+	pool *offsetpool.Pool
+}
+
+func (l *featureListLayout) encodeLen() int {
+	return 2 + 6*len(l.offs) + l.pool.Len()
+}
+
+// featureKeyType identifies the encoding of a Feature table, for use with
+// [offsetpool.Pool.AddFunc].  The encoding does not depend on the tag.
+type featureKeyType struct {
+	lookups any
+	params  FeatureParams
+}
+
+func featureKey(f *Feature) featureKeyType {
+	return featureKeyType{offsetpool.SliceKey(f.Lookups), f.Params}
+}
+
+// encodeLen returns the length of the encoded Feature table.  The lengths
+// of the feature parameter tables are memoised in paramSizes, since many
+// features may share one table.
+func (f *Feature) encodeLen(paramSizes map[FeatureParams]int) int {
+	n := 4 + 2*len(f.Lookups)
+	if f.Params != nil {
+		size, ok := paramSizes[f.Params]
+		if !ok {
+			size = len(f.Params.encode())
+			paramSizes[f.Params] = size
+		}
+		n += size
+	}
+	return n
+}
+
+// layout computes the positions of the Feature tables.  Features with
+// identical encodings share one table.  The tables are stored in the order
+// of the features if possible, and otherwise in order of increasing size.
+// An error is returned if a Feature table cannot be reached through its
+// Offset16.
+func (info FeatureListInfo) layout() (*featureListLayout, error) {
+	for _, f := range info {
+		// the feature params table, if any, follows the lookup indices
+		if f.Params != nil {
+			paramsOffset := 4 + 2*len(f.Lookups)
+			if paramsOffset > 0xFFFF {
+				return nil, fmt.Errorf("feature params offset %d out of range", paramsOffset)
+			}
+		}
+	}
+
+	order := make([]int, len(info))
+	for i := range order {
+		order[i] = i
+	}
+	if lay, err := info.layoutInOrder(order); err == nil {
+		return lay, nil
+	}
+	sizes := make([]int, len(info))
+	paramSizes := map[FeatureParams]int{}
+	for i, f := range info {
+		sizes[i] = f.encodeLen(paramSizes)
+	}
+	slices.SortStableFunc(order, func(i, j int) int { return cmp.Compare(sizes[i], sizes[j]) })
+	return info.layoutInOrder(order)
+}
+
+// layoutInOrder stores the Feature tables in the given order.
+func (info FeatureListInfo) layoutInOrder(order []int) (*featureListLayout, error) {
+	pool := offsetpool.New("feature", 2+6*len(info))
+	offs := make([]uint16, len(info))
+	for _, i := range order {
+		f := info[i]
+		var err error
+		offs[i], err = pool.AddFunc(featureKey(f), f.encodeBody)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &featureListLayout{offs: offs, pool: pool}, nil
+}
+
+// encodeBody encodes the Feature table.
+func (f *Feature) encodeBody() []byte {
+	enc := make([]byte, 4, 4+2*len(f.Lookups))
+	if f.Params != nil {
+		paramsOffset := 4 + 2*len(f.Lookups)
+		enc[0] = byte(paramsOffset >> 8)
+		enc[1] = byte(paramsOffset)
+	}
+	enc[2] = byte(len(f.Lookups) >> 8)
+	enc[3] = byte(len(f.Lookups))
+	for _, l := range f.Lookups {
+		enc = append(enc, byte(l>>8), byte(l))
+	}
+	if f.Params != nil {
+		enc = append(enc, f.Params.encode()...)
+	}
+	return enc
 }
 
 func (info FeatureListInfo) encode() []byte {
 	if info == nil {
 		return nil
 	}
+	l := mustFitList(info.layout())
 
-	offs := make([]uint16, len(info))
-	totalSize := 2 + 6*len(info)
-	var largestOffset int
-	for i, f := range info {
-		largestOffset = totalSize
-		offs[i] = uint16(totalSize)
-		totalSize += 4 + 2*len(f.Lookups)
-		if f.Params != nil {
-			totalSize += f.Params.encodeLen()
-		}
-	}
-	// The remedy here is not the one checkSubtableOffset16 offers: a feature
-	// list holds every feature of the table and cannot be split.
-	if largestOffset > 0xFFFF {
-		panic(fmt.Sprintf("sfnt/gtab: feature offset %d out of range", largestOffset))
-	}
-
-	buf := make([]byte, 2+6*len(info), totalSize)
+	buf := make([]byte, 2+6*len(info), l.encodeLen())
 	buf[0] = byte(len(info) >> 8)
 	buf[1] = byte(len(info))
 	for i, f := range info {
 		copy(buf[2+6*i:6+6*i], f.Tag)
-		buf[6+6*i] = byte(offs[i] >> 8)
-		buf[7+6*i] = byte(offs[i])
+		buf[6+6*i] = byte(l.offs[i] >> 8)
+		buf[7+6*i] = byte(l.offs[i])
 	}
-	for _, f := range info {
-		// the feature params table, if any, follows the lookup indices
-		var featureParamsOffset int
-		if f.Params != nil {
-			featureParamsOffset = 4 + 2*len(f.Lookups)
-		}
-		buf = append(buf,
-			byte(featureParamsOffset>>8), byte(featureParamsOffset),
-			byte(len(f.Lookups)>>8), byte(len(f.Lookups)))
-		for _, l := range f.Lookups {
-			buf = append(buf, byte(l>>8), byte(l))
-		}
-		if f.Params != nil {
-			buf = append(buf, f.Params.encode()...)
-		}
-	}
-	return buf
+	return append(buf, l.pool.Bytes()...)
 }
 
 // Default features for use with the [Info.FindLookups] method.

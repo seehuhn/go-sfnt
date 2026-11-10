@@ -19,6 +19,8 @@ package gtab
 import (
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
+	"seehuhn.de/go/sfnt/opentype/internal/readcache"
 	"seehuhn.de/go/sfnt/opentype/markarray"
 	"seehuhn.de/go/sfnt/parser"
 )
@@ -38,6 +40,8 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
+	anchors := anchor.NewReader(p)
+
 	markCoverageOffset := int64(buf[0])<<8 | int64(buf[1])
 	ligCoverageOffset := int64(buf[2])<<8 | int64(buf[3])
 	markClassCount := int(buf[4])<<8 | int(buf[5])
@@ -53,7 +57,7 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	markArray, err := markarray.Read(p, subtablePos+markArrayOffset, len(markCov))
+	markArray, err := markarray.Read(p, anchors, subtablePos+markArrayOffset, len(markCov))
 	if err != nil {
 		return nil, err
 	}
@@ -104,9 +108,8 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i := range ligArray {
-		ligAttachPos := ligArrayPos + int64(offsets[i])
-		err = p.SeekPos(ligAttachPos)
+	readLigAttach := func(ligAttachPos int64) ([][]*anchor.Table, error) {
+		err := p.SeekPos(ligAttachPos)
 		if err != nil {
 			return nil, err
 		}
@@ -146,17 +149,22 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 				if anchorOffsets[k] == 0 {
 					continue
 				}
-				a, err := anchor.Read(p, ligAttachPos+int64(anchorOffsets[k]))
+				row[k], err = anchors.Read(ligAttachPos + int64(anchorOffsets[k]))
 				if err != nil {
 					return nil, err
 				}
-				row[k] = &a
 			}
 			ligAttach[j] = row
 			anchorOffsets = anchorOffsets[markClassCount:]
 		}
-
-		ligArray[i] = ligAttach
+		return ligAttach, nil
+	}
+	ligAttachCache := readcache.New[[][]*anchor.Table]()
+	for i := range ligArray {
+		ligArray[i], err = ligAttachCache.Get(ligArrayPos+int64(offsets[i]), readLigAttach)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &Gpos5_1{
@@ -223,10 +231,8 @@ func (l *Gpos5_1) apply(ctx *Context, a, b int) int {
 // countMarkClasses returns the markClassCount for this subtable.  It also
 // validates the structural invariants the encoder depends on: every row
 // in every LigArray ligature must have width markClassCount, and every
-// MarkArray record's Class must be < markClassCount.  Both encodeLen and
-// encode call this, so inconsistent input is caught on the first pass
-// instead of leaving encodeLen happily returning a size for unencodable
-// data.
+// MarkArray record's Class must be < markClassCount.  It panics
+// if these are violated.
 func (l *Gpos5_1) countMarkClasses() int {
 	var count int
 	derived := false
@@ -261,88 +267,96 @@ func (l *Gpos5_1) countMarkClasses() int {
 	return count
 }
 
-// arrays lays out the mark array and the LigatureAttach table of each
-// ligature.  Anchors of a LigatureAttach table are addressed from the start of
-// that table, so each ligature keeps a table (and so a pool) of its own.
-func (l *Gpos5_1) arrays() (markClassCount int, marks *markArray, ligs []*anchorMatrix) {
-	markClassCount = l.countMarkClasses()
-	marks = newMarkArray("Gpos5_1", l.MarkArray)
-	ligs = make([]*anchorMatrix, len(l.LigArray))
-	for i, lig := range l.LigArray {
-		ligs[i] = newAnchorMatrix("Gpos5_1", lig, markClassCount)
-	}
-	return markClassCount, marks, ligs
+// ligArray is the layout of a LigatureArray table: a ligature count, one
+// offset per ligature, and the LigatureAttach tables.  Each LigatureAttach
+// table addresses its anchors from its own start, so it is encoded on its
+// own; identical tables are stored once.
+type ligArray struct {
+	ligs []int // pool indices of the LigatureAttach tables
+	pool *offsetpool.Deferred
 }
 
-// ligArrayLayout returns the offset of each LigatureAttach table from the
-// start of the ligature array, together with the array's total length.
-func ligArrayLayout(ligs []*anchorMatrix) (offs []int, size int) {
-	offs = make([]int, len(ligs))
-	size = 2 + 2*len(ligs)
-	for i, m := range ligs {
-		offs[i] = size
-		size += m.size()
+func newLigArray(name string, ligs [][][]*anchor.Table, markClassCount int) (*ligArray, error) {
+	pool := offsetpool.NewDeferred(name, 2+2*len(ligs))
+	indices := make([]int, len(ligs))
+	// LigatureAttach tables with the same anchors are encoded once; the key
+	// includes the row lengths, so that rows of the wrong length are
+	// still told apart
+	var keys offsetpool.SeqKeys[any]
+	for i, lig := range ligs {
+		var encErr error
+		key := keys.Key(offsetpool.SliceKey(lig), len(lig)*(1+markClassCount), func(yield func(any) bool) {
+			for _, row := range lig {
+				if !yield(len(row)) {
+					return
+				}
+				for _, a := range row {
+					if !yield(a) {
+						return
+					}
+				}
+			}
+		})
+		idx, err := pool.AddFunc(key, func() []byte {
+			m, err := newAnchorMatrix(name, lig, markClassCount)
+			if err != nil {
+				encErr = err
+				return nil
+			}
+			return m.append(make([]byte, 0, m.size()))
+		})
+		if encErr != nil {
+			return nil, encErr
+		}
+		if err != nil {
+			return nil, err
+		}
+		indices[i] = idx
 	}
-	return offs, size
+	return &ligArray{ligs: indices, pool: pool}, nil
+}
+
+// size returns the encoded length of the array.
+func (a *ligArray) size() int { return 2 + 2*len(a.ligs) + a.pool.Len() }
+
+// append appends the encoded array to buf.
+func (a *ligArray) append(buf []byte) []byte {
+	offs, data := a.pool.Place()
+	buf = appendUint16(buf, len(a.ligs))
+	buf = appendOffsets(buf, offs, a.ligs)
+	return append(buf, data...)
+}
+
+// layout computes the encoded layout of the subtable.  The mark and ligature
+// coverage tables are stored once if they are identical, and so are
+// identical LigatureAttach tables.  An error is returned if an offset does
+// not fit into an Offset16.
+func (l *Gpos5_1) layout() (*markAttach, error) {
+	markClassCount := l.countMarkClasses()
+	marks, err := newMarkArray("Gpos5_1", l.MarkArray)
+	if err != nil {
+		return nil, err
+	}
+	ligs, err := newLigArray("Gpos5_1", l.LigArray, markClassCount)
+	if err != nil {
+		return nil, err
+	}
+	return newMarkAttach("Gpos5_1", l.MarkCov, l.LigCov, markClassCount, marks, ligs)
 }
 
 // encodeLen implements the [Subtable] interface.
 func (l *Gpos5_1) encodeLen() int {
-	_, marks, ligs := l.arrays()
-	_, ligArrayLen := ligArrayLayout(ligs)
-	return 12 + l.MarkCov.EncodeLen() + l.LigCov.EncodeLen() + marks.size() + ligArrayLen
+	return mustFit(l.layout()).size()
 }
 
 // encode implements the [Subtable] interface.
 func (l *Gpos5_1) encode() []byte {
-	ligCount := len(l.LigArray)
-	markClassCount, marks, ligs := l.arrays()
-	ligOffs, ligArrayLen := ligArrayLayout(ligs)
+	lay := mustFit(l.layout())
+	return lay.append(make([]byte, 0, lay.size()))
+}
 
-	total := 12
-	markCoverageOffset := total
-	total += l.MarkCov.EncodeLen()
-	ligCoverageOffset := total
-	total += l.LigCov.EncodeLen()
-	markArrayOffset := total
-	total += marks.size()
-	ligArrayOffset := total
-	total += ligArrayLen
-
-	// The mark array and each LigatureAttach table address their anchors from
-	// their own start and bound themselves, so the subtable may reach past the
-	// 64 KiB an offset can cover.  What is left to check are the offsets in
-	// the subtable header, of which ligArrayOffset is the largest, and those
-	// in the ligature array, of which the last is.
-	checkSubtableOffset16("Gpos5_1", ligArrayOffset)
-	if ligCount > 0 {
-		checkSubtableOffset16("Gpos5_1", ligOffs[ligCount-1])
-	}
-
-	res := make([]byte, 0, total)
-	res = append(res,
-		0, 1, // posFormat
-		byte(markCoverageOffset>>8), byte(markCoverageOffset),
-		byte(ligCoverageOffset>>8), byte(ligCoverageOffset),
-		byte(markClassCount>>8), byte(markClassCount),
-		byte(markArrayOffset>>8), byte(markArrayOffset),
-		byte(ligArrayOffset>>8), byte(ligArrayOffset),
-	)
-
-	res = append(res, l.MarkCov.Encode()...)
-	res = append(res, l.LigCov.Encode()...)
-	res = marks.append(res)
-
-	// lig array
-	res = append(res,
-		byte(ligCount>>8), byte(ligCount),
-	)
-	for _, off := range ligOffs {
-		res = append(res, byte(off>>8), byte(off))
-	}
-	for _, m := range ligs {
-		res = m.append(res)
-	}
-
-	return res
+// fits implements the [Subtable] interface.
+func (l *Gpos5_1) fits() error {
+	_, err := l.layout()
+	return err
 }
