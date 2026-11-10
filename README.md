@@ -7,6 +7,6 @@ This is a library for reading and writing font files.  It is written in Go and
 currently supports TrueType and OpenType fonts.  The package is named after
 the SFNT container format used by these fonts.
 
-Copyright (C) 2022 Jochen Voss
+## Licence
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+This module is distributed under the BSD 3-Clause License; see the file LICENSE for the full text.
