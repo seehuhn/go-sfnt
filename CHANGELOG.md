@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.7.6] (2026-11-10)
+
+### Added
+- In `cff`, a Type 2 charstring ending in a four-argument `endchar` is
+  now read as an accented glyph made from a base and an accent outline.
+  Before, such glyphs were read as empty.
+- `cff.ValidWidth`, `cff.RoundWidth` and `Font.RoundWidths` test and
+  round advance widths to the multiples of 2^-16 that a charstring can
+  hold.
+- `name.Merged` combines two name tables.  Reading a font now fills
+  entries missing from the preferred `name` table from the best table
+  of the other platform, if its language is a close match.
+- `cmap.Format6` represents format 6 subtables, and
+  `cmap.Format4.TryEncode` reports a mapping which is too large for
+  format 4.
+- `os2.WeightFromString` ignores case, spaces and hyphens, and accepts
+  the weight names used in AFM files.
+
+### Changed
+- `gtab.Gpos2_1` is now a struct with the pair map in the field
+  `Adjust`, which breaks existing code.  `Gpos2_1` and `Gpos2_2` have
+  a new field `PositionSecond`, which records whether the subtable has
+  value records for the second glyph of each pair.
+- Reading a font drops `cmap` mappings and GSUB substitutions that
+  refer to missing glyphs.  A `cmap` subtable that no longer fits into
+  format 4 is stored as format 12 where the platform allows it.
+- `Subset` keeps the character codes of all `cmap` subtables, adds GSUB
+  outputs and composite glyph components until the glyph list is
+  complete, keeps more GDEF data, and gives the same result on every
+  run.
+- Advance widths of CFF and CFF2 fonts are read in the form used for
+  the `hmtx` table, so that read-write-read cycles agree.  Writing a
+  width that cannot be stored is now an error instead of being clamped.
+- `gtab.FindLookups` no longer depends on map iteration order when it
+  selects a script and language system.
+- The module requires Go 1.27.
+
 ## [v0.7.5] (2026-10-10)
 
 ### Added
