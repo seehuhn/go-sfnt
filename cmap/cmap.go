@@ -37,7 +37,7 @@ type Table map[Key][]byte
 func Decode(data []byte) (Table, error) {
 	const minLength = 10 // length of an empty format 6 subtable
 
-	if len(data) < 4 || len(data) > math.MaxUint32 {
+	if len(data) < 4 || uint64(len(data)) > math.MaxUint32 {
 		return nil, errMalformedTable
 	}
 	version := uint16(data[0])<<8 | uint16(data[1])
