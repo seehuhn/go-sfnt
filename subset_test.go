@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -557,5 +558,77 @@ func TestSubsetCMapFormat6(t *testing.T) {
 	c = &cmap.Format6{FirstCode: 0xFFF0, GlyphIDs: []glyph.ID{3, 9}}
 	if diff := cmp.Diff(&cmap.Format6{}, s.SubsetCMap(c)); diff != "" {
 		t.Errorf("wrong empty subtable (-want +got):\n%s", diff)
+	}
+}
+
+// TestSubsetVerticalMetrics checks that subsetting renumbers the vertical
+// metrics, does not share them with the original font, and gives a font
+// which survives a write/read cycle.
+func TestSubsetVerticalMetrics(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		font *Font
+	}{
+		{"glyf", ttfFixture(t)},
+		{"cff", cffFixture()},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			font := c.font
+			font.Vertical = verticalFixture(font)
+			orig := *font.Vertical
+			orig.Heights = slices.Clone(orig.Heights)
+			orig.OriginY = slices.Clone(orig.OriginY)
+
+			keep := []glyph.ID{0, 5, 2, 4}
+			subset, err := font.Subset(keep)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkSubsetVertical(t, font, subset, keep)
+
+			// the subset owns its slices
+			subset.Vertical.Heights[0]++
+			subset.Vertical.OriginY[0]++
+			if diff := cmp.Diff(&orig, font.Vertical); diff != "" {
+				t.Errorf("original font modified (-want +got):\n%s", diff)
+			}
+			subset.Vertical.Heights[0]--
+			subset.Vertical.OriginY[0]--
+
+			got := writeReadTTF(t, subset)
+			if diff := cmp.Diff(subset.Vertical, got.Vertical); diff != "" {
+				t.Errorf("round trip failed (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// checkSubsetVertical checks that the vertical metrics of subset are those
+// of the glyphs it was built from.  Subset places the glyphs of keep at the
+// first positions; the glyphs it adds after them are not checked.
+func checkSubsetVertical(t *testing.T, font, subset *Font, keep []glyph.ID) {
+	t.Helper()
+
+	sv := subset.Vertical
+	if sv == nil {
+		t.Fatal("subset has no vertical metrics")
+	}
+	n := subset.NumGlyphs()
+	if len(sv.Heights) != n || len(sv.OriginY) != n {
+		t.Fatalf("vertical metrics for %d/%d glyphs, want %d",
+			len(sv.Heights), len(sv.OriginY), n)
+	}
+	v := font.Vertical
+	if sv.Ascent != v.Ascent || sv.Descent != v.Descent || sv.LineGap != v.LineGap ||
+		sv.CaretSlopeRise != v.CaretSlopeRise || sv.CaretSlopeRun != v.CaretSlopeRun ||
+		sv.CaretOffset != v.CaretOffset {
+		t.Errorf("vhea values changed: %+v vs %+v", sv, v)
+	}
+	for newGid, oldGid := range keep {
+		if sv.Heights[newGid] != v.Heights[oldGid] || sv.OriginY[newGid] != v.OriginY[oldGid] {
+			t.Errorf("glyph %d (was %d): metrics (%d, %d), want (%d, %d)",
+				newGid, oldGid, sv.Heights[newGid], sv.OriginY[newGid],
+				v.Heights[oldGid], v.OriginY[oldGid])
+		}
 	}
 }

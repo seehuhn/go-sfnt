@@ -39,13 +39,13 @@ func FuzzTables(f *testing.F) {
 		"LTSH": {7, 8, 9, 10},
 		"VDMX": {11, 12, 13, 14, 15},
 	})
-	f.Add(buf.Bytes())
+	f.Add(bytes.Clone(buf.Bytes()))
 	buf.Reset()
 	_, _ = Write(buf, ScalerTypeCFF, map[string][]byte{
 		"head": {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}, // must be at least 12 bytes, to hold the checksum
 		"hdmx": {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26},
 	})
-	f.Add(buf.Bytes())
+	f.Add(bytes.Clone(buf.Bytes()))
 
 	f.Fuzz(func(t *testing.T, data1 []byte) {
 		r1 := bytes.NewReader(data1)

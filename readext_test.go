@@ -5,21 +5,27 @@ package sfnt_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"maps"
+	"math"
 	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/image/font/gofont/goregular"
 
+	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt"
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/internal/debug"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/parser"
+	"seehuhn.de/go/sfnt/vmtx"
+	"seehuhn.de/go/sfnt/vorg"
 )
 
 // cmapGlyphs returns the glyph IDs used by the subtables of the font,
@@ -354,6 +360,257 @@ func TestReadDropsCMapGlyphsLarge(t *testing.T) {
 				t.Errorf("wrong cmap (-want +got):\n%s", diff)
 			}
 			checkSubsetAll(t, font1)
+		})
+	}
+}
+
+// verticalFonts returns a TrueType and a CFF font with vertical metrics.
+func verticalFonts(t testing.TB) map[string]*sfnt.Font {
+	glyfFont, err := sfnt.Read(bytes.NewReader(goregular.TTF), parser.NewBudget(int64(len(goregular.TTF))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	glyfFont.Vertical = sfnt.VerticalFixture(glyfFont)
+	cffFont := debug.MakeSimpleFont()
+	cffFont.Vertical = sfnt.VerticalFixture(cffFont)
+	return map[string]*sfnt.Font{"glyf": glyfFont, "cff": cffFont}
+}
+
+// TestReadVerticalRoundTrip checks that vertical metrics survive two
+// write/read cycles, and that the second write reproduces the first.
+func TestReadVerticalRoundTrip(t *testing.T) {
+	for name, font := range verticalFonts(t) {
+		t.Run(name, func(t *testing.T) {
+			data1 := writeFont(t, font)
+			font1 := readBack(t, data1)
+			if diff := cmp.Diff(font.Vertical, font1.Vertical); diff != "" {
+				t.Errorf("first read (-want +got):\n%s", diff)
+			}
+			checkRoundTrip(t, font1)
+		})
+	}
+}
+
+// checkRoundTrip checks that font1, which was read from a file, reads back
+// unchanged after a write, and that writing it again gives the same file.
+func checkRoundTrip(t *testing.T, font1 *sfnt.Font) {
+	t.Helper()
+	data2 := writeFont(t, font1)
+	font2 := readBack(t, data2)
+	if diff := cmp.Diff(font1, font2, fontCmpOptions(font1)...); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+	if data3 := writeFont(t, font2); !bytes.Equal(data2, data3) {
+		t.Error("second write differs from the first")
+	}
+}
+
+func writeFont(t *testing.T, font *sfnt.Font) []byte {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	if _, err := font.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestReadVerticalWithoutVORG checks that the vertical origins of a CFF font
+// without a "VORG" table are derived from the top side bearings, and that the
+// table is written on the next write.
+func TestReadVerticalWithoutVORG(t *testing.T) {
+	font := verticalFonts(t)["cff"]
+	data := editTables(t, font, func(tables map[string][]byte) {
+		delete(tables, "VORG")
+	})
+	font1 := readBack(t, data)
+	if diff := cmp.Diff(font.Vertical, font1.Vertical); diff != "" {
+		t.Errorf("vertical metrics (-want +got):\n%s", diff)
+	}
+	checkRoundTrip(t, font1)
+}
+
+// TestReadVerticalVORG checks where the vertical origins of a font come from
+// when the "VORG" table disagrees with the top side bearings.
+func TestReadVerticalVORG(t *testing.T) {
+	const y = 900
+	vorgData := (&vorg.Table{Default: y}).Encode()
+	for _, c := range []struct {
+		name    string
+		vorg    []byte
+		useVORG bool
+	}{
+		{"glyf", vorgData, false},
+		{"cff", vorgData, true},
+		{"cff", vorgData[:6], false}, // malformed, ignored
+		{"cff", []byte{0, 2, 0, 0, 0, 0, 0, 0}, false},
+	} {
+		font := verticalFonts(t)[c.name]
+		data := editTables(t, font, func(tables map[string][]byte) {
+			tables["VORG"] = c.vorg
+		})
+		got := readBack(t, data)
+		if got.Vertical == nil {
+			t.Fatalf("%s: vertical metrics dropped", c.name)
+		}
+		for gid, origin := range got.Vertical.OriginY {
+			want := font.Vertical.OriginY[gid]
+			if c.useVORG {
+				want = y
+			}
+			if origin != want {
+				t.Errorf("%s: glyph %d has origin %d, want %d", c.name, gid, origin, want)
+				break
+			}
+		}
+		checkRoundTrip(t, got)
+	}
+}
+
+// TestReadVerticalRepairs checks the repairs made when reading vertical
+// metrics.
+func TestReadVerticalRepairs(t *testing.T) {
+	for name, font := range verticalFonts(t) {
+		t.Run(name, func(t *testing.T) {
+			n := font.NumGlyphs()
+
+			// a caret slope of (0, 0) becomes (0, 1); an old "vhea" version
+			// and excess "vmtx" entries are accepted
+			data := editTables(t, font, func(tables map[string][]byte) {
+				vhea := bytes.Clone(tables["vhea"])
+				binary.BigEndian.PutUint32(vhea[0:], 0x00010000)
+				binary.BigEndian.PutUint16(vhea[18:], 0)
+				binary.BigEndian.PutUint16(vhea[20:], 0)
+				tables["vhea"] = vhea
+				tables["vmtx"] = append(bytes.Clone(tables["vmtx"]), 0, 1, 0, 2, 0, 3)
+			})
+			got := readBack(t, data)
+			if got.Vertical == nil {
+				t.Fatal("vertical metrics dropped")
+			}
+			v := got.Vertical
+			if v.CaretSlopeRise != 0 || v.CaretSlopeRun != 1 {
+				t.Errorf("caret slope = (%d, %d), want (0, 1)", v.CaretSlopeRise, v.CaretSlopeRun)
+			}
+			if len(v.Heights) != n || len(v.OriginY) != n {
+				t.Errorf("vertical metrics for %d/%d glyphs, want %d", len(v.Heights), len(v.OriginY), n)
+			}
+			if diff := cmp.Diff(font.Vertical.OriginY, v.OriginY); diff != "" {
+				t.Errorf("origins (-want +got):\n%s", diff)
+			}
+			checkRoundTrip(t, got)
+		})
+	}
+}
+
+// TestReadVerticalDropped checks that vertical metrics which cannot be used
+// are dropped without failing the read.
+func TestReadVerticalDropped(t *testing.T) {
+	type edit func(font *sfnt.Font, tables map[string][]byte)
+	vmtxWith := func(n int, tsb funit.Int16) []byte {
+		info := &vmtx.Info{
+			Heights: make([]funit.Uint16, n),
+			TSB:     make([]funit.Int16, n),
+		}
+		for i := range n {
+			info.Heights[i] = 1000
+			info.TSB[i] = tsb
+		}
+		_, data := info.Encode()
+		return data
+	}
+	cases := []struct {
+		name  string
+		fonts []string
+		edit  edit
+	}{
+		{"no vhea", []string{"glyf", "cff"}, func(_ *sfnt.Font, tables map[string][]byte) {
+			delete(tables, "vhea")
+		}},
+		{"no vmtx", []string{"glyf", "cff"}, func(_ *sfnt.Font, tables map[string][]byte) {
+			delete(tables, "vmtx")
+		}},
+		{"short vhea", []string{"glyf", "cff"}, func(_ *sfnt.Font, tables map[string][]byte) {
+			tables["vhea"] = tables["vhea"][:30]
+		}},
+		{"bad vhea version", []string{"glyf", "cff"}, func(_ *sfnt.Font, tables map[string][]byte) {
+			vhea := bytes.Clone(tables["vhea"])
+			binary.BigEndian.PutUint32(vhea[0:], 0x00020000)
+			tables["vhea"] = vhea
+		}},
+		{"odd vmtx length", []string{"glyf", "cff"}, func(_ *sfnt.Font, tables map[string][]byte) {
+			tables["vmtx"] = append(bytes.Clone(tables["vmtx"]), 0)
+		}},
+		{"short vmtx", []string{"glyf", "cff"}, func(font *sfnt.Font, tables map[string][]byte) {
+			tables["vmtx"] = vmtxWith(font.NumGlyphs()-1, 0)
+		}},
+		// the glyph tops are positive, so these origins lie above 32767
+		{"origin out of range", []string{"glyf"}, func(font *sfnt.Font, tables map[string][]byte) {
+			tables["vmtx"] = vmtxWith(font.NumGlyphs(), math.MaxInt16)
+		}},
+		{"origin out of range", []string{"cff"}, func(font *sfnt.Font, tables map[string][]byte) {
+			tables["vmtx"] = vmtxWith(font.NumGlyphs(), math.MaxInt16)
+			delete(tables, "VORG")
+		}},
+		// a "VORG" origin far below the glyph tops gives a top side bearing
+		// below -32768
+		{"tsb out of range", []string{"cff"}, func(_ *sfnt.Font, tables map[string][]byte) {
+			tables["VORG"] = (&vorg.Table{Default: math.MinInt16}).Encode()
+		}},
+	}
+	fonts := verticalFonts(t)
+	for _, c := range cases {
+		for _, name := range c.fonts {
+			t.Run(c.name+"/"+name, func(t *testing.T) {
+				font := fonts[name]
+				data := editTables(t, font, func(tables map[string][]byte) {
+					c.edit(font, tables)
+				})
+				got := readBack(t, data)
+				if got.Vertical != nil {
+					t.Error("unusable vertical metrics kept")
+				}
+				checkRoundTrip(t, got)
+			})
+		}
+	}
+}
+
+// TestReadVerticalCFF2 checks that the vertical metrics of static and
+// variable CFF2 fonts are written with a "VORG" table and survive a
+// write/read cycle.
+func TestReadVerticalCFF2(t *testing.T) {
+	for name, font := range map[string]*sfnt.Font{
+		"static":   makeCFF2Font(),
+		"variable": debug.MakeVarCFF2Font(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			font.Vertical = sfnt.VerticalFixture(font)
+			data1 := writeFont(t, font)
+
+			r := bytes.NewReader(data1)
+			dir, err := header.Read(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			vorgData, err := dir.ReadTableBytes(r, "VORG")
+			if err != nil {
+				t.Fatal(err)
+			}
+			origins, err := vorg.Decode(vorgData)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for gid, y := range font.Vertical.OriginY {
+				if got := origins.Get(glyph.ID(gid)); got != y {
+					t.Errorf("glyph %d: VORG origin = %d, want %d", gid, got, y)
+				}
+			}
+
+			font1 := readBack(t, data1)
+			if diff := cmp.Diff(font.Vertical, font1.Vertical); diff != "" {
+				t.Errorf("first read (-want +got):\n%s", diff)
+			}
+			checkRoundTrip(t, font1)
 		})
 	}
 }

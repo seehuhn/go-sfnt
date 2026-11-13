@@ -99,7 +99,25 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 		res.Outlines = s.SubsetGlyf(outlines)
 	}
 
+	res.Vertical = s.SubsetVertical(f.Vertical)
+
 	return res, nil
+}
+
+// SubsetVertical returns the vertical metrics restricted to the glyphs of the
+// subset, or nil if v is nil.  The result does not share memory with v.
+func (s *subsetter) SubsetVertical(v *VerticalMetrics) *VerticalMetrics {
+	if v == nil {
+		return nil
+	}
+	res := *v
+	res.Heights = make([]funit.Uint16, len(s.glyphs))
+	res.OriginY = make([]funit.Int16, len(s.glyphs))
+	for newGid, oldGid := range s.glyphs {
+		res.Heights[newGid] = v.Heights[oldGid]
+		res.OriginY[newGid] = v.OriginY[oldGid]
+	}
+	return &res
 }
 
 type subsetter struct {

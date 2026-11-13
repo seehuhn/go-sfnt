@@ -5,8 +5,13 @@ package sfnt
 
 import (
 	"bytes"
+	"math"
 	"strings"
 	"testing"
+
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/glyph"
 
 	"golang.org/x/image/font/gofont/goregular"
 	"seehuhn.de/go/postscript/type1"
@@ -262,4 +267,84 @@ func ttfFixture(t *testing.T) *Font {
 		t.Fatal(err)
 	}
 	return f
+}
+
+func TestGlyphVerticalPDF(t *testing.T) {
+	f := &Font{
+		UnitsPerEm: 2048,
+		Ascent:     1900,
+		Descent:    -500,
+		Outlines:   &glyf.Outlines{Glyphs: glyf.Glyphs{nil, nil}},
+	}
+
+	// without vertical metrics: origin at the ascender, advance from
+	// ascender to descender
+	for gid := range glyph.ID(2) {
+		advance, originY := f.GlyphVerticalPDF(gid)
+		if want := 2400 * 1000 / 2048.0; advance != want {
+			t.Errorf("fallback advance = %g, want %g", advance, want)
+		}
+		if want := 1900 * 1000 / 2048.0; originY != want {
+			t.Errorf("fallback originY = %g, want %g", originY, want)
+		}
+	}
+
+	f.Vertical = &VerticalMetrics{
+		Heights: []funit.Uint16{2048, 1024},
+		OriginY: []funit.Int16{1800, -512},
+	}
+	cases := []struct {
+		gid             glyph.ID
+		advance, origin float64
+	}{
+		{0, 1000, 1800 * 1000 / 2048.0},
+		{1, 500, -250},
+	}
+	for _, c := range cases {
+		advance, originY := f.GlyphVerticalPDF(c.gid)
+		if advance != c.advance || originY != c.origin {
+			t.Errorf("glyph %d: got (%g, %g), want (%g, %g)",
+				c.gid, advance, originY, c.advance, c.origin)
+		}
+	}
+}
+
+// TestGlyphVerticalPDFExtremeFallback checks that the fallback advance does
+// not overflow for extreme ascender and descender values.
+func TestGlyphVerticalPDFExtremeFallback(t *testing.T) {
+	f := &Font{
+		UnitsPerEm: 1000,
+		Ascent:     math.MaxInt16,
+		Descent:    math.MinInt16,
+		Outlines:   &glyf.Outlines{Glyphs: glyf.Glyphs{nil}},
+	}
+	advance, _ := f.GlyphVerticalPDF(0)
+	if want := float64(math.MaxInt16) - math.MinInt16; advance != want {
+		t.Errorf("advance = %g, want %g", advance, want)
+	}
+}
+
+func TestGlyphTop(t *testing.T) {
+	f := cffFixture()
+	if got := f.glyphTop(0); got != 700 {
+		t.Errorf("top of glyph 0 = %d, want 700", got)
+	}
+	if got := f.glyphTop(3); got != 0 {
+		t.Errorf("top of blank glyph = %d, want 0", got)
+	}
+
+	// a malformed font matrix gives tops beyond the int16 range
+	for _, c := range []struct {
+		m    matrix.Matrix
+		want int
+	}{
+		{matrix.Matrix{1e10, 0, 0, 1e10, 0, 0}, topLimit},
+		{matrix.Matrix{1, 0, 0, 1, 0, -1e10}, -topLimit},
+		{matrix.Matrix{1, 0, 0, math.NaN(), 0, 0}, topLimit},
+	} {
+		f := cffFontWithMatrix(c.m)
+		if got := f.glyphTop(0); got != c.want {
+			t.Errorf("matrix %v: top = %d, want %d", c.m, got, c.want)
+		}
+	}
 }

@@ -25,3 +25,21 @@ intended.  Fonts built with this package need rebuilding afterwards.
 
 The legacy `kern` table and the `FFTM` table are dropped as well.  The
 kerning is still present in `GPOS`.
+
+## Vertical metrics of variable fonts
+
+`Font.Vertical` holds the vertical metrics of the default instance.
+Nothing varies them yet, so `Instantiate` and `ConvertCFF2` carry the
+default advance heights and vertical origins over to every instance,
+and the top side bearings written for an instance are measured from its
+varied glyph tops.  Closing this gap needs:
+
+- the `VVAR` table (advance heights, top and bottom side bearings,
+  vertical origins), read, written and applied by `Instantiate`;
+- the `MVAR` tags `vasc`, `vdsc`, `vlgp`, `vcrs`, `vcrr` and `vcof`,
+  applied to the `vhea` values;
+- the vertical phantom points of `gvar`, which vary the advance height
+  and top side bearing of glyf fonts without `VVAR`.
+
+The `BASE` table, which holds baselines for vertical text, is not read
+either.

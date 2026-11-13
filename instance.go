@@ -38,7 +38,9 @@ var ErrNotVariable = errors.New("sfnt: font is not variable")
 // The receiver is left unmodified.  The returned font carries no variation
 // tables: the glyph outlines, advance widths, "cvt " values, font-wide metrics
 // and GPOS/GDEF device adjustments are all resolved to the pinned instance, and
-// its PostScript name follows Adobe Technical Note #5902.
+// its PostScript name follows Adobe Technical Note #5902.  The vertical
+// metrics in [Font.Vertical], if any, are carried over unchanged from the
+// default instance.
 func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	// step 1: guards
 	if !f.IsVariable() {
@@ -164,8 +166,10 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 // ConvertCFF2 returns a copy of the font with its CFF2 glyph outlines
 // converted to static CFF outlines.  For a variable font this pins all
 // axes at their default values (like Instantiate with no coordinates);
-// use Instantiate to select other coordinates.  ConvertCFF2 returns an
-// error if the font does not use CFF2 outlines.
+// use Instantiate to select other coordinates.  The vertical metrics in
+// [Font.Vertical], if any, are carried over unchanged from the default
+// instance.  ConvertCFF2 returns an error if the font does not use CFF2
+// outlines.
 func (f *Font) ConvertCFF2() (*Font, error) {
 	o, ok := f.Outlines.(*cff.OutlinesCFF2)
 	if !ok {

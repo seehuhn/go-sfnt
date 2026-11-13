@@ -18,6 +18,7 @@ import (
 	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/fvar"
 	"seehuhn.de/go/sfnt/glyf"
+	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/hmtx"
@@ -27,6 +28,8 @@ import (
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/post"
 	"seehuhn.de/go/sfnt/stat"
+	"seehuhn.de/go/sfnt/vmtx"
+	"seehuhn.de/go/sfnt/vorg"
 )
 
 // Write writes the binary form of the font to the given writer.
@@ -45,12 +48,28 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 	// returned tables are clones; the caller's Font is never mutated.
 	fvarTable, statTable, nameExtra := f.assignVariationNameIDs()
 
-	hheaData, hmtxData, err := f.makeHmtx()
+	// computed once, since for CFF outlines this walks every glyph path
+	extents := f.glyphExtents()
+
+	hheaData, hmtxData, err := f.makeHmtx(extents)
 	if err != nil {
 		return 0, err
 	}
 	tableData["hhea"] = hheaData
 	tableData["hmtx"] = hmtxData
+
+	if f.Vertical != nil {
+		vheaData, vmtxData, err := f.makeVmtx(extents)
+		if err != nil {
+			return 0, err
+		}
+		tableData["vhea"] = vheaData
+		tableData["vmtx"] = vmtxData
+		// the vertical origins of CFF and CFF2 glyphs are stored explicitly
+		if !f.IsGlyf() {
+			tableData["VORG"] = vorg.FromOrigins(f.Vertical.OriginY).Encode()
+		}
+	}
 
 	if f.CMapTable != nil {
 		tableData["cmap"] = f.CMapTable.Encode()
@@ -203,7 +222,7 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 	if f.CMapTable != nil {
 		tableData["cmap"] = f.CMapTable.Encode()
 	}
-	hheaData, hmtxData, err := f.makeHmtx()
+	hheaData, hmtxData, err := f.makeHmtx(f.glyphExtents())
 	if err != nil {
 		return 0, err
 	}
@@ -301,8 +320,9 @@ func (f *Font) makeHead(locaFormat int16) []byte {
 
 // makeHmtx builds the "hhea" and "hmtx" tables.  An advance width the "hmtx"
 // table cannot hold is an error; fonts read from a file are repaired on read,
-// so such a width came from the caller.
-func (f *Font) makeHmtx() ([]byte, []byte, error) {
+// so such a width came from the caller.  The glyph extents are those returned
+// by [Font.glyphExtents].
+func (f *Font) makeHmtx(extents []funit.Rect16) ([]byte, []byte, error) {
 	// The hmtx table stores widths and bboxes in UnitsPerEm units.  For CFF
 	// outlines that requires applying the (possibly per-FD) font matrix; the
 	// PDF helpers handle this, so derive UnitsPerEm values from there.
@@ -314,17 +334,6 @@ func (f *Font) makeHmtx() ([]byte, []byte, error) {
 			return nil, nil, fmt.Errorf("sfnt: advance width %g of glyph %d outside the hmtx range", w*upm, i)
 		}
 		widths[i] = h
-	}
-
-	bboxScale := upm / 1000
-	extents := make([]funit.Rect16, f.NumGlyphs())
-	for i, b := range f.GlyphBBoxesPDF() {
-		extents[i] = funit.Rect16{
-			LLx: clamp.Int16[funit.Int16](math.Round(b.LLx * bboxScale)),
-			LLy: clamp.Int16[funit.Int16](math.Round(b.LLy * bboxScale)),
-			URx: clamp.Int16[funit.Int16](math.Round(b.URx * bboxScale)),
-			URy: clamp.Int16[funit.Int16](math.Round(b.URy * bboxScale)),
-		}
 	}
 
 	hheaAscent, hheaDescent, hheaLineGap := f.hheaMetrics()
@@ -340,6 +349,64 @@ func (f *Font) makeHmtx() ([]byte, []byte, error) {
 
 	hheaData, hmtxData := hmtxInfo.Encode()
 	return hheaData, hmtxData, nil
+}
+
+// glyphExtents returns the glyph bounding boxes in UnitsPerEm units, as the
+// "hhea" and "vhea" summary fields use them.
+func (f *Font) glyphExtents() []funit.Rect16 {
+	bboxScale := float64(f.UnitsPerEm) / 1000
+	extents := make([]funit.Rect16, f.NumGlyphs())
+	for i, b := range f.GlyphBBoxesPDF() {
+		extents[i] = funit.Rect16{
+			LLx: clamp.Int16[funit.Int16](math.Round(b.LLx * bboxScale)),
+			LLy: clamp.Int16[funit.Int16](math.Round(b.LLy * bboxScale)),
+			URx: clamp.Int16[funit.Int16](math.Round(b.URx * bboxScale)),
+			URy: clamp.Int16[funit.Int16](math.Round(b.URy * bboxScale)),
+		}
+	}
+	return extents
+}
+
+// makeVmtx builds the "vhea" and "vmtx" tables from f.Vertical.  The top side
+// bearings are derived from the vertical origins and the glyph outlines.  It
+// is an error if the per-glyph slices do not have one entry per glyph, or if
+// a top side bearing does not fit into 16 bits.  The glyph extents are those
+// returned by [Font.glyphExtents]; they only feed the "vhea" summary fields.
+//
+// The bearings use [Font.glyphTop] rather than the extents, since the reader
+// derives the vertical origins from glyphTop and the extents, computed at a
+// different scale, need not round to the same value.
+func (f *Font) makeVmtx(extents []funit.Rect16) ([]byte, []byte, error) {
+	v := f.Vertical
+	n := f.NumGlyphs()
+	if len(v.Heights) != n || len(v.OriginY) != n {
+		return nil, nil, fmt.Errorf("sfnt: vertical metrics for %d/%d glyphs, want %d",
+			len(v.Heights), len(v.OriginY), n)
+	}
+
+	tsb := make([]funit.Int16, n)
+	for i, y := range v.OriginY {
+		t := int(y) - f.glyphTop(glyph.ID(i))
+		if !fitsInt16(t) {
+			return nil, nil, fmt.Errorf("sfnt: top side bearing %d of glyph %d out of range", t, i)
+		}
+		tsb[i] = funit.Int16(t)
+	}
+
+	info := &vmtx.Info{
+		Ascent:         v.Ascent,
+		Descent:        v.Descent,
+		LineGap:        v.LineGap,
+		CaretSlopeRise: v.CaretSlopeRise,
+		CaretSlopeRun:  v.CaretSlopeRun,
+		CaretOffset:    v.CaretOffset,
+		// non-nil, so that a font without glyphs still gets a "vmtx" table
+		Heights:      append([]funit.Uint16{}, v.Heights...),
+		TSB:          tsb,
+		GlyphExtents: extents,
+	}
+	vheaData, vmtxData := info.Encode()
+	return vheaData, vmtxData, nil
 }
 
 func (f *Font) makeOS2() []byte {

@@ -26,6 +26,8 @@ import (
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/parser"
+	"seehuhn.de/go/sfnt/vmtx"
+	"seehuhn.de/go/sfnt/vorg"
 )
 
 // TestWriteTrueTypePDFPreservesNames checks that WriteTrueTypePDF retains
@@ -408,5 +410,140 @@ func TestWriteSparseEncoding(t *testing.T) {
 	got := font2.Outlines.(*cff.Outlines).Encoding
 	if diff := cmp.Diff(encoding, got); diff != "" {
 		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+// tablesOf returns the tables of a font file.
+func tablesOf(t *testing.T, data []byte) map[string][]byte {
+	t.Helper()
+	r := bytes.NewReader(data)
+	dir, err := header.Read(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables := make(map[string][]byte, len(dir.Toc))
+	for name := range dir.Toc {
+		body, err := dir.ReadTableBytes(r, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tables[name] = body
+	}
+	return tables
+}
+
+// TestWriteVerticalTables checks which vertical tables the writers emit.
+func TestWriteVerticalTables(t *testing.T) {
+	glyfFont := ttfFixture(t)
+	cffFont := cffFixture()
+	type want struct{ vhea, vmtx, vorg bool }
+	cases := []struct {
+		name  string
+		font  *Font
+		write func(f *Font, buf *bytes.Buffer) error
+		want  want
+	}{
+		{"glyf", glyfFont, writeFull, want{true, true, false}},
+		{"cff", cffFont, writeFull, want{true, true, true}},
+		{"glyf PDF", glyfFont, func(f *Font, buf *bytes.Buffer) error {
+			_, err := f.WriteTrueTypePDF(buf)
+			return err
+		}, want{}},
+		{"cff PDF", cffFont, func(f *Font, buf *bytes.Buffer) error {
+			return f.WriteOpenTypeCFFPDF(buf)
+		}, want{}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := c.font.Clone()
+			f.FontName = "Test-Regular"
+			f.Vertical = verticalFixture(f)
+			buf := &bytes.Buffer{}
+			if err := c.write(f, buf); err != nil {
+				t.Fatal(err)
+			}
+			tables := tablesOf(t, buf.Bytes())
+			_, vhea := tables["vhea"]
+			_, vmtx := tables["vmtx"]
+			_, vorg := tables["VORG"]
+			if got := (want{vhea, vmtx, vorg}); got != c.want {
+				t.Errorf("tables (vhea, vmtx, VORG) = %v, want %v", got, c.want)
+			}
+		})
+	}
+
+	// no vertical metrics, no vertical tables
+	buf := &bytes.Buffer{}
+	if err := writeFull(cffFont, buf); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"vhea", "vmtx", "VORG"} {
+		if _, ok := tablesOf(t, buf.Bytes())[name]; ok {
+			t.Errorf("font without vertical metrics has a %q table", name)
+		}
+	}
+}
+
+func writeFull(f *Font, buf *bytes.Buffer) error {
+	_, err := f.Write(buf)
+	return err
+}
+
+// TestWriteRejectsVertical checks that Write refuses vertical metrics which
+// the "vmtx" table cannot hold.
+func TestWriteRejectsVertical(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		modify func(v *VerticalMetrics)
+	}{
+		{"short Heights", func(v *VerticalMetrics) { v.Heights = v.Heights[1:] }},
+		{"long OriginY", func(v *VerticalMetrics) { v.OriginY = append(v.OriginY, 0) }},
+		{"nil OriginY", func(v *VerticalMetrics) { v.OriginY = nil }},
+		// glyph 0 has its top at 700, so the bearing is below -32768
+		{"tsb out of range", func(v *VerticalMetrics) { v.OriginY[0] = math.MinInt16 }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := cffFixture()
+			f.Vertical = verticalFixture(f)
+			c.modify(f.Vertical)
+			if _, err := f.Write(io.Discard); err == nil {
+				t.Error("invalid vertical metrics accepted")
+			}
+		})
+	}
+}
+
+// TestWriteVerticalTSB checks that the top side bearings are
+// measured from the glyph tops, and that the vertical origins of a CFF font
+// are recorded in the "VORG" table.
+func TestWriteVerticalTSB(t *testing.T) {
+	f := cffFixture()
+	f.Vertical = verticalFixture(f)
+	buf := &bytes.Buffer{}
+	if _, err := f.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	tables := tablesOf(t, buf.Bytes())
+
+	info, err := vmtx.Decode(tables["vhea"], tables["vmtx"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	origins, err := vorg.Decode(tables["VORG"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	tops := []int{700, 500, 650, 0, 720, 300}
+	for i, top := range tops {
+		y := f.Vertical.OriginY[i]
+		if got, want := int(info.TSB[i]), int(y)-top; got != want {
+			t.Errorf("glyph %d: tsb = %d, want %d", i, got, want)
+		}
+		if got := origins.Get(glyph.ID(i)); got != y {
+			t.Errorf("glyph %d: VORG origin = %d, want %d", i, got, y)
+		}
+	}
+	if diff := cmp.Diff(f.Vertical.Heights, info.Heights); diff != "" {
+		t.Errorf("heights (-want +got):\n%s", diff)
 	}
 }

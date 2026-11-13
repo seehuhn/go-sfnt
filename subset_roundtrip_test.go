@@ -5,7 +5,10 @@ package sfnt
 
 import (
 	"bytes"
+	"slices"
 	"testing"
+
+	"golang.org/x/image/font/gofont/goregular"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -170,13 +173,13 @@ var subsetRoundTripCases = []subsetRoundTripCase{
 		name: "Gpos2_1",
 		keep: []glyph.ID{0, 1, 3, 5, 7},
 		info: wrapLookup(2, &gtab.Gpos2_1{Adjust: map[glyph.Pair]*gtab.PairAdjust{
-			{Left: 1, Right: 3}: &gtab.PairAdjust{
+			{Left: 1, Right: 3}: {
 				First: &gtab.GposValueRecord{XAdvance: -10},
 			},
-			{Left: 3, Right: 5}: &gtab.PairAdjust{
+			{Left: 3, Right: 5}: {
 				First: &gtab.GposValueRecord{XAdvance: -20},
 			},
-			{Left: 5, Right: 7}: &gtab.PairAdjust{
+			{Left: 5, Right: 7}: {
 				First: &gtab.GposValueRecord{XAdvance: -30},
 			},
 		}}),
@@ -560,7 +563,8 @@ func TestSubsetRoundTrip(t *testing.T) {
 // FuzzSubsetRoundTrip mutates the "keep" list while iterating every
 // case from subsetRoundTripCases, asserting that the subset →
 // encode → read cycle is correct for every combination of surviving
-// glyph IDs the fuzzer explores.
+// glyph IDs the fuzzer explores.  The same glyph list is also used to
+// subset a TrueType and a CFF font with vertical metrics.
 //
 // The fuzz input is a byte sequence; each byte is read as a glyph ID,
 // and the result is deduplicated.  gid 0 is always prepended to honour
@@ -579,6 +583,16 @@ func FuzzSubsetRoundTrip(f *testing.F) {
 		f.Add(seed)
 	}
 
+	// fonts with vertical metrics, to subset with the same glyph list
+	glyfFont, err := Read(bytes.NewReader(goregular.TTF), parser.NewBudget(int64(len(goregular.TTF))))
+	if err != nil {
+		f.Fatal(err)
+	}
+	glyfFont.Vertical = verticalFixture(glyfFont)
+	cffFont := cffFixture()
+	cffFont.Vertical = verticalFixture(cffFont)
+	fonts := []*Font{glyfFont, cffFont}
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		keep := []glyph.ID{0}
 		seen := map[glyph.ID]bool{0: true}
@@ -594,5 +608,36 @@ func FuzzSubsetRoundTrip(f *testing.F) {
 			tc.keep = keep
 			subsetAndRoundTrip(t, tc)
 		}
+		for _, font := range fonts {
+			subsetFontAndRoundTrip(t, font, keep)
+		}
 	})
+}
+
+// subsetFontAndRoundTrip subsets font to the glyphs of keep which exist in
+// the font, and checks that the vertical metrics of the subset are those of
+// the original glyphs and survive a write/read cycle.
+func subsetFontAndRoundTrip(t *testing.T, font *Font, keep []glyph.ID) {
+	t.Helper()
+
+	keep = slices.DeleteFunc(slices.Clone(keep), func(gid glyph.ID) bool {
+		return int(gid) >= font.NumGlyphs()
+	})
+	subset, err := font.Subset(keep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkSubsetVertical(t, font, subset, keep)
+
+	buf := &bytes.Buffer{}
+	if _, err := subset.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(subset.Vertical, got.Vertical); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
 }

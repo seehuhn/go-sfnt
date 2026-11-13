@@ -123,7 +123,7 @@ func FuzzFont(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	f.Add(buf.Bytes())
+	f.Add(bytes.Clone(buf.Bytes()))
 
 	g0 := cff.NewGlyph(".notdef", 777)
 	g0.MoveTo(0, 0)
@@ -167,7 +167,7 @@ func FuzzFont(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	f.Add(buf.Bytes())
+	f.Add(bytes.Clone(buf.Bytes()))
 
 	// a synthetic variable font exercising every variation table
 	buf.Reset()
@@ -175,7 +175,7 @@ func FuzzFont(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	f.Add(buf.Bytes())
+	f.Add(bytes.Clone(buf.Bytes()))
 
 	// a minimal CFF2 font
 	buf.Reset()
@@ -183,7 +183,7 @@ func FuzzFont(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	f.Add(buf.Bytes())
+	f.Add(bytes.Clone(buf.Bytes()))
 
 	// the hand-computable synthetic variable font from internal/debug
 	buf.Reset()
@@ -191,7 +191,7 @@ func FuzzFont(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	f.Add(buf.Bytes())
+	f.Add(bytes.Clone(buf.Bytes()))
 
 	// its CFF2 counterpart: two item variation data subtables of different
 	// width, an intermediate region, two Font DICTs, stem hints behind a
@@ -201,7 +201,7 @@ func FuzzFont(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	f.Add(buf.Bytes())
+	f.Add(bytes.Clone(buf.Bytes()))
 
 	// a variable font whose stored fvar axis NameIDs are swapped relative to
 	// the canonical order Write assigns from axis position (256, 257
@@ -215,6 +215,28 @@ func FuzzFont(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Add(swapFvarAxisNameIDs(f, buf.Bytes()))
+
+	// fonts with vertical metrics: TrueType, CFF with and without a "VORG"
+	// table, static and variable CFF2, variable TrueType
+	for _, font := range verticalFonts(f) {
+		buf.Reset()
+		if _, err := font.Write(buf); err != nil {
+			f.Fatal(err)
+		}
+		f.Add(bytes.Clone(buf.Bytes()))
+	}
+	noVORG := verticalFonts(f)["cff"]
+	f.Add(editTables(f, noVORG, func(tables map[string][]byte) {
+		delete(tables, "VORG")
+	}))
+	for _, font := range []*sfnt.Font{makeCFF2Font(), debug.MakeVarCFF2Font(), debug.MakeVarFont()} {
+		font.Vertical = sfnt.VerticalFixture(font)
+		buf.Reset()
+		if _, err := font.Write(buf); err != nil {
+			f.Fatal(err)
+		}
+		f.Add(bytes.Clone(buf.Bytes()))
+	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		font1, err := sfnt.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
@@ -401,7 +423,7 @@ func fontWithPostScriptName(t *testing.T, font *sfnt.Font, psName string) []byte
 
 // editTables writes font to a font file, lets edit change the tables of the
 // file, and returns the font file which holds the changed tables.
-func editTables(t *testing.T, font *sfnt.Font, edit func(tables map[string][]byte)) []byte {
+func editTables(t testing.TB, font *sfnt.Font, edit func(tables map[string][]byte)) []byte {
 	t.Helper()
 
 	buf := &bytes.Buffer{}

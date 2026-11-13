@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/internal/lmetrics"
 )
 
 func TestRoundTrip(t *testing.T) {
@@ -88,8 +89,8 @@ func TestLengths(t *testing.T) {
 	}
 	hhea, hmtx := info.Encode()
 
-	if len(hhea) != hheaLength {
-		t.Errorf("expected %d, got %d", hheaLength, len(hhea))
+	if len(hhea) != lmetrics.HeaderLength {
+		t.Errorf("expected %d, got %d", lmetrics.HeaderLength, len(hhea))
 	}
 
 	numGlyphs := len(info.Widths)

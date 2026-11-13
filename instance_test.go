@@ -744,3 +744,62 @@ func TestInstantiatePhantomAdvancesMatchHVAR(t *testing.T) {
 			len(seen), len(coords))
 	}
 }
+
+// TestInstantiateKeepsVertical pins the current behaviour for vertical
+// metrics: a variable font keeps them through a write/read cycle, and
+// Instantiate and ConvertCFF2 carry the values of the default instance
+// unchanged, since "VVAR" is not supported.
+func TestInstantiateKeepsVertical(t *testing.T) {
+	coords := map[string]float64{"wght": 900, "wdth": 75}
+	for _, c := range []struct {
+		name    string
+		font    *sfnt.Font
+		convert func(f *sfnt.Font) (*sfnt.Font, error)
+	}{
+		{"glyf/Instantiate", debug.MakeVarFont(), func(f *sfnt.Font) (*sfnt.Font, error) {
+			return f.Instantiate(coords)
+		}},
+		{"CFF2/Instantiate", debug.MakeVarCFF2Font(), func(f *sfnt.Font) (*sfnt.Font, error) {
+			return f.Instantiate(coords)
+		}},
+		{"CFF2/ConvertCFF2", debug.MakeVarCFF2Font(), (*sfnt.Font).ConvertCFF2},
+		{"static CFF2/ConvertCFF2", makeCFF2Font(), (*sfnt.Font).ConvertCFF2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			font := c.font
+			font.Vertical = sfnt.VerticalFixture(font)
+
+			buf := &bytes.Buffer{}
+			if _, err := font.Write(buf); err != nil {
+				t.Fatal(err)
+			}
+			font1, err := sfnt.Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(font.Vertical, font1.Vertical); diff != "" {
+				t.Fatalf("variable font round trip (-want +got):\n%s", diff)
+			}
+
+			inst, err := c.convert(font1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(font.Vertical, inst.Vertical); diff != "" {
+				t.Errorf("instance (-want +got):\n%s", diff)
+			}
+
+			buf.Reset()
+			if _, err := inst.Write(buf); err != nil {
+				t.Fatal(err)
+			}
+			inst2, err := sfnt.Read(bytes.NewReader(buf.Bytes()), parser.NewBudget(int64(buf.Len())))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(font.Vertical, inst2.Vertical); diff != "" {
+				t.Errorf("instance round trip (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

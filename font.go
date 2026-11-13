@@ -231,10 +231,49 @@ type Font struct {
 	Hvar *hvar.Table
 	Mvar *mvar.Table
 
+	// Vertical (optional) holds the metrics for vertical text layout.  It is
+	// nil for fonts without vertical metrics.
+	Vertical *VerticalMetrics
+
 	// VariationsPostScriptName (optional) is the prefix from which
 	// the PostScript name of a variable font instance is built.  It may hold
 	// ASCII letters and digits only, and must be empty for non-variable fonts.
 	VariationsPostScriptName string
+}
+
+// VerticalMetrics describes the layout of a font in vertical writing mode,
+// as stored in the "vhea", "vmtx" and "VORG" tables.  All values are in font
+// design units (UnitsPerEm per em).
+//
+// The top side bearing of a glyph, which the "vmtx" table stores, is the
+// distance from the vertical origin down to the top of the glyph bounding
+// box.  It is derived from OriginY and the glyph outline when the font is
+// written, and must fit into a signed 16-bit integer.
+type VerticalMetrics struct {
+	// Ascent, Descent and LineGap are the vertical typographic metrics.  The
+	// vertical line extends Ascent units to the right and -Descent units to
+	// the left of the vertical centre line.
+	Ascent  funit.Int16
+	Descent funit.Int16
+	LineGap funit.Int16
+
+	// CaretSlopeRise and CaretSlopeRun give the slope of the text cursor.
+	// A vertical font normally has rise 0 and run 1.  A slope of (0, 0) is
+	// written as (0, 1).
+	CaretSlopeRise int16
+	CaretSlopeRun  int16
+
+	// CaretOffset is the amount by which a slanted highlight on a glyph is
+	// shifted to produce the best appearance.
+	CaretOffset int16
+
+	// Heights gives the advance height of each glyph, indexed by glyph ID.
+	// It must have one entry per glyph.
+	Heights []funit.Uint16
+
+	// OriginY gives the y coordinate of the vertical origin of each glyph,
+	// indexed by glyph ID.  It must have one entry per glyph.
+	OriginY []funit.Int16
 }
 
 // Clone makes a shallow copy of the font object.
@@ -520,6 +559,22 @@ func (f *Font) GlyphWidthPDF(gid glyph.ID) float64 {
 	}
 }
 
+// GlyphVerticalPDF returns the vertical metrics of a glyph, in PDF glyph
+// space units (1000 per em).  The advance is the advance height, and originY
+// is the y coordinate of the glyph's vertical origin, measured from the
+// horizontal origin.
+//
+// For a font without vertical metrics ([Font.Vertical] is nil), the vertical
+// origin lies at the typographic ascender [Font.Ascent], and the advance
+// height is Ascent - Descent.
+func (f *Font) GlyphVerticalPDF(gid glyph.ID) (advance, originY float64) {
+	q := 1000 / float64(f.UnitsPerEm)
+	if f.Vertical == nil {
+		return (float64(f.Ascent) - float64(f.Descent)) * q, float64(f.Ascent) * q
+	}
+	return float64(f.Vertical.Heights[gid]) * q, float64(f.Vertical.OriginY[gid]) * q
+}
+
 // GlyphBBox returns the glyph bounding box for one glyph in font design
 // units.
 func (f *Font) GlyphBBox(gid glyph.ID) rect.Rect {
@@ -536,6 +591,30 @@ func (f *Font) glyphHeight(gid glyph.ID) funit.Int16 {
 		return 0
 	}
 	return clamp.Int16[funit.Int16](h)
+}
+
+// topLimit bounds the values returned by [Font.glyphTop].  It is large
+// enough that every top side bearing or vertical origin derived from a
+// saturated value lies outside the 16-bit range.
+const topLimit = 1 << 17
+
+// glyphTop returns the top of the glyph's bounding box, rounded to font
+// design units, or 0 for a blank glyph.  The reader and the writer derive
+// top side bearings from this value, so that the two agree.
+//
+// Values beyond ±topLimit, which a malformed font matrix can produce, are
+// saturated, and NaN is reported as topLimit.  For CFF and CFF2 outlines
+// this walks the glyph path.
+func (f *Font) glyphTop(gid glyph.ID) int {
+	top := math.Round(f.GlyphBBox(gid).URy)
+	switch {
+	case top >= -topLimit && top <= topLimit:
+		return int(top)
+	case top < 0:
+		return -topLimit
+	default: // also NaN
+		return topLimit
+	}
 }
 
 // measureHeight returns the height of the first of the given characters the

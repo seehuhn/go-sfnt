@@ -16,14 +16,13 @@ import (
 // to write a table with no data.
 // This changes the checksum in the "head" table in place.
 func Write(w io.Writer, scalerType uint32, tables map[string][]byte) (int64, error) {
-	numTables := len(tables)
-
-	tableNames := make([]string, 0, numTables)
+	tableNames := make([]string, 0, len(tables))
 	for name, data := range tables {
 		if data != nil && len(name) == 4 {
 			tableNames = append(tableNames, name)
 		}
 	}
+	numTables := len(tableNames)
 
 	// sort the table names in the recommended order
 	sort.Slice(tableNames, func(i, j int) bool {
@@ -46,7 +45,7 @@ func Write(w io.Writer, scalerType uint32, tables map[string][]byte) (int64, err
 	}
 
 	// temporarily clear the checksum in the "head" table
-	if headData, ok := tables["head"]; ok {
+	if headData := tables["head"]; headData != nil {
 		clearChecksum(headData)
 	}
 
@@ -77,7 +76,7 @@ func Write(w io.Writer, scalerType uint32, tables map[string][]byte) (int64, err
 	totalSum += checksum(headerBytes)
 
 	// set the final checksum in the "head" table
-	if headData, ok := tables["head"]; ok {
+	if headData := tables["head"]; headData != nil {
 		patchChecksum(headData, totalSum)
 	}
 
@@ -143,9 +142,12 @@ type tag [4]byte
 var ttTableOrder = map[string]int{
 	"head": 95,
 	"hhea": 90,
+	"vhea": 88,
 	"maxp": 85,
 	"OS/2": 80,
 	"hmtx": 75,
+	"vmtx": 74,
+	"VORG": 73,
 	"LTSH": 70,
 	"VDMX": 65,
 	"hdmx": 60,

@@ -6,8 +6,14 @@ package sfnt
 import (
 	"bytes"
 	"io"
+
 	"maps"
 	"testing"
+
+	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/vmtx"
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/image/font/gofont/goregular"
@@ -271,4 +277,56 @@ func TestDropInvalidGsubGlyphsUnchanged(t *testing.T) {
 		t.Error("valid subtable was modified")
 	}
 	dropInvalidGsubGlyphs(nil, 6) // must not panic
+}
+
+// TestReadVerticalUnusableTops checks that a font whose glyph tops cannot be
+// measured, because of a malformed font matrix, reads without vertical
+// metrics rather than failing.  A NaN entry cannot be stored in a CFF font
+// matrix; [TestGlyphTop] covers that case.
+func TestReadVerticalUnusableTops(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		m    matrix.Matrix
+	}{
+		{"huge", matrix.Matrix{1e10, 0, 0, 1e10, 0, 0}},
+		{"huge negative", matrix.Matrix{1, 0, 0, 1, 0, -1e10}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			font := cffFontWithMatrix(c.m)
+			g := font.Outlines.(*cff.Outlines).Glyphs[0]
+			g.Name = ".notdef"
+			g.Width = 0 // fits "hmtx" whatever the matrix
+			buf := &bytes.Buffer{}
+			if _, err := font.Write(buf); err != nil {
+				t.Fatal(err)
+			}
+
+			// vertical tables whose bearings are all zero
+			info := &vmtx.Info{
+				CaretSlopeRun: 1,
+				Heights:       []funit.Uint16{1000},
+				TSB:           []funit.Int16{0},
+			}
+			vheaData, vmtxData := info.Encode()
+			tables := tablesOf(t, buf.Bytes())
+			tables["vhea"] = vheaData
+			tables["vmtx"] = vmtxData
+			out := &bytes.Buffer{}
+			if _, err := header.Write(out, header.ScalerTypeCFF, tables); err != nil {
+				t.Fatal(err)
+			}
+
+			data := out.Bytes()
+			got, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.glyphTop(0) != topLimit && got.glyphTop(0) != -topLimit {
+				t.Fatalf("glyph top %d is not saturated", got.glyphTop(0))
+			}
+			if got.Vertical != nil {
+				t.Error("vertical metrics kept for an unusable glyph top")
+			}
+		})
+	}
 }

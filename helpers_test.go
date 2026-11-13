@@ -9,6 +9,7 @@ import (
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/cid"
+	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/cff"
@@ -74,6 +75,59 @@ func cffFontWithMatrix(fm matrix.Matrix) *Font {
 		FontMatrix: fm,
 		Outlines: &cff.Outlines{
 			Glyphs:   []*cff.Glyph{cffBox(1400)},
+			Private:  []*type1.PrivateDict{{}},
+			FDSelect: func(glyph.ID) int { return 0 },
+		},
+	}
+}
+
+// verticalFixture returns vertical metrics for f, with three advance heights
+// and the vertical origins at three distances above the glyph tops.
+func verticalFixture(f *Font) *VerticalMetrics {
+	n := f.NumGlyphs()
+	v := &VerticalMetrics{
+		Ascent:        funit.Int16(f.UnitsPerEm / 2),
+		Descent:       -funit.Int16(f.UnitsPerEm / 2),
+		LineGap:       10,
+		CaretSlopeRun: 1,
+		Heights:       make([]funit.Uint16, n),
+		OriginY:       make([]funit.Int16, n),
+	}
+	for i := range n {
+		v.Heights[i] = funit.Uint16(int(f.UnitsPerEm) + 50*(i%3))
+		v.OriginY[i] = funit.Int16(f.glyphTop(glyph.ID(i)) + 20 + 7*(i%3))
+	}
+	return v
+}
+
+// VerticalFixture exports verticalFixture to the external tests.
+var VerticalFixture = verticalFixture
+
+// cffFixture returns a small simple CFF font whose glyphs have different
+// heights.
+func cffFixture() *Font {
+	var glyphs []*cff.Glyph
+	for i, h := range []float64{700, 500, 650, 0, 720, 300} {
+		var g *cff.Glyph
+		if h == 0 {
+			g = cff.NewGlyph("space", 250)
+		} else {
+			g = cffBox(h)
+		}
+		if i > 0 && h != 0 {
+			g.Name = "g" + string(rune('a'+i))
+		}
+		glyphs = append(glyphs, g)
+	}
+	glyphs[0].Name = ".notdef"
+	return &Font{
+		FamilyName: "Fixture",
+		UnitsPerEm: 1000,
+		Ascent:     800,
+		Descent:    -200,
+		FontMatrix: emGrid(1000),
+		Outlines: &cff.Outlines{
+			Glyphs:   glyphs,
 			Private:  []*type1.PrivateDict{{}},
 			FDSelect: func(glyph.ID) int { return 0 },
 		},

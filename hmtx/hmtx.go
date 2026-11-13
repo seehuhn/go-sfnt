@@ -50,12 +50,11 @@ package hmtx
 //     rsb = aw - (lsb + xMax - xMin)
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
 
 	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/internal/lmetrics"
 )
 
 // Info contains information from the "hhea" and "hmtx" tables.
@@ -74,17 +73,15 @@ type Info struct {
 
 // Decode extracts information from the "hhea" and "hmtx" tables.
 func Decode(hheaData, hmtxData []byte) (*Info, error) {
-	r := bytes.NewReader(hheaData)
-	hheaEnc := &binaryHhea{}
-	err := binary.Read(r, binary.BigEndian, hheaEnc)
+	hheaEnc, err := lmetrics.ParseHeader(hheaData)
 	if err != nil {
 		return nil, err
 	}
 	if hheaEnc.Version != 0x00010000 {
 		return nil, fmt.Errorf("unsupported hhea version %08x", hheaEnc.Version)
 	}
-	if hheaEnc.MetricDataFormat != 0 {
-		return nil, fmt.Errorf("unsupported metric data format %d", hheaEnc.MetricDataFormat)
+	if hheaEnc.MetricDataFmt != 0 {
+		return nil, fmt.Errorf("unsupported metric data format %d", hheaEnc.MetricDataFmt)
 	}
 
 	caretAngle := toAngle(hheaEnc.CaretSlopeRise, hheaEnc.CaretSlopeRun)
@@ -100,31 +97,9 @@ func Decode(hheaData, hmtxData []byte) (*Info, error) {
 		return info, nil
 	}
 
-	numHorMetrics := int(hheaEnc.NumOfLongHorMetrics)
-	var prevWidth funit.Uint16
-	var widths []funit.Uint16
-	var lsbs []funit.Int16
-	for i := 0; len(hmtxData) > 0; i++ {
-		width := prevWidth
-		if i < numHorMetrics {
-			if len(hmtxData) < 2 {
-				return nil, fmt.Errorf("hmtx too short")
-			}
-			width = funit.Uint16(hmtxData[0])<<8 | funit.Uint16(hmtxData[1])
-			hmtxData = hmtxData[2:]
-			prevWidth = width
-		}
-		widths = append(widths, width)
-
-		if len(hmtxData) < 2 {
-			return nil, fmt.Errorf("hmtx too short")
-		}
-		lsb := funit.Int16(hmtxData[0])<<8 | funit.Int16(hmtxData[1])
-		hmtxData = hmtxData[2:]
-		lsbs = append(lsbs, lsb)
-	}
-	if len(widths) < numHorMetrics {
-		return nil, fmt.Errorf("hmtx too short")
+	widths, lsbs, err := lmetrics.Decode(hmtxData, int(hheaEnc.NumLong))
+	if err != nil {
+		return nil, err
 	}
 	info.Widths = widths
 	info.LSB = lsbs
@@ -136,7 +111,7 @@ func Decode(hheaData, hmtxData []byte) (*Info, error) {
 func (info *Info) Encode() (hheaData []byte, hmtxData []byte) {
 	rise, run := fromAngle(info.CaretAngle)
 
-	hhea := &binaryHhea{
+	hhea := &lmetrics.Header{
 		Version: 0x00010000, // 1.0
 		Ascent:  info.Ascent,
 		Descent: info.Descent,
@@ -149,9 +124,15 @@ func (info *Info) Encode() (hheaData []byte, hmtxData []byte) {
 
 	if info.Widths != nil {
 		for _, w := range info.Widths {
-			if w > hhea.AdvanceWidthMax {
-				hhea.AdvanceWidthMax = w
+			if w > hhea.AdvanceMax {
+				hhea.AdvanceMax = w
 			}
+		}
+	}
+
+	if info.GlyphExtents != nil && info.Widths != nil {
+		if len(info.GlyphExtents) != len(info.Widths) {
+			panic("len(info.GlyphExtents) != len(info.Widths)")
 		}
 	}
 
@@ -167,24 +148,21 @@ func (info *Info) Encode() (hheaData []byte, hmtxData []byte) {
 		if info.GlyphExtents != nil && info.GlyphExtents[i].IsZero() {
 			continue
 		}
-		if first || lsb < hhea.MinLeftSideBearing {
-			hhea.MinLeftSideBearing = lsb
+		if first || lsb < hhea.MinBearing1 {
+			hhea.MinBearing1 = lsb
 			first = false
 		}
 	}
 
 	if info.GlyphExtents != nil && info.Widths != nil {
-		if len(info.GlyphExtents) != len(info.Widths) {
-			panic("len(info.GlyphExtents) != len(info.Widths)")
-		}
 		first = true
 		for i, ext := range info.GlyphExtents {
 			if ext.IsZero() {
 				continue
 			}
 			rsb := funit.Int16(int(info.Widths[i]) - int(ext.URx))
-			if first || rsb < hhea.MinRightSideBearing {
-				hhea.MinRightSideBearing = rsb
+			if first || rsb < hhea.MinBearing2 {
+				hhea.MinBearing2 = rsb
 			}
 			first = false
 		}
@@ -196,51 +174,21 @@ func (info *Info) Encode() (hheaData []byte, hmtxData []byte) {
 			if ext.IsZero() {
 				continue
 			}
-			if first || ext.URx > hhea.XMaxExtent {
-				hhea.XMaxExtent = ext.URx
+			if first || ext.URx > hhea.MaxExtent {
+				hhea.MaxExtent = ext.URx
 			}
 			first = false
 		}
 	}
 
-	buf := bytes.NewBuffer(make([]byte, 0, hheaLength))
 	if info.Widths == nil || lsbs == nil {
-		_ = binary.Write(buf, binary.BigEndian, hhea)
-		hheaData = buf.Bytes()
-		return hheaData, nil
+		return hhea.Bytes(), nil
 	}
 
-	numGlyphs := len(info.Widths)
-	if len(lsbs) != numGlyphs {
-		panic("len(lsbs) != len(info.Widths)")
-	}
-
-	numLong := numGlyphs
-	for numLong > 1 && info.Widths[numLong-1] == info.Widths[numLong-2] {
-		numLong--
-	}
-	hhea.NumOfLongHorMetrics = uint16(numLong)
-
-	_ = binary.Write(buf, binary.BigEndian, hhea)
-	hheaData = buf.Bytes()
-
-	buf = bytes.NewBuffer(make([]byte, 0, 4*numLong+2*(numGlyphs-numLong)))
-	for i := range numGlyphs {
-		if i < numLong {
-			buf.Write([]byte{
-				byte(info.Widths[i] >> 8), byte(info.Widths[i]),
-			})
-		}
-		buf.Write([]byte{
-			byte(lsbs[i] >> 8), byte(lsbs[i]),
-		})
-	}
-	hmtxData = buf.Bytes()
-
-	return hheaData, hmtxData
+	hmtxData, numLong := lmetrics.Encode(info.Widths, lsbs)
+	hhea.NumLong = uint16(numLong)
+	return hhea.Bytes(), hmtxData
 }
-
-const hheaLength = 36
 
 func toAngle(rise, run int16) float64 {
 	// slope = rise / run (rise = 1, run = 0 for vertical)
@@ -319,24 +267,4 @@ func bestRationalApproximation(x float64, N int) (p int, q int) {
 		}
 	}
 	return sign * bestNumerator, bestDenom
-}
-
-type binaryHhea struct {
-	Version             uint32
-	Ascent              funit.Int16
-	Descent             funit.Int16
-	LineGap             funit.Int16
-	AdvanceWidthMax     funit.Uint16
-	MinLeftSideBearing  funit.Int16
-	MinRightSideBearing funit.Int16
-	XMaxExtent          funit.Int16
-	CaretSlopeRise      int16
-	CaretSlopeRun       int16
-	CaretOffset         funit.Int16
-	_                   int16 // reserved
-	_                   int16 // reserved
-	_                   int16 // reserved
-	_                   int16 // reserved
-	MetricDataFormat    int16
-	NumOfLongHorMetrics uint16
 }

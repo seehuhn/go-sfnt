@@ -46,6 +46,8 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/post"
 	"seehuhn.de/go/sfnt/stat"
+	"seehuhn.de/go/sfnt/vmtx"
+	"seehuhn.de/go/sfnt/vorg"
 )
 
 // ReadFile reads a TrueType or OpenType font from a file.
@@ -465,6 +467,20 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 	info.HheaAscent, info.HheaDescent, info.HheaLineGap = info.hheaMetrics()
 	info.WinAscent, info.WinDescent = info.winMetrics()
 
+	// vertical metrics are optional, so tables which cannot be used are
+	// ignored rather than failing the read
+	if dir.Has("vhea", "vmtx") {
+		vheaData, err1 := dir.ReadTableBytes(rr, "vhea")
+		vmtxData, err2 := dir.ReadTableBytes(rr, "vmtx")
+		var vorgData []byte
+		if !info.IsGlyf() && dir.Has("VORG") {
+			vorgData, _ = dir.ReadTableBytes(rr, "VORG")
+		}
+		if err1 == nil && err2 == nil {
+			info.Vertical = info.readVertical(vheaData, vmtxData, vorgData)
+		}
+	}
+
 	if os2Info != nil {
 		info.CapHeight = os2Info.CapHeight
 		info.XHeight = os2Info.XHeight
@@ -750,6 +766,66 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 	}
 
 	return info, nil
+}
+
+// readVertical builds the vertical metrics of the font from the "vhea",
+// "vmtx" and "VORG" tables.  The outlines, UnitsPerEm and FontMatrix of f
+// must already be set.  vorgData may be nil.
+//
+// The result is nil if the tables cannot be decoded, if "vmtx" has fewer
+// entries than the font has glyphs, or if a vertical origin or a top side
+// bearing does not fit into 16 bits.  Excess "vmtx" entries are ignored.  The
+// vertical origin is taken from "VORG" where that table can be decoded, and
+// is derived from the top side bearing otherwise.
+func (f *Font) readVertical(vheaData, vmtxData, vorgData []byte) *VerticalMetrics {
+	info, err := vmtx.Decode(vheaData, vmtxData)
+	if err != nil {
+		return nil
+	}
+	n := f.NumGlyphs()
+	if len(info.Heights) < n {
+		return nil
+	}
+
+	var origins *vorg.Table
+	if vorgData != nil {
+		origins, err = vorg.Decode(vorgData)
+		if err != nil {
+			origins = nil
+		}
+	}
+
+	originY := make([]funit.Int16, n)
+	for i := range n {
+		gid := glyph.ID(i)
+		top := f.glyphTop(gid)
+		var y int
+		if origins != nil {
+			y = int(origins.Get(gid))
+		} else {
+			y = top + int(info.TSB[i])
+		}
+		if !fitsInt16(y) || !fitsInt16(y-top) {
+			return nil
+		}
+		originY[i] = funit.Int16(y)
+	}
+
+	return &VerticalMetrics{
+		Ascent:         info.Ascent,
+		Descent:        info.Descent,
+		LineGap:        info.LineGap,
+		CaretSlopeRise: info.CaretSlopeRise,
+		CaretSlopeRun:  info.CaretSlopeRun,
+		CaretOffset:    info.CaretOffset,
+		Heights:        info.Heights[:n],
+		OriginY:        originY,
+	}
+}
+
+// fitsInt16 reports whether x can be stored in a signed 16-bit integer.
+func fitsInt16(x int) bool {
+	return x >= math.MinInt16 && x <= math.MaxInt16
 }
 
 // resolveStatNames fills in the informational Name fields of a STAT table from
