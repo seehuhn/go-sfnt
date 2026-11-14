@@ -44,6 +44,50 @@ func TestFormat4(t *testing.T) {
 	}
 }
 
+// TestFormat4RangeOffsetDelta checks that idDelta is added to the non-zero
+// glyph IDs taken from glyphIdArray.
+func TestFormat4RangeOffsetDelta(t *testing.T) {
+	words := []uint16{
+		4, 38, 0, // format, length, language
+		4, 4, 1, 0, // segCountX2, searchRange, entrySelector, rangeShift
+		0x0043, 0xFFFF, // endCode
+		0,              // reservedPad
+		0x0041, 0xFFFF, // startCode
+		10, 1, // idDelta
+		4, 0, // idRangeOffset
+		3, 0, 0xFFFF, // glyphIdArray
+	}
+	var data []byte
+	for _, w := range words {
+		data = append(data, byte(w>>8), byte(w))
+	}
+
+	got, err := decodeFormat4(data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Format4{
+		0x41: 13, // 3 + 10
+		0x43: 9,  // 0xFFFF + 10, modulo 65536
+	}
+	if d := cmp.Diff(want, got); d != "" {
+		t.Errorf("decode failed (-want +got):\n%s", d)
+	}
+}
+
+// TestFormat4LookupRange checks that runes outside the BMP are not mapped.
+func TestFormat4LookupRange(t *testing.T) {
+	cmap := Format4{0x41: 5}
+	for _, r := range []rune{0x10041, 0x41 - 0x10000, -1} {
+		if g := cmap.Lookup(r); g != 0 {
+			t.Errorf("Lookup(%#x) = %d, want 0", r, g)
+		}
+	}
+	if g := cmap.Lookup(0x41); g != 5 {
+		t.Errorf("Lookup(0x41) = %d, want 5", g)
+	}
+}
+
 func FuzzFormat4(f *testing.F) {
 	f.Add([]byte{
 		0x00, 0x04, 0x00, 0x18, 0x00, 0x00, 0x00, 0x02,

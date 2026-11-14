@@ -115,6 +115,9 @@ func (cmap Format12) Encode(language uint16) []byte {
 }
 
 func (cmap Format12) Lookup(code rune) glyph.ID {
+	if code < 0 {
+		return 0
+	}
 	return cmap[uint32(code)]
 }
 

@@ -69,6 +69,18 @@ func TestFormat0(t *testing.T) {
 	})
 }
 
+// TestFormat0LookupRange checks that runes outside the subtable's range are
+// not mapped.
+func TestFormat0LookupRange(t *testing.T) {
+	cmap := &Format0{}
+	cmap.Data[255] = 7
+	for _, r := range []rune{-1, -256, 256, 0x10FFFF} {
+		if g := cmap.Lookup(r); g != 0 {
+			t.Errorf("Lookup(%d) = %d, want 0", r, g)
+		}
+	}
+}
+
 // TestFormat0MacRoman checks that Table.Get translates the Mac Roman codes
 // of a Macintosh format 0 subtable to Unicode, as it does for the other
 // formats, while GetNoLang keeps the raw codes.

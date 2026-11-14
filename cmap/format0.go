@@ -45,7 +45,7 @@ type Format0 struct {
 // Lookup returns the glyph index for the given rune.
 // If the rune is not found, Lookup returns 0 (corresponding to the ".notdef" glyph).
 func (cmap *Format0) Lookup(r rune) glyph.ID {
-	if r > 255 {
+	if r < 0 || r > 255 {
 		return 0
 	}
 	return glyph.ID(cmap.Data[r])

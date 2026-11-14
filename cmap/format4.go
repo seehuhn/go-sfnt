@@ -74,7 +74,12 @@ func decodeFormat4(in []byte, code2rune func(c int) rune) (Subtable, error) {
 				return nil, errMalformedSubtable
 			}
 			for idx := start; idx < end; idx++ {
-				c := glyph.ID(glyphIDArray[d+int(idx-start)])
+				v := glyphIDArray[d+int(idx-start)]
+				if v == 0 {
+					continue
+				}
+				// idDelta applies to non-zero array values, modulo 65536
+				c := glyph.ID(v + idDelta[k])
 				if c != 0 {
 					cmap[uint16(code2rune(int(idx)))] = c
 				}
@@ -86,6 +91,9 @@ func decodeFormat4(in []byte, code2rune func(c int) rune) (Subtable, error) {
 
 // Lookup implements the Subtable interface.
 func (cmap Format4) Lookup(r rune) glyph.ID {
+	if r < 0 || r > 0xFFFF {
+		return 0
+	}
 	return cmap[uint16(r)]
 }
 

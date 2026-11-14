@@ -92,6 +92,14 @@ func TestFormat12GlyphRange(t *testing.T) {
 	}
 }
 
+// TestFormat12LookupNegative checks that negative runes are not mapped.
+func TestFormat12LookupNegative(t *testing.T) {
+	cmap := Format12{0xFFFFFFFF: 3}
+	if g := cmap.Lookup(-1); g != 0 {
+		t.Errorf("Lookup(-1) = %d, want 0", g)
+	}
+}
+
 func FuzzFormat12(f *testing.F) {
 	f.Add(Format12{}.Encode(0))
 	f.Add(Format12{
