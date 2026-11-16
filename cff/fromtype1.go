@@ -42,7 +42,7 @@ const minFontMatrixDet = 1e-12
 // are reduced to the form Type 2 charstrings allow (sorted, non-overlapping,
 // at most 96 stems per glyph).
 func FromType1(f *type1.Font) (*Font, error) {
-	if f == nil || f.FontInfo == nil || f.Outlines == nil {
+	if f.FontInfo == nil || f.Outlines == nil {
 		return nil, errors.New("incomplete Type 1 font")
 	}
 	if f.MM != nil {

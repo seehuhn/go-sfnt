@@ -159,13 +159,6 @@ func TestAdvanceDeltaGidBeyondMapClamps(t *testing.T) {
 	}
 }
 
-func TestAdvanceDeltaNilStore(t *testing.T) {
-	tab := &Table{}
-	if got := tab.AdvanceDelta(0, []variation.F2Dot14{0x4000}); got != 0 {
-		t.Errorf("nil store: got %v, want 0", got)
-	}
-}
-
 func TestEncodeAbsentMapsUseZeroOffset(t *testing.T) {
 	tab := &Table{Store: goldenStore}
 	enc := tab.Encode()
@@ -177,20 +170,5 @@ func TestEncodeAbsentMapsUseZeroOffset(t *testing.T) {
 	}
 	if off := u32(enc, 16); off != 0 {
 		t.Errorf("rsb offset: got %d, want 0", off)
-	}
-}
-
-func TestEncodeNilStoreWritesEmptyStore(t *testing.T) {
-	tab := &Table{}
-	enc := tab.Encode()
-	if off := u32(enc, 4); off == 0 {
-		t.Error("expected non-zero store offset even for a nil Store")
-	}
-	dec, err := Read(bytes.NewReader(enc), testBudget())
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if dec.Store == nil {
-		t.Error("expected a non-nil (empty) store after round trip")
 	}
 }

@@ -19,6 +19,7 @@ import (
 )
 
 // GposValueRecord describes an adjustment to the position of a glyph or set of glyphs.
+// A nil *GposValueRecord is the empty adjustment.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#value-record
 type GposValueRecord struct {
 	XPlacement    funit.Int16   // Horizontal adjustment for placement

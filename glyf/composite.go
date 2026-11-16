@@ -197,7 +197,8 @@ var errIncompleteGlyph = &parser.InvalidFontError{
 }
 
 // Components returns the component glyph IDs of a composite glyph.
-// Returns nil if the glyph is simple.
+// Returns nil if the glyph is simple.  A nil receiver is a blank glyph,
+// which has no components.
 func (g *Glyph) Components() []glyph.ID {
 	if g == nil {
 		return nil
@@ -219,6 +220,7 @@ func (g *Glyph) Components() []glyph.ID {
 // FixComponents changes the glyph component IDs of a composite glyph.
 // For simple glyphs, returns the glyph unchanged. For composite glyphs,
 // returns a new glyph with component IDs mapped according to newGid.
+// A nil receiver is a blank glyph and is returned unchanged.
 func (g *Glyph) FixComponents(newGid map[glyph.ID]glyph.ID) *Glyph {
 	if g == nil {
 		return nil

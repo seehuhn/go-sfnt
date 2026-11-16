@@ -839,7 +839,6 @@ func TestFromType1Errors(t *testing.T) {
 		name string
 		font *type1.Font
 	}{
-		{"nil", nil},
 		{"noFontInfo", &type1.Font{Outlines: &type1.Outlines{}}},
 		{"noOutlines", &type1.Font{FontInfo: &type1.FontInfo{}}},
 		{"multipleMaster", mm},

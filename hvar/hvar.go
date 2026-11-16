@@ -30,8 +30,8 @@ var (
 
 // Table represents the contents of an "HVAR" table.
 type Table struct {
-	// Store holds the shared delta values for advance widths and, if
-	// present, side bearings.
+	// Store (required) holds the shared delta values for advance widths
+	// and, if present, side bearings.
 	Store *variation.ItemVariationStore
 
 	// AdvanceMap maps a glyph ID to a delta-set index for advance-width
@@ -100,15 +100,10 @@ func Read(r parser.ReadSeekSizer, budget *membudget.Budget) (*Table, error) {
 	return t, nil
 }
 
-// Encode returns the binary form of the HVAR table.  The item variation
-// store is always written, even when Store is nil (as an empty store), since
-// a zero store offset is not permitted.  The output is deterministic.
+// Encode returns the binary form of the HVAR table.  The output is
+// deterministic.
 func (t *Table) Encode() []byte {
-	store := t.Store
-	if store == nil {
-		store = &variation.ItemVariationStore{}
-	}
-	storeBytes := store.Encode()
+	storeBytes := t.Store.Encode()
 
 	pos := headerSize
 	storeOffset := pos
@@ -148,16 +143,13 @@ func (t *Table) Encode() []byte {
 
 // AdvanceDelta returns the unrounded advance-width delta for glyph gid at
 // the normalized axis coordinates coords.  Callers apply any required
-// rounding.  A nil Store yields 0.
+// rounding.
 func (t *Table) AdvanceDelta(gid glyph.ID, coords []variation.F2Dot14) float64 {
 	var outer, inner uint16
 	if t.AdvanceMap != nil {
 		outer, inner = t.AdvanceMap.Lookup(uint32(gid))
 	} else {
 		inner = uint16(gid)
-	}
-	if t.Store == nil {
-		return 0
 	}
 	return t.Store.Evaluate(outer, inner, coords)
 }

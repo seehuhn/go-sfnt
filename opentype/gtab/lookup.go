@@ -691,7 +691,7 @@ func (lay extensionLayout) encode() []byte {
 // first script by name.  A "v.2" script tag takes precedence over the
 // original tag for the same script.
 func (info *Info) FindLookups(lang language.Tag, includeFeature map[string]bool) []LookupIndex {
-	if info == nil || len(info.ScriptList) == 0 {
+	if len(info.ScriptList) == 0 {
 		return nil
 	}
 

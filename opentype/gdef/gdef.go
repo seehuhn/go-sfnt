@@ -36,6 +36,8 @@ type Table struct {
 }
 
 // IsMark returns true if it is known that the glyph represents a mark character.
+// A nil table, as for a font without a GDEF table, and a table without glyph
+// classes report no marks.
 func (table *Table) IsMark(gid glyph.ID) bool {
 	if table == nil || table.GlyphClass == nil {
 		return false
