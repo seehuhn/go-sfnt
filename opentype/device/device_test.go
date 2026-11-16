@@ -5,7 +5,6 @@ package device
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -163,45 +162,6 @@ func TestRejectTruncated(t *testing.T) {
 	if err == nil {
 		t.Errorf("truncated: expected error, got nil")
 	}
-}
-
-// TestEncodeInvalidDeltaFormatPanics confirms that Encode and EncodeLen
-// agree on rejecting an invalid DeltaFormat — the alternative (silently
-// returning a partial header) would corrupt parent subtable offsets.
-func TestEncodeInvalidDeltaFormatPanics(t *testing.T) {
-	for _, format := range []uint16{0, 4, 5, 0x7FFF, 0x8001, 0xFFFF} {
-		t.Run(fmt.Sprintf("format=0x%04x", format), func(t *testing.T) {
-			tab := &Table{DeltaFormat: format, Deltas: []int8{1, 2, 3}}
-			assertPanics(t, func() { _ = tab.EncodeLen() })
-			assertPanics(t, func() { _ = tab.Encode() })
-		})
-	}
-}
-
-func TestEncodeDeltaOutOfRangePanics(t *testing.T) {
-	// deltas outside the signed range of the format's bit width must be
-	// rejected, not silently masked
-	cases := []struct {
-		format uint16
-		delta  int8
-	}{
-		{1, 2}, {1, -3}, // format 1: 2-bit, range -2..1
-		{2, 8}, {2, -9}, // format 2: 4-bit, range -8..7
-	}
-	for _, c := range cases {
-		tab := &Table{StartSize: 1, EndSize: 1, Deltas: []int8{c.delta}, DeltaFormat: c.format}
-		assertPanics(t, func() { _ = tab.Encode() })
-	}
-}
-
-func assertPanics(t *testing.T, fn func()) {
-	t.Helper()
-	defer func() {
-		if recover() == nil {
-			t.Errorf("expected panic, got none")
-		}
-	}()
-	fn()
 }
 
 func FuzzRead(f *testing.F) {

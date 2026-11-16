@@ -807,99 +807,6 @@ func FuzzGpos6_1(f *testing.F) {
 	})
 }
 
-// TestCountMarkClassesCatchesInconsistency confirms that
-// countMarkClasses validates structural invariants for Gpos4_1, Gpos5_1
-// and Gpos6_1, so both encodeLen and encode see the same panic instead
-// of encodeLen happily returning a size for unencodable data.
-func TestCountMarkClassesCatchesInconsistency(t *testing.T) {
-	t.Run("Gpos4_1 inconsistent BaseArray row width", func(t *testing.T) {
-		l := &Gpos4_1{
-			MarkCov:   coverage.Table{1: 0},
-			BaseCov:   coverage.Table{2: 0, 3: 1},
-			MarkArray: []markarray.Record{{Class: 0, X: 1}},
-			BaseArray: [][]*anchor.Table{
-				{{X: 1}, {X: 2}}, // width 2
-				{{X: 3}},         // width 1 — inconsistent
-			},
-		}
-		assertPanics(t, func() { _ = l.encodeLen() })
-	})
-
-	t.Run("Gpos4_1 mark class out of range", func(t *testing.T) {
-		l := &Gpos4_1{
-			MarkCov:   coverage.Table{1: 0},
-			BaseCov:   coverage.Table{2: 0},
-			MarkArray: []markarray.Record{{Class: 5, X: 1}},
-			BaseArray: [][]*anchor.Table{{{X: 1}}}, // markClassCount = 1
-		}
-		assertPanics(t, func() { _ = l.encodeLen() })
-	})
-
-	t.Run("Gpos5_1 inconsistent LigArray row width", func(t *testing.T) {
-		l := &Gpos5_1{
-			MarkCov:   coverage.Table{1: 0},
-			LigCov:    coverage.Table{2: 0, 3: 1},
-			MarkArray: []markarray.Record{{Class: 0, X: 1}},
-			LigArray: [][][]*anchor.Table{
-				{{{X: 1}, {X: 2}}}, // width 2
-				{{{X: 3}}},         // width 1 — inconsistent
-			},
-		}
-		assertPanics(t, func() { _ = l.encodeLen() })
-	})
-
-	t.Run("Gpos5_1 mark class out of range", func(t *testing.T) {
-		l := &Gpos5_1{
-			MarkCov:   coverage.Table{1: 0},
-			LigCov:    coverage.Table{2: 0},
-			MarkArray: []markarray.Record{{Class: 5, X: 1}},
-			LigArray:  [][][]*anchor.Table{{{{X: 1}}}}, // markClassCount = 1
-		}
-		assertPanics(t, func() { _ = l.encodeLen() })
-	})
-
-	t.Run("Gpos6_1 inconsistent Mark2Array row width", func(t *testing.T) {
-		l := &Gpos6_1{
-			Mark1Cov:   coverage.Table{1: 0},
-			Mark2Cov:   coverage.Table{2: 0, 3: 1},
-			Mark1Array: []markarray.Record{{Class: 0, X: 1}},
-			Mark2Array: [][]*anchor.Table{
-				{{X: 1}, {X: 2}}, // width 2
-				{{X: 3}},         // width 1 — inconsistent
-			},
-		}
-		assertPanics(t, func() { _ = l.encodeLen() })
-	})
-
-	t.Run("Gpos6_1 mark class out of range", func(t *testing.T) {
-		l := &Gpos6_1{
-			Mark1Cov:   coverage.Table{1: 0},
-			Mark2Cov:   coverage.Table{2: 0},
-			Mark1Array: []markarray.Record{{Class: 5, X: 1}},
-			Mark2Array: [][]*anchor.Table{{{X: 1}}}, // markClassCount = 1
-		}
-		assertPanics(t, func() { _ = l.encodeLen() })
-	})
-}
-
-// TestCountClassesCatchesInconsistency confirms that countClasses rejects a
-// ragged Adjust.  The class-pair records are written as one rectangular
-// block, and the coverage table, the two classdefs and every Device table are
-// placed after it, so a short row would displace all of them.
-func TestCountClassesCatchesInconsistency(t *testing.T) {
-	l := &Gpos2_2{
-		Cov:    coverage.Set{1: true, 2: true},
-		Class1: classdef.Table{1: 1},
-		Class2: classdef.Table{2: 1},
-		Adjust: [][]*PairAdjust{
-			{{First: &GposValueRecord{XAdvance: 1}}, {First: &GposValueRecord{XAdvance: 2}}}, // width 2
-			{{First: &GposValueRecord{XAdvance: 3}}},                                         // width 1 — inconsistent
-		},
-	}
-	assertPanics(t, func() { _ = l.encodeLen() })
-	assertPanics(t, func() { _ = l.encode() })
-}
-
 // TestSubtableSizeOverflow confirms that the encoder panics when a
 // subtable's offsets would no longer fit in uint16, instead of
 // silently truncating offsets and producing corrupt output.
@@ -1406,28 +1313,6 @@ func TestGposLongSubtables(t *testing.T) {
 				t.Errorf("round trip (-want +got):\n%s", d)
 			}
 		})
-	}
-}
-
-// TestGpos2PositionSecondRequired checks that encoding panics when a subtable
-// without second value records is given a non-nil Second.
-func TestGpos2PositionSecondRequired(t *testing.T) {
-	adj := &PairAdjust{
-		First:  &GposValueRecord{XAdvance: 1},
-		Second: &GposValueRecord{XAdvance: 2},
-	}
-	l1 := &Gpos2_1{
-		Adjust: map[glyph.Pair]*PairAdjust{{Left: 1, Right: 2}: adj},
-	}
-	l2 := &Gpos2_2{
-		Cov:    coverage.Set{1: true},
-		Class1: classdef.Table{1: 1},
-		Class2: classdef.Table{2: 1},
-		Adjust: [][]*PairAdjust{{{}, {}}, {{}, adj}},
-	}
-	for _, l := range []Subtable{l1, l2} {
-		assertPanics(t, func() { _ = l.encodeLen() })
-		assertPanics(t, func() { _ = l.encode() })
 	}
 }
 

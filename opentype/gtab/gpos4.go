@@ -14,10 +14,18 @@ import (
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#mark-to-base-attachment-positioning-format-1-mark-to-base-attachment-point
 type Gpos4_1 struct {
-	MarkCov   coverage.Table
-	BaseCov   coverage.Table
-	MarkArray []markarray.Record // indexed by mark coverage index
-	BaseArray [][]*anchor.Table  // indexed by base coverage index, then by mark class; nil entries are absent
+	MarkCov coverage.Table
+	BaseCov coverage.Table
+
+	// MarkArray is indexed by mark coverage index.  Each Class must be
+	// less than the number of mark classes.
+	MarkArray []markarray.Record
+
+	// BaseArray is indexed by base coverage index, then by mark class.
+	// All rows must have the same length, which gives the number of mark
+	// classes.  If BaseArray is empty, the number of mark classes is one
+	// more than the largest Class in MarkArray.  Nil entries are absent.
+	BaseArray [][]*anchor.Table
 }
 
 func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -168,11 +176,9 @@ func (l *Gpos4_1) apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// countMarkClasses returns the markClassCount for this subtable.  It also
-// validates the structural invariants the encoder depends on: every row in
-// BaseArray must have width markClassCount, and every MarkArray record's
-// Class must be < markClassCount.  It panics
-// if these are violated.
+// countMarkClasses returns the markClassCount for this subtable.  The
+// encoder requires every row in BaseArray to have width markClassCount,
+// and every MarkArray record's Class to be less than markClassCount.
 func (l *Gpos4_1) countMarkClasses() int {
 	var count int
 	if len(l.BaseArray) > 0 {

@@ -147,9 +147,8 @@ type Subtable interface {
 
 	// fits returns an error if the subtable cannot be encoded, because an
 	// offset would not fit into an Offset16.  Readers use it to drop
-	// subtables which cannot be written back.  Like encode, it may panic
-	// for a subtable which violates the constraints documented on its
-	// type.
+	// subtables which cannot be written back.  Like encode, it requires
+	// the constraints documented on the subtable type to hold.
 	fits() error
 
 	encodeLen() int

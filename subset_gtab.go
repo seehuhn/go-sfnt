@@ -127,10 +127,10 @@ func (s *subsetter) subsetSeqContext2(sOld *gtab.SeqContext2) *gtab.SeqContext2 
 	}
 }
 
-// trimTrailingNilRules shrinks rules to length n, panicking if any
-// non-nil entry would be discarded.  Subset paths use this to keep
-// Rules' length in sync with their input class-def's NumClasses, since
-// the gtab reader truncates surplus entries.
+// trimTrailingNilRules shrinks rules to length n.  No entry beyond n may be
+// non-nil.  Subset paths use this to keep Rules' length in sync with their
+// input class-def's NumClasses, since the gtab reader truncates surplus
+// entries.
 func trimTrailingNilRules[T any](rules [][]T, n int) [][]T {
 	if len(rules) <= n {
 		return rules

@@ -92,8 +92,7 @@ func Decode(vheaData, vmtxData []byte) (*Info, error) {
 // Encode creates the "vhea" and "vmtx" tables.  The "vhea" table is
 // written in version 1.1.  If Heights is nil, the "vmtx" table is nil.
 // Otherwise TSB must have one entry per glyph, and GlyphExtents, if present,
-// must too; Encode panics otherwise.  A caret slope of (0, 0) is written
-// as (0, 1).
+// must too.  A caret slope of (0, 0) is written as (0, 1).
 func (info *Info) Encode() (vheaData []byte, vmtxData []byte) {
 	rise, run := info.CaretSlopeRise, info.CaretSlopeRun
 	if rise == 0 && run == 0 {

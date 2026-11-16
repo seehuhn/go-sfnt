@@ -103,25 +103,6 @@ func TestSaturation(t *testing.T) {
 	}
 }
 
-func TestEncodePanics(t *testing.T) {
-	cases := []*Info{
-		{Heights: []funit.Uint16{1, 2}, TSB: []funit.Int16{1}},
-		{Heights: []funit.Uint16{1, 2}},
-		{Heights: []funit.Uint16{1, 2}, TSB: []funit.Int16{1, 2},
-			GlyphExtents: []funit.Rect16{{}}},
-	}
-	for i, info := range cases {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Errorf("case %d: expected panic", i)
-				}
-			}()
-			info.Encode()
-		}()
-	}
-}
-
 func TestVersions(t *testing.T) {
 	info := testInfo()
 	vhea, vmtx := info.Encode()

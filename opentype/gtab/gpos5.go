@@ -16,10 +16,19 @@ import (
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-5-mark-to-ligature-attachment-positioning-subtable
 type Gpos5_1 struct {
-	MarkCov   coverage.Table
-	LigCov    coverage.Table
-	MarkArray []markarray.Record  // indexed by mark coverage index
-	LigArray  [][][]*anchor.Table // indexed by (ligature coverage index, ligature component, mark class); nil entries are absent
+	MarkCov coverage.Table
+	LigCov  coverage.Table
+
+	// MarkArray is indexed by mark coverage index.  Each Class must be
+	// less than the number of mark classes.
+	MarkArray []markarray.Record
+
+	// LigArray is indexed by ligature coverage index, then by ligature
+	// component, then by mark class.  The rows of all components must have
+	// the same length, which gives the number of mark classes.  If there
+	// are no components, the number of mark classes is one more than the
+	// largest Class in MarkArray.  Nil entries are absent.
+	LigArray [][][]*anchor.Table
 }
 
 func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -215,11 +224,10 @@ func (l *Gpos5_1) apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// countMarkClasses returns the markClassCount for this subtable.  It also
-// validates the structural invariants the encoder depends on: every row
-// in every LigArray ligature must have width markClassCount, and every
-// MarkArray record's Class must be < markClassCount.  It panics
-// if these are violated.
+// countMarkClasses returns the markClassCount for this subtable.  The
+// encoder requires every row in every LigArray ligature to have width
+// markClassCount, and every MarkArray record's Class to be less than
+// markClassCount.
 func (l *Gpos5_1) countMarkClasses() int {
 	var count int
 	derived := false

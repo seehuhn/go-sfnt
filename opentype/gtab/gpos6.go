@@ -14,10 +14,18 @@ import (
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-6-mark-to-mark-attachment-positioning-subtable
 type Gpos6_1 struct {
-	Mark1Cov   coverage.Table
-	Mark2Cov   coverage.Table
-	Mark1Array []markarray.Record // indexed by mark1 coverage index
-	Mark2Array [][]*anchor.Table  // indexed by mark2 coverage index, then by mark class; nil entries are absent
+	Mark1Cov coverage.Table
+	Mark2Cov coverage.Table
+
+	// Mark1Array is indexed by mark1 coverage index.  Each Class must be
+	// less than the number of mark classes.
+	Mark1Array []markarray.Record
+
+	// Mark2Array is indexed by mark2 coverage index, then by mark class.
+	// All rows must have the same length, which gives the number of mark
+	// classes.  If Mark2Array is empty, the number of mark classes is one
+	// more than the largest Class in Mark1Array.  Nil entries are absent.
+	Mark2Array [][]*anchor.Table
 }
 
 func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
@@ -166,11 +174,9 @@ func (l *Gpos6_1) apply(ctx *Context, a, b int) int {
 	return a + 1
 }
 
-// countMarkClasses returns the markClassCount for this subtable.  It also
-// validates the structural invariants the encoder depends on: every row
-// in Mark2Array must have width markClassCount, and every Mark1Array
-// record's Class must be < markClassCount.  It panics
-// if these are violated.
+// countMarkClasses returns the markClassCount for this subtable.  The
+// encoder requires every row in Mark2Array to have width markClassCount,
+// and every Mark1Array record's Class to be less than markClassCount.
 func (l *Gpos6_1) countMarkClasses() int {
 	var count int
 	if len(l.Mark2Array) > 0 {

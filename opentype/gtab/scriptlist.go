@@ -23,8 +23,8 @@ import (
 // these subtags is written with the OpenType tags implied by its language
 // and script; where a script has both an original and a "v.2" tag, the
 // "v.2" tag is used, since it selects the current shaping model.  Use the
-// explicit form to request the original tag.  A language or script with no
-// OpenType tag cannot be written; encoding such a tag panics.
+// explicit form to request the original tag.  The language and the script of
+// every tag must have an OpenType tag.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#scriptList
 type ScriptListInfo map[language.Tag]*Features

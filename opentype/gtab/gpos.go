@@ -471,9 +471,8 @@ func (l *Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
 }
 
 // pairFormats returns the formats shared by the first and second value
-// records of a pair adjustment subtable.  It panics if positionSecond is
-// false but a pair has a second value record, since such a record cannot be
-// encoded.
+// records of a pair adjustment subtable.  If positionSecond is false, no pair
+// may have a second value record.
 func pairFormats(name string, pairs iter.Seq[*PairAdjust], positionSecond bool) (uint16, uint16) {
 	var b1, b2 formatBuilder
 	for v := range pairs {
@@ -759,7 +758,10 @@ func (l *Gpos2_1) encode() []byte {
 type Gpos2_2 struct {
 	Cov            coverage.Set
 	Class1, Class2 classdef.Table
-	Adjust         [][]*PairAdjust // indexed by class1 index, then class2 index
+
+	// Adjust holds the adjustments, indexed by class1 index, then class2
+	// index.  All rows must have the same length.
+	Adjust [][]*PairAdjust
 
 	// PositionSecond records whether the subtable has value records for
 	// the second glyph of each pair, as described for [Gpos2_1].

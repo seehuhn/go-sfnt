@@ -26,7 +26,7 @@ type Parser struct {
 	// readers route slice and map allocations through it.  Sharing one
 	// budget across several parsers imposes a cumulative cap.
 	//
-	// Budget must not be nil; any nil-budget operation panics.
+	// Budget must not be nil.
 	Budget *membudget.Budget
 
 	buf       []byte

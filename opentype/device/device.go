@@ -24,7 +24,7 @@ type Table struct {
 
 	// Deltas holds the per-ppem corrections of a Device table, one
 	// entry per ppem from StartSize to EndSize inclusive.  The values
-	// fit the bit width selected by DeltaFormat.
+	// must fit the bit width selected by DeltaFormat.
 	Deltas []int8
 
 	// OuterIndex and InnerIndex select a row in the item variation
@@ -113,8 +113,8 @@ func Read(p *parser.Parser, pos int64) (*Table, error) {
 }
 
 // bitsPerDelta returns the number of bits used to encode each delta
-// of a Device table.  It panics if DeltaFormat is not one of 1, 2, 3
-// — callers must handle the VariationIndex case before invoking.
+// of a Device table.  DeltaFormat must be 1, 2 or 3.  Callers must handle
+// the VariationIndex case before the call.
 func (t *Table) bitsPerDelta() int {
 	if t.DeltaFormat < 1 || t.DeltaFormat > 3 {
 		panic(fmt.Sprintf("device: invalid DeltaFormat 0x%04x", t.DeltaFormat))
