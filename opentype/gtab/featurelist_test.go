@@ -23,7 +23,7 @@ func TestFeatureParamsRoundTrip(t *testing.T) {
 			Characters: []rune{0x41, 0x42, 0x1F600}}},
 		{Tag: "kern", Lookups: []LookupIndex{0}},
 	}
-	data := info.encode()
+	data := encodeList(t, info)
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	got, err := readFeatureList(p, 0)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestFeatureParamsTruncated(t *testing.T) {
 		{Tag: "size", Params: &FeatureParamsSize{
 			DesignSize: 100, SubfamilyID: 1, SubfamilyNameID: 256, RangeStart: 80, RangeEnd: 120}},
 	}
-	data := info.encode()
+	data := encodeList(t, info)
 	data = data[:len(data)-1] // truncate the trailing params table by a byte
 
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
@@ -82,16 +82,16 @@ func TestFeatureParamsTruncated(t *testing.T) {
 func FuzzFeatureList(f *testing.F) {
 	info := FeatureListInfo{}
 	info = append(info, &Feature{Tag: "test"})
-	f.Add(info.encode())
+	f.Add(encodeList(f, info))
 	info = append(info, &Feature{Tag: "kern", Lookups: []LookupIndex{0, 1, 2, 3}})
-	f.Add(info.encode())
+	f.Add(encodeList(f, info))
 	info = append(info,
 		&Feature{Tag: "size", Params: &FeatureParamsSize{DesignSize: 100, RangeStart: 80, RangeEnd: 120}},
 		&Feature{Tag: "ss01", Lookups: []LookupIndex{5}, Params: &FeatureParamsStylisticSet{UINameID: 257}},
 		&Feature{Tag: "cv01", Params: &FeatureParamsCharacterVariants{
 			FeatUILabelNameID: 258, Characters: []rune{0x41, 0x1F600}}},
 	)
-	f.Add(info.encode())
+	f.Add(encodeList(f, info))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
@@ -100,7 +100,7 @@ func FuzzFeatureList(f *testing.F) {
 			return
 		}
 
-		data2 := info.encode()
+		data2 := encodeList(t, info)
 
 		// if len(data2) > len(data) {
 		// 	fmt.Printf("A % x\n", data)
@@ -168,7 +168,7 @@ func TestFeatureListOffsetRange(t *testing.T) {
 	}
 	for name, info := range fitting {
 		t.Run(name, func(t *testing.T) {
-			data := info.encode()
+			data := encodeList(t, info)
 			p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 			got, err := readFeatureList(p, 0)
 			if err != nil {
@@ -192,7 +192,9 @@ func TestFeatureListOffsetRange(t *testing.T) {
 	}
 	for name, info := range tooLarge {
 		t.Run(name, func(t *testing.T) {
-			assertPanics(t, func() { info.encode() })
+			if _, err := info.encode(); err == nil {
+				t.Error("encode succeeded")
+			}
 		})
 	}
 }
@@ -230,7 +232,7 @@ func TestFeatureListSharedTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enc := info.encode()
+	enc := encodeList(t, info)
 	if len(enc) != l.encodeLen() {
 		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
 	}
@@ -320,7 +322,7 @@ func TestFeatureListRepair(t *testing.T) {
 		t.Errorf("%d features kept their lookups", kept)
 	}
 
-	data2 := info.encode()
+	data2 := encodeList(t, info)
 	p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 	info2, err := readFeatureList(p, 0)
 	if err != nil {
@@ -349,7 +351,7 @@ func TestFeatureListRepairParams(t *testing.T) {
 	if len(info) != 1 || len(info[0].Lookups) != n || info[0].Params != nil {
 		t.Fatalf("unexpected result %v", info)
 	}
-	info.encode()
+	encodeList(t, info)
 }
 
 // TestFeatureListSharedFeatures checks that many records reaching one Feature
@@ -392,7 +394,7 @@ func TestFeatureListSharedFeatures(t *testing.T) {
 		t.Error("lookups not shared")
 	}
 
-	enc := info.encode()
+	enc := encodeList(t, info)
 	p = parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
 	info2, err := readFeatureList(p, 0)
 	if err != nil {

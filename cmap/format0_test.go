@@ -41,7 +41,7 @@ func TestFormat0(t *testing.T) {
 
 	t.Run("round trip via public Decode", func(t *testing.T) {
 		tbl := Table{
-			{PlatformID: 1, EncodingID: 0}: s.Encode(0),
+			{PlatformID: 1, EncodingID: 0}: mustEncode(t, s),
 		}
 		dec, err := Decode(tbl.Encode())
 		if err != nil {
@@ -89,7 +89,7 @@ func TestFormat0MacRoman(t *testing.T) {
 	s.Data['A'] = 10
 	s.Data[0x80] = 20 // Mac Roman 0x80 is 'Ä'
 	key := Key{PlatformID: 1, EncodingID: 0}
-	tbl := Table{key: s.Encode(0)}
+	tbl := Table{key: mustEncode(t, s)}
 
 	sub, err := tbl.Get(key)
 	if err != nil {

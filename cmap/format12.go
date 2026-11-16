@@ -65,7 +65,8 @@ func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 	return cmap, nil
 }
 
-func (cmap Format12) Encode(language uint16) []byte {
+// Encode returns the binary form of the subtable.
+func (cmap Format12) Encode(language uint16) ([]byte, error) {
 	var ss []format12segment
 	keys := slices.Sorted(maps.Keys(cmap))
 	segStart := 0
@@ -111,7 +112,7 @@ func (cmap Format12) Encode(language uint16) []byte {
 		out[base+10] = byte(ss[i].StartGlyphID >> 8)
 		out[base+11] = byte(ss[i].StartGlyphID)
 	}
-	return out
+	return out, nil
 }
 
 func (cmap Format12) Lookup(code rune) glyph.ID {

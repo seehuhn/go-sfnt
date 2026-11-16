@@ -13,7 +13,10 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 )
 
-var errTooManyMappings = errors.New("cmap: too many mappings for a format 4 subtable")
+// ErrTooLarge is returned by the Encode method of a subtable when the mapping
+// does not fit into the subtable format.  A caller can then choose a
+// different format.
+var ErrTooLarge = errors.New("cmap: mapping too large for subtable format")
 
 // Format4 represents a format 4 cmap subtable.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-4-segment-mapping-to-delta-values
@@ -97,21 +100,10 @@ func (cmap Format4) Lookup(r rune) glyph.ID {
 	return cmap[uint16(r)]
 }
 
-// Encode encodes the subtable into a byte slice.  The method panics if the
-// mapping is too large for a format 4 subtable; use [Format4.TryEncode] to
-// check for this case.
-func (cmap Format4) Encode(language uint16) []byte {
-	data, err := cmap.TryEncode(language)
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-// TryEncode encodes the subtable into a byte slice.  An error is returned if
-// the mapping does not fit into a format 4 subtable, where all offsets and the
-// total length are limited to 16 bits.
-func (cmap Format4) TryEncode(language uint16) ([]byte, error) {
+// Encode returns the binary form of the subtable.  If the mapping does not
+// fit into a format 4 subtable, where all offsets and the total length are
+// limited to 16 bits, [ErrTooLarge] is returned.
+func (cmap Format4) Encode(language uint16) ([]byte, error) {
 	g := makeSegments(cmap)
 	segments, err := dag.ShortestPath(g, 0x10000)
 	if err != nil {
@@ -129,7 +121,7 @@ func (cmap Format4) TryEncode(language uint16) ([]byte, error) {
 			offs := 2 * (len(segments) - i + // remaining entries in IDRangeOffsets
 				len(GlyphIDArray)) // any previous entries in GlyphIDArray
 			if offs > 65535 {
-				return nil, errTooManyMappings
+				return nil, ErrTooLarge
 			}
 			IDRangeOffsets = append(IDRangeOffsets, uint16(offs))
 			for c := uint32(s.first); c <= uint32(s.last); c++ {
@@ -141,7 +133,7 @@ func (cmap Format4) TryEncode(language uint16) ([]byte, error) {
 	// Encode the data in the binary format
 	segCount := len(StartCode)
 	if 2*(8+4*segCount+len(GlyphIDArray)) > 0xFFFF {
-		return nil, errTooManyMappings
+		return nil, ErrTooLarge
 	}
 	sel := bits.Len(uint(segCount))
 	data := &cmapFormat4{

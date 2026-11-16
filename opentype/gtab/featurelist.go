@@ -5,6 +5,7 @@ package gtab
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -243,9 +244,15 @@ func (f *Feature) encodeLen(paramSizes map[FeatureParams]int) int {
 // identical encodings share one table.  The tables are stored in the order
 // of the features if possible, and otherwise in order of increasing size.
 // An error is returned if a Feature table cannot be reached through its
-// Offset16.
+// Offset16, or if a count does not fit into its 16-bit field.
 func (info FeatureListInfo) layout() (*featureListLayout, error) {
 	for _, f := range info {
+		if len(f.Lookups) > 0xFFFF {
+			return nil, errors.New("feature: too many lookups")
+		}
+		if cv, ok := f.Params.(*FeatureParamsCharacterVariants); ok && len(cv.Characters) > 0xFFFF {
+			return nil, errors.New("feature: too many character variant characters")
+		}
 		// the feature params table, if any, follows the lookup indices
 		if f.Params != nil {
 			paramsOffset := 4 + 2*len(f.Lookups)
@@ -278,7 +285,7 @@ func (info FeatureListInfo) layoutInOrder(order []int) (*featureListLayout, erro
 	for _, i := range order {
 		f := info[i]
 		var err error
-		offs[i], err = pool.AddFunc(featureKey(f), f.encodeBody)
+		offs[i], err = pool.AddFunc(featureKey(f), func() ([]byte, error) { return f.encodeBody(), nil })
 		if err != nil {
 			return nil, err
 		}
@@ -305,11 +312,17 @@ func (f *Feature) encodeBody() []byte {
 	return enc
 }
 
-func (info FeatureListInfo) encode() []byte {
+// encode returns the encoded feature list.  An error is returned if a
+// Feature table cannot be reached through its Offset16, or if a count does
+// not fit into its 16-bit field.
+func (info FeatureListInfo) encode() ([]byte, error) {
 	if info == nil {
-		return nil
+		return nil, nil
 	}
-	l := mustFitList(info.layout())
+	l, err := info.layout()
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, 2+6*len(info), l.encodeLen())
 	buf[0] = byte(len(info) >> 8)
@@ -319,7 +332,7 @@ func (info FeatureListInfo) encode() []byte {
 		buf[6+6*i] = byte(l.offs[i] >> 8)
 		buf[7+6*i] = byte(l.offs[i])
 	}
-	return append(buf, l.pool.Bytes()...)
+	return append(buf, l.pool.Bytes()...), nil
 }
 
 // Default features for use with the [Info.FindLookups] method.

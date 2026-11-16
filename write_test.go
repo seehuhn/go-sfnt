@@ -18,6 +18,7 @@ import (
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/head"
@@ -161,8 +162,14 @@ func testLargeGpos(t *testing.T, lookups, subtables, classes int) {
 	// The encoding is the fixpoint that matters here: the lookup list has to
 	// come back with its subtables in the same shape, whatever reordering and
 	// extension records the writer needed to fit the offsets.
-	before := f1.Gpos.Encode()
-	after := f2.Gpos.Encode()
+	before, err := f1.Gpos.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := f2.Gpos.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Guard against a vacuous test: each case exists to drive the layout past
 	// what 16-bit offsets reach, which is only true while the writer answers
@@ -545,5 +552,87 @@ func TestWriteVerticalTSB(t *testing.T) {
 	}
 	if diff := cmp.Diff(f.Vertical.Heights, info.Heights); diff != "" {
 		t.Errorf("heights (-want +got):\n%s", diff)
+	}
+}
+
+// TestWriteRejectsNumGlyphs checks that the writer refuses a glyph count
+// the "maxp" table cannot hold.
+func TestWriteRejectsNumGlyphs(t *testing.T) {
+	for _, n := range []int{0, 1 << 16} {
+		glyphs := make([]*cff.Glyph, n)
+		for i := range glyphs {
+			glyphs[i] = cff.NewGlyph("g", 0)
+		}
+		font := &Font{
+			FontName:   "Test",
+			UnitsPerEm: 1000,
+			FontMatrix: matrix.Matrix{0.001, 0, 0, 0.001, 0, 0},
+			Outlines: &cff.Outlines{
+				Glyphs:   glyphs,
+				Private:  []*type1.PrivateDict{{}},
+				FDSelect: func(glyph.ID) int { return 0 },
+			},
+		}
+		if _, err := font.Write(io.Discard); err == nil {
+			t.Errorf("%d glyphs: write succeeded", n)
+		}
+	}
+}
+
+// TestWriteRejectsOversizedLayout checks that the writer returns an error
+// if a GSUB or GPOS table cannot be encoded.
+func TestWriteRejectsOversizedLayout(t *testing.T) {
+	// 200*200 class pairs with 4-byte records exceed the 64 KiB an
+	// Offset16 reaches
+	const n = 200
+	adj := make([][]*gtab.PairAdjust, n)
+	for i := range adj {
+		adj[i] = make([]*gtab.PairAdjust, n)
+		for j := range adj[i] {
+			adj[i][j] = &gtab.PairAdjust{
+				First:  &gtab.GposValueRecord{XPlacement: 1},
+				Second: &gtab.GposValueRecord{XPlacement: 1},
+			}
+		}
+	}
+	info := &gtab.Info{
+		LookupList: gtab.LookupList{{
+			Meta: &gtab.LookupMetaInfo{LookupType: 2},
+			Subtables: []gtab.Subtable{&gtab.Gpos2_2{
+				Cov:            coverage.Set{1: true},
+				Class1:         classdef.Table{1: 1},
+				Class2:         classdef.Table{1: 1},
+				Adjust:         adj,
+				PositionSecond: true,
+			}},
+		}},
+	}
+
+	f, err := Read(bytes.NewReader(goregular.TTF), parser.NewBudget(int64(len(goregular.TTF))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Gpos = info
+	if _, err := f.Write(io.Discard); err == nil {
+		t.Error("oversized GPOS written")
+	}
+
+	f.Gpos = nil
+	f.Gsub = info
+	if _, err := f.Write(io.Discard); err == nil {
+		t.Error("oversized GSUB written")
+	}
+}
+
+// TestInstallCMapTooLarge checks that InstallCMap reports a subtable which
+// cannot be encoded, and leaves the font unchanged.
+func TestInstallCMapTooLarge(t *testing.T) {
+	f := &Font{}
+	s := &cmap.Format6{FirstCode: 0xFFFF, GlyphIDs: []glyph.ID{1, 2}}
+	if err := f.InstallCMap(s); err == nil {
+		t.Error("InstallCMap succeeded")
+	}
+	if f.CMapTable != nil {
+		t.Error("cmap table changed")
 	}
 }

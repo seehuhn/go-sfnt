@@ -4,6 +4,7 @@
 package cmap
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -45,7 +46,7 @@ func TestFormat6(t *testing.T) {
 		t.Errorf("empty CodeRange() = %d, %d, want 0, 0", low, high)
 	}
 
-	if diff := cmp.Diff(data, c.Encode(0)); diff != "" {
+	if diff := cmp.Diff(data, mustEncode(t, c)); diff != "" {
 		t.Errorf("round trip failed (-want +got):\n%s", diff)
 	}
 }
@@ -72,27 +73,29 @@ func TestFormat6Oversized(t *testing.T) {
 	}
 }
 
-// TestFormat6EncodeTooLarge checks that Encode panics for subtables which
-// cannot be represented in the binary format.
+// TestFormat6EncodeTooLarge checks that Encode returns ErrTooLarge for
+// subtables which cannot be represented in the binary format.
 func TestFormat6EncodeTooLarge(t *testing.T) {
 	cases := []*Format6{
 		{GlyphIDs: make([]glyph.ID, maxFormat6Entries+1)},
 		{FirstCode: 0xFFFF, GlyphIDs: make([]glyph.ID, 2)},
 	}
 	for i, c := range cases {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Errorf("%d: Encode did not panic", i)
-				}
-			}()
-			c.Encode(0)
-		}()
+		if _, err := c.Encode(0); !errors.Is(err, ErrTooLarge) {
+			t.Errorf("%d: got error %v, want ErrTooLarge", i, err)
+		}
 	}
 
 	// the largest valid subtables
-	(&Format6{GlyphIDs: make([]glyph.ID, maxFormat6Entries)}).Encode(0)
-	(&Format6{FirstCode: 0xFFFF, GlyphIDs: make([]glyph.ID, 1)}).Encode(0)
+	valid := []*Format6{
+		{GlyphIDs: make([]glyph.ID, maxFormat6Entries)},
+		{FirstCode: 0xFFFF, GlyphIDs: make([]glyph.ID, 1)},
+	}
+	for i, c := range valid {
+		if _, err := c.Encode(0); err != nil {
+			t.Errorf("%d: %v", i, err)
+		}
+	}
 }
 
 // TestFormat6MacRoman checks that Table.Get translates the Mac Roman codes
@@ -142,7 +145,10 @@ func FuzzFormat6(f *testing.F) {
 			return
 		}
 
-		data2 := f6.Encode(0)
+		data2, err := f6.Encode(0)
+		if err != nil {
+			t.Fatal(err)
+		}
 		c2, err := decodeFormat6(data2, nil)
 		if err != nil {
 			t.Fatal(err)

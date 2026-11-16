@@ -211,7 +211,7 @@ func FuzzLookupList(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeList(f, l))
 
 	l = LookupList{
 		&LookupTable{
@@ -224,7 +224,7 @@ func FuzzLookupList(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeList(f, l))
 
 	l = LookupList{
 		&LookupTable{
@@ -257,7 +257,7 @@ func FuzzLookupList(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeList(f, l))
 
 	f.Fuzz(func(t *testing.T, data1 []byte) {
 		p := parser.New(bytes.NewReader(data1), parser.NewBudget(int64(len(data1))))
@@ -266,7 +266,7 @@ func FuzzLookupList(f *testing.F) {
 			return
 		}
 
-		data2 := l1.encode()
+		data2 := encodeList(t, l1)
 
 		p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 		l2, err := readLookupList(p, 0, readDummySubtable)
@@ -306,8 +306,8 @@ func (st dummySubtable) apply(ctx *Context, a, b int) int {
 	return -1
 }
 
-func (st dummySubtable) fits() error {
-	return nil
+func (st dummySubtable) layout() (subtableLayout, error) {
+	return st, nil
 }
 
 func (st dummySubtable) encodeLen() int {
@@ -341,7 +341,7 @@ func TestLookupListLayout(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			want := largeLookupList(c.lookups, c.subtable, c.glyphs)
 
-			data := want.encode()
+			data := encodeList(t, want)
 			big := len(data) > 0xFFFF
 			if big != (c.glyphs > 1000) {
 				t.Fatalf("lookup list is %d bytes; the case does not test what it means to",
@@ -353,7 +353,7 @@ func TestLookupListLayout(t *testing.T) {
 				t.Errorf("round trip (-want +got):\n%s", d)
 			}
 
-			if again := got.encode(); !bytes.Equal(data, again) {
+			if again := encodeList(t, got); !bytes.Equal(data, again) {
 				t.Errorf("re-encoding the decoded list gives %d bytes, want the same %d",
 					len(again), len(data))
 			}
@@ -379,7 +379,7 @@ func TestLookupListGpos2_1Extension(t *testing.T) {
 		Subtables: ss,
 	}}
 
-	data := want.encode()
+	data := encodeList(t, want)
 	if len(data) <= 0xFFFF {
 		t.Fatalf("lookup list is %d bytes; extension records are not needed", len(data))
 	}
@@ -430,7 +430,7 @@ func TestLookupListDropsOverlappingPairSets(t *testing.T) {
 	good := &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{
 		{Left: 1, Right: 2}: {First: &GposValueRecord{XAdvance: -5}},
 	}}
-	goodEnc := good.encode()
+	goodEnc := encodeSubtable(t, good)
 
 	badPos := 4 + 6 + 2*2 // lookup list header, lookup table header, two offsets
 	goodPos := badPos + len(bad)
@@ -450,7 +450,7 @@ func TestLookupListDropsOverlappingPairSets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if badSub.fits() == nil {
+	if _, err := badSub.layout(); err == nil {
 		t.Fatal("test subtable fits; the pair sets must not")
 	}
 
@@ -467,7 +467,7 @@ func TestLookupListDropsOverlappingPairSets(t *testing.T) {
 		t.Errorf("subtables read (-want +got):\n%s", d)
 	}
 
-	enc := got.encode()
+	enc := encodeList(t, got)
 	p = parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
 	got2, err := readLookupList(p, 0, readGposSubtable)
 	if err != nil {
@@ -493,7 +493,7 @@ func TestLookupListSubtableOrder(t *testing.T) {
 		}
 	}
 
-	data := ll.encode()
+	data := encodeList(t, ll)
 	if len(data) <= 0xFFFF {
 		t.Fatalf("lookup list is only %d bytes", len(data))
 	}
@@ -580,7 +580,7 @@ func TestLookupListMovesLargestLookup(t *testing.T) {
 		lookupOf(bigGsub(50, 201)),
 		lookupOf(bigGsub(50, 401)),
 	}
-	first, second := ll[0].Subtables[0].encodeLen(), ll[0].Subtables[1].encodeLen()
+	first, second := subtableLen(t, ll[0].Subtables[0]), subtableLen(t, ll[0].Subtables[1])
 	if first+second <= 0xFFFF {
 		t.Fatalf("the first lookup is only %d bytes; it does not dominate", first+second)
 	}
@@ -589,7 +589,7 @@ func TestLookupListMovesLargestLookup(t *testing.T) {
 			6+first)
 	}
 
-	data := ll.encode()
+	data := encodeList(t, ll)
 	got := decodeLookupList(t, data)
 	if d := cmp.Diff(ll, got); d != "" {
 		t.Errorf("round trip (-want +got):\n%s", d)
@@ -690,4 +690,57 @@ func TestFindLookupsFallback(t *testing.T) {
 	if got := info.FindLookups(language.Thai, nil); len(got) != 1 || got[0] != 3 {
 		t.Errorf("FindLookups(Thai) without DFLT and latn = %v, want [3]", got)
 	}
+}
+
+// layoutSubtable returns the layout of st, and fails the test if the
+// subtable cannot be encoded.
+func layoutSubtable(tb testing.TB, st Subtable) subtableLayout {
+	tb.Helper()
+	lay, err := st.layout()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return lay
+}
+
+// encodeSubtable returns the encoded subtable, and fails the test if the
+// subtable cannot be encoded.
+func encodeSubtable(tb testing.TB, st Subtable) []byte {
+	tb.Helper()
+	return layoutSubtable(tb, st).encode()
+}
+
+// subtableLen returns the length of the encoded subtable, and fails the
+// test if the subtable cannot be encoded.
+func subtableLen(tb testing.TB, st Subtable) int {
+	tb.Helper()
+	return layoutSubtable(tb, st).encodeLen()
+}
+
+// listEncoder is implemented by [ScriptListInfo], [FeatureListInfo] and
+// [LookupList].
+type listEncoder interface {
+	encode() ([]byte, error)
+}
+
+// encodeList returns the encoded script, feature or lookup list, and fails
+// the test if the list cannot be encoded.
+func encodeList(tb testing.TB, l listEncoder) []byte {
+	tb.Helper()
+	data, err := l.encode()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return data
+}
+
+// encodeInfo returns the encoded GSUB or GPOS table, and fails the test if
+// the table cannot be encoded.
+func encodeInfo(tb testing.TB, info *Info) []byte {
+	tb.Helper()
+	data, err := info.Encode()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return data
 }

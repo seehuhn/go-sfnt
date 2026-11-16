@@ -205,10 +205,9 @@ func (l *Gpos4_1) countMarkClasses() int {
 	return count
 }
 
-// layout computes the encoded layout of the subtable.  The mark and base
-// coverage tables are stored once if they are identical.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *Gpos4_1) layout() (*markAttach, error) {
+// layout implements the [Subtable] interface.  The mark and base coverage
+// tables are stored once if they are identical.
+func (l *Gpos4_1) layout() (subtableLayout, error) {
 	markClassCount := l.countMarkClasses()
 	marks, err := newMarkArray("Gpos4_1", l.MarkArray)
 	if err != nil {
@@ -218,22 +217,9 @@ func (l *Gpos4_1) layout() (*markAttach, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newMarkAttach("Gpos4_1", l.MarkCov, l.BaseCov, markClassCount, marks, bases)
-}
-
-// encodeLen implements the [Subtable] interface.
-func (l *Gpos4_1) encodeLen() int {
-	return mustFit(l.layout()).size()
-}
-
-// encode implements the [Subtable] interface.
-func (l *Gpos4_1) encode() []byte {
-	lay := mustFit(l.layout())
-	return lay.append(make([]byte, 0, lay.size()))
-}
-
-// fits implements the [Subtable] interface.
-func (l *Gpos4_1) fits() error {
-	_, err := l.layout()
-	return err
+	lay, err := newMarkAttach("Gpos4_1", l.MarkCov, l.BaseCov, markClassCount, marks, bases)
+	if err != nil {
+		return nil, err
+	}
+	return lay, nil
 }

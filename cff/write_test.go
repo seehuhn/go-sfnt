@@ -265,6 +265,27 @@ func TestWriteCFF2FDSelectRange(t *testing.T) {
 	}
 }
 
+// TestWriteCFF2TooManyGlyphs checks that a CFF2 font with more glyphs than
+// the maxp table can count is refused.  ReadCFF2 rejects such fonts, so
+// writing them would break the round trip.
+func TestWriteCFF2TooManyGlyphs(t *testing.T) {
+	glyphs := make([]*GlyphCFF2, maxGlyphs+1)
+	for i := range glyphs {
+		glyphs[i] = &GlyphCFF2{}
+	}
+	f := &FontCFF2{
+		FontMatrix: matrix.Matrix{0.001, 0, 0, 0.001, 0, 0},
+		OutlinesCFF2: &OutlinesCFF2{
+			Glyphs:   glyphs,
+			Private:  []*PrivateCFF2{{}},
+			FDSelect: func(glyph.ID) int { return 0 },
+		},
+	}
+	if err := f.Write(io.Discard); err == nil {
+		t.Error("expected an error")
+	}
+}
+
 // TestWriteCFF2TooManyFontDICTs checks the corresponding limit for CFF2.
 // ReadCFF2 rejects such fonts, so writing them would break the round trip.
 func TestWriteCFF2TooManyFontDICTs(t *testing.T) {

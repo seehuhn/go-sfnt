@@ -67,7 +67,11 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 				// subset may not fit into a format 4 subtable
 				putFormat4(res.CMapTable, key, c, f.CMapTable)
 			default:
-				res.CMapTable[key] = c.Encode(key.Language)
+				data, err := c.Encode(key.Language)
+				if err != nil {
+					return nil, err
+				}
+				res.CMapTable[key] = data
 			}
 		}
 	}

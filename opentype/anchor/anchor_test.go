@@ -35,10 +35,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			buf := c.tab.Append(nil)
-			if len(buf) != c.tab.EncodeLen() {
-				t.Errorf("EncodeLen = %d, Append wrote %d", c.tab.EncodeLen(), len(buf))
-			}
+			buf := mustAppend(t, c.tab)
 			p := parser.New(bytes.NewReader(buf), parser.NewBudget(int64(len(buf))))
 			got, err := Read(p, 0)
 			if err != nil {
@@ -65,7 +62,7 @@ func TestSharedDevice(t *testing.T) {
 		return &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1}
 	}
 	tab := Table{XDev: dev(), YDev: dev()}
-	buf := tab.Append(nil)
+	buf := mustAppend(t, tab)
 	if want := 10 + dev().EncodeLen(); len(buf) != want {
 		t.Errorf("length %d, want %d", len(buf), want)
 	}
@@ -74,8 +71,8 @@ func TestSharedDevice(t *testing.T) {
 	}
 
 	other := Table{XDev: dev(), YDev: &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, 1}, DeltaFormat: 1}}
-	if want := 10 + 2*dev().EncodeLen(); other.EncodeLen() != want {
-		t.Errorf("distinct tables: length %d, want %d", other.EncodeLen(), want)
+	if want, got := 10+2*dev().EncodeLen(), len(mustAppend(t, other)); got != want {
+		t.Errorf("distinct tables: length %d, want %d", got, want)
 	}
 }
 
@@ -118,6 +115,17 @@ func TestReaderSharing(t *testing.T) {
 	}
 }
 
+// mustAppend returns the encoded anchor table, and fails the test if the
+// table cannot be encoded.
+func mustAppend(t *testing.T, tab Table) []byte {
+	t.Helper()
+	buf, err := tab.Append(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return buf
+}
+
 func markBE16(vals ...int) []byte {
 	var buf []byte
 	for _, v := range vals {
@@ -142,10 +150,7 @@ func TestLargeDeviceFirst(t *testing.T) {
 		XDev: bigDevice(1),
 		YDev: &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1},
 	}
-	data := tab.Append(nil)
-	if len(data) != tab.EncodeLen() {
-		t.Errorf("encodeLen mismatch: %d != %d", tab.EncodeLen(), len(data))
-	}
+	data := mustAppend(t, tab)
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	got, err := Read(p, 0)
 	if err != nil {
@@ -161,12 +166,9 @@ func TestDevicesTooLarge(t *testing.T) {
 	if NewReader(nil).fits(&tab) {
 		t.Error("fits reports success")
 	}
-	defer func() {
-		if recover() == nil {
-			t.Error("expected panic, got none")
-		}
-	}()
-	tab.Append(nil)
+	if _, err := tab.Append(nil); err == nil {
+		t.Error("Append succeeded")
+	}
 }
 
 // TestReadDropsUnreachableDevice checks that the YDev table is dropped on
@@ -192,7 +194,7 @@ func TestReadDropsUnreachableDevice(t *testing.T) {
 		t.Error("YDev kept")
 	}
 
-	data2 := got.Append(nil)
+	data2 := mustAppend(t, got)
 	p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 	got2, err := Read(p, 0)
 	if err != nil {

@@ -14,8 +14,10 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 )
 
-// maxGlyphs is the largest number of glyphs a CFF font can contain, since
-// the CharStrings INDEX stores the glyph count in a 16-bit field.
+// maxGlyphs is the largest number of glyphs a CFF or CFF2 font can contain.
+// The CharStrings INDEX of a CFF font stores the glyph count in a 16-bit
+// field.  CFF2 uses a 32-bit field, but the count must match the 16-bit
+// numGlyphs field of the maxp table.
 const maxGlyphs = 65535
 
 // maxCharStringLen is the largest charstring, in bytes, a Type 2 charstring
@@ -63,7 +65,11 @@ func (f *Font) writeCharStrings(w io.Writer, charStrings cffIndex, defWidths, no
 	})
 
 	// section 1: Name INDEX
-	blobs = append(blobs, cffIndex{[]byte(f.FontInfo.FontName)}.encode())
+	nameIndex, err := cffIndex{[]byte(f.FontInfo.FontName)}.encode()
+	if err != nil {
+		return err
+	}
+	blobs = append(blobs, nameIndex)
 
 	// section 2: top dict INDEX
 	topDict := makeTopDict(f.FontInfo)
@@ -94,7 +100,7 @@ func (f *Font) writeCharStrings(w io.Writer, charStrings cffIndex, defWidths, no
 	blobs = append(blobs, nil)
 
 	// section 4: global subr INDEX
-	blobs = append(blobs, cffIndex{}.encode())
+	blobs = append(blobs, emptyIndex())
 
 	// section 5: encodings
 	secEncodings := -1
@@ -152,7 +158,11 @@ func (f *Font) writeCharStrings(w io.Writer, charStrings cffIndex, defWidths, no
 
 	// section 8: charstrings INDEX
 	secCharStringsIndex := len(blobs)
-	blobs = append(blobs, charStrings.encode())
+	charStringsIndex, err := charStrings.encode()
+	if err != nil {
+		return err
+	}
+	blobs = append(blobs, charStringsIndex)
 
 	// section 9: font DICT INDEX
 	numFonts := len(f.Private)
@@ -195,7 +205,7 @@ func (f *Font) writeCharStrings(w io.Writer, charStrings cffIndex, defWidths, no
 	// section 11: subrs INDEX
 	// TODO(voss): only write this section, if subroutines are present?
 	secSubrsIndex := len(blobs)
-	blobs = append(blobs, cffIndex{}.encode())
+	blobs = append(blobs, emptyIndex())
 
 	numSections := len(blobs)
 
@@ -231,7 +241,10 @@ func (f *Font) writeCharStrings(w io.Writer, charStrings cffIndex, defWidths, no
 			}
 		}
 		if f.ROS != nil {
-			blobs[secFontDictIndex] = fontDictIndex.encode()
+			blobs[secFontDictIndex], err = fontDictIndex.encode()
+			if err != nil {
+				return err
+			}
 		}
 
 		topDict[opCharset] = []any{offs[secCharsets]}
@@ -244,7 +257,10 @@ func (f *Font) writeCharStrings(w io.Writer, charStrings cffIndex, defWidths, no
 			topDict[opFDArray] = []any{offs[secFontDictIndex]}
 		}
 		topDictData := topDict.encode(strings)
-		blobs[secTopDictIndex] = cffIndex{topDictData}.encode()
+		blobs[secTopDictIndex], err = cffIndex{topDictData}.encode()
+		if err != nil {
+			return err
+		}
 
 		blobs[secStringIndex], err = strings.encode()
 		if err != nil {

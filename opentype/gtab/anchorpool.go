@@ -35,13 +35,13 @@ func newAnchorPool(name string, base int) anchorPool {
 }
 
 // add registers a and returns its pool index.  A nil anchor is absent from
-// the array and yields index -1.  An error is returned if the anchors cannot
-// be reached through Offset16 fields.
+// the array and yields index -1.  An error is returned if the anchor cannot
+// be encoded, or if the anchors cannot be reached through Offset16 fields.
 func (p anchorPool) add(a *anchor.Table) (int, error) {
 	if a == nil {
 		return -1, nil
 	}
-	return p.AddFunc(p.key(a), func() []byte { return a.Append(nil) })
+	return p.AddFunc(p.key(a), func() ([]byte, error) { return a.Append(nil) })
 }
 
 // anchorKey identifies the encoding of an anchor table.
@@ -126,6 +126,9 @@ type anchorMatrix struct {
 // name identifies the enclosing subtable in the error returned when the table
 // grows out of reach.
 func newAnchorMatrix(name string, rows [][]*anchor.Table, cols int) (*anchorMatrix, error) {
+	if len(rows) > 0xFFFF {
+		return nil, fmt.Errorf("%s: too many anchor rows", name)
+	}
 	pool := newAnchorPool(name, 2+2*len(rows)*cols)
 	anchors := make([][]int, len(rows))
 	for i, row := range rows {
@@ -178,6 +181,9 @@ type markAttach struct {
 // is returned if an offset in the subtable header does not fit into an
 // Offset16.
 func newMarkAttach(name string, markCov, attachCov coverage.Table, markClassCount int, marks *markArray, attach attachArray) (*markAttach, error) {
+	if markClassCount > 0xFFFF {
+		return nil, fmt.Errorf("%s: too many mark classes", name)
+	}
 	m := &markAttach{
 		markClassCount: markClassCount,
 		markCov:        markCov.Encode(),
@@ -214,8 +220,7 @@ func (m *markAttach) sizes() []int {
 	return sizes
 }
 
-// size returns the encoded length of the subtable.
-func (m *markAttach) size() int {
+func (m *markAttach) encodeLen() int {
 	total := 12
 	for _, size := range m.sizes() {
 		total += max(size, 0)
@@ -223,8 +228,8 @@ func (m *markAttach) size() int {
 	return total
 }
 
-// append appends the encoded subtable to buf.
-func (m *markAttach) append(buf []byte) []byte {
+func (m *markAttach) encode() []byte {
+	buf := make([]byte, 0, m.encodeLen())
 	buf = appendUint16(buf, 1) // format
 	buf = appendUint16(buf, m.offs[0])
 	buf = appendUint16(buf, m.offs[1])

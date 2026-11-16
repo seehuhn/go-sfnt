@@ -62,7 +62,8 @@ func (p *Pool) Add(enc []byte) (uint16, error) {
 // AddFunc is like [Pool.Add], but avoids encoding a Go value more than
 // once.  The key identifies the Go value the table is encoded from, and
 // encode returns its encoding.  If AddFunc was called with the same key
-// before, the earlier offset is returned without calling encode.
+// before, the earlier offset is returned without calling encode.  If encode
+// returns an error, AddFunc returns it and registers nothing.
 //
 // The readers share one Go value between all offsets which reach the same
 // table.  Without the key, laying out such a table would encode the shared
@@ -71,11 +72,15 @@ func (p *Pool) Add(enc []byte) (uint16, error) {
 // The caller must make sure that equal keys imply equal encodings.  Use a
 // pointer, or the result of [SliceKey] or [MapKey], and only for values
 // whose encoding depends on nothing else.
-func (p *Pool) AddFunc(key any, encode func() []byte) (uint16, error) {
+func (p *Pool) AddFunc(key any, encode func() ([]byte, error)) (uint16, error) {
 	if off, ok := p.byKey[key]; ok {
 		return off, nil
 	}
-	off, err := p.Add(encode())
+	enc, err := encode()
+	if err != nil {
+		return 0, err
+	}
+	off, err := p.Add(enc)
 	if err != nil {
 		return 0, err
 	}
@@ -257,11 +262,15 @@ func (d *Deferred) Add(enc []byte) (int, error) {
 
 // AddFunc is like [Deferred.Add], but avoids encoding a Go value more than
 // once.  The key and encode arguments are as for [Pool.AddFunc].
-func (d *Deferred) AddFunc(key any, encode func() []byte) (int, error) {
+func (d *Deferred) AddFunc(key any, encode func() ([]byte, error)) (int, error) {
 	if i, ok := d.byKey[key]; ok {
 		return i, nil
 	}
-	i, err := d.Add(encode())
+	enc, err := encode()
+	if err != nil {
+		return 0, err
+	}
+	i, err := d.Add(enc)
 	if err != nil {
 		return 0, err
 	}

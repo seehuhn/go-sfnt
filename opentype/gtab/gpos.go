@@ -22,16 +22,6 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
-// mustFit returns the layout of a subtable, and panics if the subtable
-// cannot be encoded.  The encoders use it because their input comes from
-// the API, which is trusted.
-func mustFit[T any](lay T, err error) T {
-	if err != nil {
-		panic(fmt.Sprintf("sfnt/gtab: %v; split the lookup into smaller subtables", err))
-	}
-	return lay
-}
-
 // fitOffset16 returns off as an Offset16, or an error if it does not fit.
 func fitOffset16(name string, off int) (uint16, error) {
 	if off > 0xFFFF {
@@ -132,6 +122,7 @@ func (l *Gpos1_1) apply(ctx *Context, a, b int) int {
 // gpos1_1Layout is the encoded layout of a [Gpos1_1] subtable: the header
 // and value record, the Device tables, and the coverage table.
 type gpos1_1Layout struct {
+	l      *Gpos1_1
 	format uint16
 	dev    [4]int // pool indices of the Device tables
 	cov    int    // pool index of the coverage table
@@ -139,9 +130,8 @@ type gpos1_1Layout struct {
 	size   int
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *Gpos1_1) layout() (*gpos1_1Layout, error) {
+// layout implements the [Subtable] interface.
+func (l *Gpos1_1) layout() (subtableLayout, error) {
 	format := l.Adjust.getFormat()
 	devStart := 6 + valueRecordEncodeLen(format)
 	pool := newDevicePool("Gpos1_1", devStart)
@@ -153,17 +143,15 @@ func (l *Gpos1_1) layout() (*gpos1_1Layout, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &gpos1_1Layout{format: format, dev: dev, cov: cov, pool: pool, size: devStart + pool.Len()}, nil
+	return &gpos1_1Layout{l: l, format: format, dev: dev, cov: cov, pool: pool, size: devStart + pool.Len()}, nil
 }
 
-// encodeLen implements the [Subtable] interface.
-func (l *Gpos1_1) encodeLen() int {
-	return mustFit(l.layout()).size
+func (lay *gpos1_1Layout) encodeLen() int {
+	return lay.size
 }
 
-// encode implements the [Subtable] interface.
-func (l *Gpos1_1) encode() []byte {
-	lay := mustFit(l.layout())
+func (lay *gpos1_1Layout) encode() []byte {
+	l := lay.l
 	offs, data := lay.pool.Place()
 	buf := make([]byte, 0, lay.size)
 	buf = appendUint16(buf, 1) // format
@@ -245,6 +233,7 @@ func (l *Gpos1_2) sharedFormat() uint16 {
 // gpos1_2Layout is the encoded layout of a [Gpos1_2] subtable: the header
 // and value records, the Device tables, and the coverage table.
 type gpos1_2Layout struct {
+	l      *Gpos1_2
 	format uint16
 	dev    [][4]int // pool indices of the Device tables, for each record
 	cov    int      // pool index of the coverage table
@@ -252,9 +241,11 @@ type gpos1_2Layout struct {
 	size   int
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *Gpos1_2) layout() (*gpos1_2Layout, error) {
+// layout implements the [Subtable] interface.
+func (l *Gpos1_2) layout() (subtableLayout, error) {
+	if len(l.Adjust) > 0xFFFF {
+		return nil, errors.New("Gpos1_2: too many value records")
+	}
 	format := l.sharedFormat()
 	devStart := 8 + valueRecordEncodeLen(format)*len(l.Adjust)
 	pool := newDevicePool("Gpos1_2", devStart)
@@ -270,17 +261,15 @@ func (l *Gpos1_2) layout() (*gpos1_2Layout, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &gpos1_2Layout{format: format, dev: dev, cov: cov, pool: pool, size: devStart + pool.Len()}, nil
+	return &gpos1_2Layout{l: l, format: format, dev: dev, cov: cov, pool: pool, size: devStart + pool.Len()}, nil
 }
 
-// encodeLen implements the [Subtable] interface.
-func (l *Gpos1_2) encodeLen() int {
-	return mustFit(l.layout()).size
+func (lay *gpos1_2Layout) encodeLen() int {
+	return lay.size
 }
 
-// encode implements the [Subtable] interface.
-func (l *Gpos1_2) encode() []byte {
-	lay := mustFit(l.layout())
+func (lay *gpos1_2Layout) encode() []byte {
+	l := lay.l
 	offs, data := lay.pool.Place()
 	buf := make([]byte, 0, lay.size)
 	buf = appendUint16(buf, 2) // format
@@ -519,10 +508,9 @@ type pairDevOffsets struct {
 	first, second [4]uint16
 }
 
-// layout groups the pairs into pair sets, sharing pair sets with identical
-// content, and computes every offset.  An error is returned if an offset does
-// not fit into an Offset16.
-func (l *Gpos2_1) layout() (*pairSetLayout, error) {
+// layout implements the [Subtable] interface.  It groups the pairs into pair
+// sets, sharing pair sets with identical content, and computes every offset.
+func (l *Gpos2_1) layout() (subtableLayout, error) {
 	cov, adjust := l.CovAndAdjust()
 	format1, format2 := l.sharedFormats()
 	res := &pairSetLayout{
@@ -538,6 +526,9 @@ func (l *Gpos2_1) layout() (*pairSetLayout, error) {
 		id := pairSetID(adj, keys, format1, format2, devIDs)
 		idx, ok := seen[id]
 		if !ok {
+			if len(adj) > 0xFFFF {
+				return nil, errors.New("Gpos2_1: too many pairs in a pair set")
+			}
 			idx = len(res.sets)
 			seen[id] = idx
 			res.sets = append(res.sets, adj)
@@ -700,15 +691,11 @@ func (ps *pairSetLayout) pairSetLen(i int) int {
 	return 2 + recLen*len(ps.sets[i])
 }
 
-// encodeLen implements the [Subtable] interface.
-func (l *Gpos2_1) encodeLen() int {
-	return mustFit(l.layout()).size
+func (ps *pairSetLayout) encodeLen() int {
+	return ps.size
 }
 
-// encode implements the [Subtable] interface.
-func (l *Gpos2_1) encode() []byte {
-	ps := mustFit(l.layout())
-
+func (ps *pairSetLayout) encode() []byte {
 	buf := make([]byte, 0, ps.size)
 	buf = appendUint16(buf, 1) // format
 	buf = appendUint16(buf, ps.covOffset)
@@ -880,14 +867,10 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	}, nil
 }
 
-// countClasses returns the class1Count and class2Count for this subtable.  It
-// also validates the structural invariant the encoder depends on: every row in
-// Adjust must have width class2Count.  The records are written as one
-// rectangular block whose size the following offsets are measured from, so a
-// ragged row would displace the coverage table, the two classdefs and every
-// Device table.  Both encodeLen and encode call this, so inconsistent input is
-// caught on the first pass instead of leaving encodeLen happily returning a
-// size for unencodable data.
+// countClasses returns the class1Count and class2Count for this subtable.
+// The records are written as one rectangular block whose size the following
+// offsets are measured from, so every row in Adjust must have width
+// class2Count, the width of the first row.
 func (l *Gpos2_2) countClasses() (class1Count, class2Count int) {
 	class1Count = len(l.Adjust)
 	if class1Count > 0 {
@@ -920,6 +903,7 @@ func (l *Gpos2_2) sharedFormats() (uint16, uint16) {
 // and class records, followed by the Device tables, the coverage table and
 // the two class definitions.  Identical tables are stored once.
 type gpos2_2Layout struct {
+	l                        *Gpos2_2
 	cov                      coverage.Table
 	format1, format2         uint16
 	class1Count, class2Count int
@@ -935,9 +919,8 @@ type pairDevIndices struct {
 	first, second [4]int
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *Gpos2_2) layout() (*gpos2_2Layout, error) {
+// layout implements the [Subtable] interface.
+func (l *Gpos2_2) layout() (subtableLayout, error) {
 	valueFormat1, valueFormat2 := l.sharedFormats()
 	recLen := valueRecordEncodeLen(valueFormat1) + valueRecordEncodeLen(valueFormat2)
 	class1Count, class2Count := l.countClasses()
@@ -968,8 +951,16 @@ func (l *Gpos2_2) layout() (*gpos2_2Layout, error) {
 	}
 
 	cov := l.Cov.ToTable()
+	class1, err := l.Class1.Append(nil)
+	if err != nil {
+		return nil, err
+	}
+	class2, err := l.Class2.Append(nil)
+	if err != nil {
+		return nil, err
+	}
 	var tables [3]int
-	for i, enc := range [][]byte{cov.Encode(), l.Class1.Append(nil), l.Class2.Append(nil)} {
+	for i, enc := range [][]byte{cov.Encode(), class1, class2} {
 		var err error
 		tables[i], err = pool.Add(enc)
 		if err != nil {
@@ -977,6 +968,7 @@ func (l *Gpos2_2) layout() (*gpos2_2Layout, error) {
 		}
 	}
 	return &gpos2_2Layout{
+		l:           l,
 		cov:         cov,
 		format1:     valueFormat1,
 		format2:     valueFormat2,
@@ -989,14 +981,12 @@ func (l *Gpos2_2) layout() (*gpos2_2Layout, error) {
 	}, nil
 }
 
-// encodeLen implements the [Subtable] interface.
-func (l *Gpos2_2) encodeLen() int {
-	return mustFit(l.layout()).size
+func (lay *gpos2_2Layout) encodeLen() int {
+	return lay.size
 }
 
-// encode implements the [Subtable] interface.
-func (l *Gpos2_2) encode() []byte {
-	lay := mustFit(l.layout())
+func (lay *gpos2_2Layout) encode() []byte {
+	l := lay.l
 	offs, data := lay.pool.Place()
 
 	res := make([]byte, 0, lay.size)
@@ -1128,17 +1118,17 @@ func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 // gpos3_1Layout is the encoded layout of a [Gpos3_1] subtable: the header
 // and entry/exit offsets, the anchors, and the coverage table.
 type gpos3_1Layout struct {
+	l       *Gpos3_1
 	anchors [][2]int // pool indices of the entry and exit anchors
 	cov     int      // pool index of the coverage table
 	pool    anchorPool
 	size    int
 }
 
-// layout computes the encoded layout of the subtable.  Cursive attachment
-// reuses join points heavily, so the same anchor commonly appears on many
-// glyphs; identical anchors are stored once.  An error is returned if an
-// offset does not fit into an Offset16.
-func (l *Gpos3_1) layout() (*gpos3_1Layout, error) {
+// layout implements the [Subtable] interface.  Cursive attachment reuses
+// join points heavily, so the same anchor commonly appears on many glyphs;
+// identical anchors are stored once.
+func (l *Gpos3_1) layout() (subtableLayout, error) {
 	base := 6 + 4*len(l.Records)
 	pool := newAnchorPool("Gpos3_1", base)
 	anchors := make([][2]int, len(l.Records))
@@ -1155,17 +1145,15 @@ func (l *Gpos3_1) layout() (*gpos3_1Layout, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &gpos3_1Layout{anchors: anchors, cov: cov, pool: pool, size: base + pool.Len()}, nil
+	return &gpos3_1Layout{l: l, anchors: anchors, cov: cov, pool: pool, size: base + pool.Len()}, nil
 }
 
-// encodeLen implements the [Subtable] interface.
-func (l *Gpos3_1) encodeLen() int {
-	return mustFit(l.layout()).size
+func (lay *gpos3_1Layout) encodeLen() int {
+	return lay.size
 }
 
-// encode implements the [Subtable] interface.
-func (l *Gpos3_1) encode() []byte {
-	lay := mustFit(l.layout())
+func (lay *gpos3_1Layout) encode() []byte {
+	l := lay.l
 	offs, data := lay.pool.Place()
 
 	res := make([]byte, 0, lay.size)
@@ -1176,34 +1164,4 @@ func (l *Gpos3_1) encode() []byte {
 		res = appendOffsets(res, offs, a[:])
 	}
 	return append(res, data...)
-}
-
-// fits implements the [Subtable] interface.
-func (l *Gpos1_1) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *Gpos1_2) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *Gpos2_1) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *Gpos2_2) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *Gpos3_1) fits() error {
-	_, err := l.layout()
-	return err
 }

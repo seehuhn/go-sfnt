@@ -4,6 +4,7 @@
 package gdef
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -122,15 +123,18 @@ func (al *AttachList) layout() (*attachListLayout, error) {
 		if pts == nil {
 			continue
 		}
+		if len(pts) > 0xFFFF {
+			return nil, errors.New("too many attachment points")
+		}
 		var err error
-		offs[i], err = pool.AddFunc(offsetpool.SliceKey(pts), func() []byte {
+		offs[i], err = pool.AddFunc(offsetpool.SliceKey(pts), func() ([]byte, error) {
 			enc := make([]byte, 2, 2+2*len(pts))
 			enc[0] = byte(len(pts) >> 8)
 			enc[1] = byte(len(pts))
 			for _, pt := range pts {
 				enc = append(enc, byte(pt>>8), byte(pt))
 			}
-			return enc
+			return enc, nil
 		})
 		if err != nil {
 			return nil, err
@@ -294,15 +298,9 @@ func (lcl *LigCaretList) layout() (*ligCaretListLayout, error) {
 		if row == nil {
 			continue
 		}
-		var encErr error
-		off, err := pool.AddFunc(keys.Key(offsetpool.SliceKey(row), len(row), slices.Values(row)), func() []byte {
-			var enc []byte
-			enc, encErr = encodeLigGlyph(row)
-			return enc
+		off, err := pool.AddFunc(keys.Key(offsetpool.SliceKey(row), len(row), slices.Values(row)), func() ([]byte, error) {
+			return encodeLigGlyph(row)
 		})
-		if encErr != nil {
-			return nil, encErr
-		}
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +315,7 @@ func encodeLigGlyph(row []CaretValue) ([]byte, error) {
 	offs := make([]uint16, len(row))
 	for i, cv := range row {
 		var err error
-		offs[i], err = pool.AddFunc(cv, func() []byte { return cv.append(nil) })
+		offs[i], err = pool.AddFunc(cv, func() ([]byte, error) { return cv.append(nil), nil })
 		if err != nil {
 			return nil, err
 		}

@@ -75,7 +75,7 @@ func TestGpos2_2(t *testing.T) {
 			},
 		},
 	}
-	data := l1.encode()
+	data := encodeSubtable(t, l1)
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	err := p.Discard(2)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestGpos4_1(t *testing.T) {
 			},
 		},
 	}
-	data := l1.encode()
+	data := encodeSubtable(t, l1)
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	err := p.Discard(2)
 	if err != nil {
@@ -140,9 +140,10 @@ func TestGpos4_1VariableAnchors(t *testing.T) {
 			{{X: 3, Y: 4, XDev: &device.Table{StartSize: 8, EndSize: 9, Deltas: []int8{1, -1}, DeltaFormat: 1}}},
 		},
 	}
-	data := l1.encode()
-	if len(data) != l1.encodeLen() {
-		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), l1.encodeLen())
+	lay := layoutSubtable(t, l1)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), lay.encodeLen())
 	}
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err := p.Discard(2); err != nil {
@@ -275,9 +276,10 @@ func TestGpos5_1(t *testing.T) {
 			},
 		},
 	}
-	data := l1.encode()
-	if len(data) != l1.encodeLen() {
-		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), l1.encodeLen())
+	lay := layoutSubtable(t, l1)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), lay.encodeLen())
 	}
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err := p.Discard(2); err != nil {
@@ -456,7 +458,7 @@ func FuzzGpos1_1(f *testing.F) {
 			XAdvance: 100,
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 1, readGpos1_1, data)
@@ -465,7 +467,7 @@ func FuzzGpos1_1(f *testing.F) {
 
 func FuzzGpos1_2(f *testing.F) {
 	l := &Gpos1_2{}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gpos1_2{
 		Cov: map[glyph.ID]int{8: 0, 9: 1},
 		Adjust: []*GposValueRecord{
@@ -473,7 +475,7 @@ func FuzzGpos1_2(f *testing.F) {
 			{XAdvance: 50, XPlacement: -50},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 2, readGpos1_2, data)
@@ -482,22 +484,22 @@ func FuzzGpos1_2(f *testing.F) {
 
 func FuzzGpos2_1(f *testing.F) {
 	l := &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{}}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{
-		glyph.Pair{Left: 1, Right: 2}: &PairAdjust{
+		{Left: 1, Right: 2}: {
 			First: &GposValueRecord{XAdvance: -10},
 		},
 	}}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gpos2_1{PositionSecond: true, Adjust: map[glyph.Pair]*PairAdjust{
-		glyph.Pair{Left: 1, Right: 2}: &PairAdjust{
+		{Left: 1, Right: 2}: {
 			First: &GposValueRecord{XAdvance: -10},
 		},
-		glyph.Pair{Left: 1, Right: 4}: &PairAdjust{
+		{Left: 1, Right: 4}: {
 			First:  &GposValueRecord{XAdvance: -10},
 			Second: &GposValueRecord{XPlacement: 5},
 		},
-		glyph.Pair{Left: 1, Right: 6}: &PairAdjust{
+		{Left: 1, Right: 6}: {
 			First: &GposValueRecord{
 				XAdvance: -10,
 			},
@@ -525,7 +527,7 @@ func FuzzGpos2_1(f *testing.F) {
 			},
 		},
 	}}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 1, readGpos2_1, data)
@@ -542,7 +544,7 @@ func FuzzGpos2_2(f *testing.F) {
 			{{}, {First: &GposValueRecord{XAdvance: 20}}},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gpos2_2{
 		Cov:    coverage.Set{1: true},
 		Class1: classdef.Table{},
@@ -559,7 +561,7 @@ func FuzzGpos2_2(f *testing.F) {
 		}},
 		PositionSecond: true,
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 2, readGpos2_2, data)
@@ -615,7 +617,7 @@ func TestGpos2_1PairSetDeviceBase(t *testing.T) {
 
 func FuzzGpos3_1(f *testing.F) {
 	l := &Gpos3_1{}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gpos3_1{
 		Cov: coverage.Table{
 			1: 0,
@@ -640,7 +642,7 @@ func FuzzGpos3_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 3, 1, readGpos3_1, data)
 	})
@@ -648,7 +650,7 @@ func FuzzGpos3_1(f *testing.F) {
 
 func FuzzGpos4_1(f *testing.F) {
 	l := &Gpos4_1{}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gpos4_1{
 		MarkCov: coverage.Table{
 			1: 0,
@@ -692,7 +694,7 @@ func FuzzGpos4_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 4, 1, readGpos4_1, data)
@@ -701,7 +703,7 @@ func FuzzGpos4_1(f *testing.F) {
 
 func FuzzGpos5_1(f *testing.F) {
 	l := &Gpos5_1{}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gpos5_1{
 		MarkCov: coverage.Table{
 			1: 0,
@@ -747,7 +749,7 @@ func FuzzGpos5_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 5, 1, readGpos5_1, data)
@@ -756,7 +758,7 @@ func FuzzGpos5_1(f *testing.F) {
 
 func FuzzGpos6_1(f *testing.F) {
 	l := &Gpos6_1{}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gpos6_1{
 		Mark1Cov: coverage.Table{
 			1: 0,
@@ -800,16 +802,16 @@ func FuzzGpos6_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 6, 1, readGpos6_1, data)
 	})
 }
 
-// TestSubtableSizeOverflow confirms that the encoder panics when a
-// subtable's offsets would no longer fit in uint16, instead of
-// silently truncating offsets and producing corrupt output.
+// TestSubtableSizeOverflow confirms that the layout fails when a subtable's
+// offsets would no longer fit in uint16, instead of silently truncating
+// offsets and producing corrupt output.
 func TestSubtableSizeOverflow(t *testing.T) {
 	// A Gpos2_2 with class1Count=200, class2Count=200 and a 4-byte
 	// PairValueRecord (XPlacement on both sides) produces 200*200*4 =
@@ -834,7 +836,9 @@ func TestSubtableSizeOverflow(t *testing.T) {
 		Adjust:         adj,
 		PositionSecond: true,
 	}
-	assertPanics(t, func() { _ = l.encode() })
+	if _, err := l.layout(); err == nil {
+		t.Error("layout succeeded")
+	}
 }
 
 // TestDevicePoolDeduplicates confirms that GPOS encoders content-
@@ -862,9 +866,10 @@ func TestDevicePoolDeduplicates(t *testing.T) {
 	}
 	l := &Gpos1_2{Cov: cov, Adjust: adjusts}
 
-	encoded := l.encode()
-	if len(encoded) != l.encodeLen() {
-		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(encoded), l.encodeLen())
+	lay := layoutSubtable(t, l)
+	encoded := lay.encode()
+	if len(encoded) != lay.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(encoded), lay.encodeLen())
 	}
 
 	// Count occurrences of the shared VariationIndex's encoded bytes
@@ -949,9 +954,10 @@ func TestGpos2_2LongSubtable(t *testing.T) {
 		Adjust: adjust,
 	}
 
-	data := l1.encode()
-	if len(data) != l1.encodeLen() {
-		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	lay := layoutSubtable(t, l1)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), lay.encodeLen())
 	}
 	if len(data) <= 0xFFFF {
 		t.Fatalf("subtable is only %d bytes, test does not exercise long subtables", len(data))
@@ -991,11 +997,12 @@ func TestAnchorPoolDeduplicates(t *testing.T) {
 		BaseArray: baseArray,
 	}
 
-	data := l1.encode()
-	if len(data) != l1.encodeLen() {
-		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	lay := layoutSubtable(t, l1)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), lay.encodeLen())
 	}
-	needle := shared.Append(nil)
+	needle := appendAnchor(t, shared)
 	if count := bytes.Count(data, needle); count != 1 {
 		t.Errorf("expected 1 copy of the shared anchor, found %d", count)
 	}
@@ -1029,12 +1036,13 @@ func TestAnchorPoolDeduplicatesCursive(t *testing.T) {
 	}
 	l1 := &Gpos3_1{Cov: cov, Records: records}
 
-	data := l1.encode()
-	if len(data) != l1.encodeLen() {
-		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	lay := layoutSubtable(t, l1)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), lay.encodeLen())
 	}
 	for _, a := range []*anchor.Table{entry, exit} {
-		if count := bytes.Count(data, a.Append(nil)); count != 1 {
+		if count := bytes.Count(data, appendAnchor(t, a)); count != 1 {
 			t.Errorf("expected 1 copy of anchor %v, found %d", *a, count)
 		}
 	}
@@ -1069,11 +1077,12 @@ func TestAnchorPoolDeduplicatesLig(t *testing.T) {
 		LigArray:  [][][]*anchor.Table{lig},
 	}
 
-	data := l1.encode()
-	if len(data) != l1.encodeLen() {
-		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	lay := layoutSubtable(t, l1)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), lay.encodeLen())
 	}
-	needle := shared.Append(nil)
+	needle := appendAnchor(t, shared)
 	if count := bytes.Count(data, needle); count != 1 {
 		t.Errorf("expected 1 copy of the shared anchor, found %d", count)
 	}
@@ -1110,11 +1119,12 @@ func TestAnchorPoolDeduplicatesMark2(t *testing.T) {
 		Mark2Array: mark2Array,
 	}
 
-	data := l1.encode()
-	if len(data) != l1.encodeLen() {
-		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+	lay := layoutSubtable(t, l1)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), lay.encodeLen())
 	}
-	needle := shared.Append(nil)
+	needle := appendAnchor(t, shared)
 	if count := bytes.Count(data, needle); count != 1 {
 		t.Errorf("expected 1 copy of the shared anchor, found %d", count)
 	}
@@ -1154,26 +1164,28 @@ func TestGpos5_1LigArrayTooLong(t *testing.T) {
 		LigArray:  ligArray,
 	}
 
-	assertPanics(t, func() { l.encode() })
+	if _, err := l.layout(); err == nil {
+		t.Error("layout succeeded")
+	}
 }
 
-// assertPanics runs fn and reports a t.Errorf if fn does not panic.
-func assertPanics(t *testing.T, fn func()) {
+// checkLayoutRefused checks that the layout of l fails, and that a lookup
+// list holding l cannot be encoded.
+func checkLayoutRefused(t *testing.T, l Subtable, lookupType uint16) {
 	t.Helper()
-	defer func() {
-		if recover() == nil {
-			t.Errorf("expected panic, got none")
-		}
-	}()
-	fn()
+	if _, err := l.layout(); err == nil {
+		t.Error("layout succeeded")
+	}
+	ll := LookupList{{Meta: &LookupMetaInfo{LookupType: lookupType}, Subtables: []Subtable{l}}}
+	if _, err := ll.encode(); err == nil {
+		t.Error("lookup list encode succeeded")
+	}
 }
 
-// TestPoolsCheckOffsetsWhenSizing confirms that an over-long pool is refused
-// by the sizing pass as well as by encode.  encodeLen fills the same pools but
-// never lays out the subtable around them, so a check left to the encoder
-// would not run on this path at all, and the pool would hand out truncated
-// offsets unnoticed.
-func TestPoolsCheckOffsetsWhenSizing(t *testing.T) {
+// TestPoolsCheckOffsets confirms that an over-long pool of anchors or
+// Device tables is refused by the layout, rather than handing out truncated
+// offsets.
+func TestPoolsCheckOffsets(t *testing.T) {
 	t.Run("anchors", func(t *testing.T) {
 		// 2 + 2*n bytes of offsets followed by 6*n bytes of anchors
 		const n = 9000
@@ -1191,8 +1203,7 @@ func TestPoolsCheckOffsetsWhenSizing(t *testing.T) {
 			BaseArray: baseArray,
 		}
 
-		assertPanics(t, func() { _ = l.encodeLen() })
-		assertPanics(t, func() { _ = l.encode() })
+		checkLayoutRefused(t, l, 4)
 	})
 
 	t.Run("devices", func(t *testing.T) {
@@ -1213,8 +1224,7 @@ func TestPoolsCheckOffsetsWhenSizing(t *testing.T) {
 		}
 		l := &Gpos1_2{Cov: cov, Adjust: adjust}
 
-		assertPanics(t, func() { _ = l.encodeLen() })
-		assertPanics(t, func() { _ = l.encode() })
+		checkLayoutRefused(t, l, 1)
 	})
 }
 
@@ -1292,9 +1302,10 @@ func TestGposLongSubtables(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			l1 := c.make()
 
-			data := l1.encode()
-			if len(data) != l1.encodeLen() {
-				t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+			lay := layoutSubtable(t, l1)
+			data := lay.encode()
+			if len(data) != lay.encodeLen() {
+				t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), lay.encodeLen())
 			}
 			if len(data) <= 0xFFFF {
 				t.Fatalf("subtable is only %d bytes, the case does not test long subtables",
@@ -1389,9 +1400,10 @@ func TestGpos2_1SharedPairSets(t *testing.T) {
 		t.Fatalf("got %d pairs, want %d", got, n*m)
 	}
 
-	enc := sub.encode()
-	if len(enc) != sub.encodeLen() {
-		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), sub.encodeLen())
+	lay := layoutSubtable(t, sub)
+	enc := lay.encode()
+	if len(enc) != lay.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), lay.encodeLen())
 	}
 	if len(enc) > len(data) {
 		t.Errorf("re-encoded subtable has %d bytes, input has %d", len(enc), len(data))
@@ -1448,17 +1460,15 @@ func TestGpos2_1PairSetSharing(t *testing.T) {
 		{Left: 4, Right: 6}: {First: &GposValueRecord{XAdvance: -10, XAdvanceDev: dev}},
 		{Left: 5, Right: 5}: {First: &GposValueRecord{XAdvance: -10}},
 	}}
-	ps, err := l.layout()
-	if err != nil {
-		t.Fatal(err)
-	}
+	ps := layoutSubtable(t, l).(*pairSetLayout)
 	if diff := cmp.Diff([]int{0, 0, 1, 2, 3}, ps.setOf); diff != "" {
 		t.Errorf("pair set assignment (-want +got):\n%s", diff)
 	}
 
-	enc := l.encode()
-	if len(enc) != l.encodeLen() {
-		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+	lay := layoutSubtable(t, l)
+	enc := lay.encode()
+	if len(enc) != lay.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), lay.encodeLen())
 	}
 	p := parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
 	if err := p.Discard(2); err != nil {
@@ -1537,9 +1547,10 @@ func TestGpos5_1SharedLigatureAttach(t *testing.T) {
 func checkSharedRoundTripDeep(t *testing.T, read func(*parser.Parser, int64) (Subtable, error), data []byte) Subtable {
 	t.Helper()
 	sub := readSubtable(t, read, data)
-	enc := sub.encode()
-	if len(enc) != sub.encodeLen() {
-		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), sub.encodeLen())
+	lay := layoutSubtable(t, sub)
+	enc := lay.encode()
+	if len(enc) != lay.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), lay.encodeLen())
 	}
 	if len(enc) > len(data) {
 		t.Errorf("re-encoded subtable has %d bytes, input has %d", len(enc), len(data))
@@ -1763,8 +1774,8 @@ func TestGpos3_1SharedDevice(t *testing.T) {
 	if rec.Entry == nil || rec.Exit == nil || rec.Entry.XDev == nil || rec.Entry.YDev == nil {
 		t.Fatal("anchors not read")
 	}
-	if want := 10 + len(devEnc); rec.Entry.EncodeLen() != want {
-		t.Errorf("anchor length %d, want %d", rec.Entry.EncodeLen(), want)
+	if want, got := 10+len(devEnc), len(appendAnchor(t, rec.Entry)); got != want {
+		t.Errorf("anchor length %d, want %d", got, want)
 	}
 	if 20+2*len(devEnc) <= 0xFFFF {
 		t.Fatal("test data too small")
@@ -1808,13 +1819,14 @@ func TestMarkAttachCoverageSharing(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			same := c.make(cov, cov)
 			diff := c.make(cov, other)
-			if got := diff.encodeLen() - same.encodeLen(); got != covLen {
+			if got := subtableLen(t, diff) - subtableLen(t, same); got != covLen {
 				t.Errorf("sharing saves %d bytes, want %d", got, covLen)
 			}
 			for _, l := range []Subtable{same, diff} {
-				enc := l.encode()
-				if len(enc) != l.encodeLen() {
-					t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+				lay := layoutSubtable(t, l)
+				enc := lay.encode()
+				if len(enc) != lay.encodeLen() {
+					t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), lay.encodeLen())
 				}
 				got := readSubtable(t, c.read, enc)
 				if d := cmp.Diff(l, got); d != "" {
@@ -1840,11 +1852,11 @@ func TestGpos5_1LigatureAttachSharing(t *testing.T) {
 		}
 	}
 	same, diff := mk(5, 5), mk(5, 6)
-	if got := diff.encodeLen() - same.encodeLen(); got != 2+2+6 {
+	if got := subtableLen(t, diff) - subtableLen(t, same); got != 2+2+6 {
 		t.Errorf("sharing saves %d bytes, want 10", got)
 	}
 	for _, l := range []*Gpos5_1{same, diff} {
-		got := readSubtable(t, readGpos5_1, l.encode())
+		got := readSubtable(t, readGpos5_1, encodeSubtable(t, l))
 		if d := cmp.Diff(l, got); d != "" {
 			t.Errorf("round trip failed (-want +got):\n%s", d)
 		}
@@ -1867,13 +1879,14 @@ func TestGpos2_2TableSharing(t *testing.T) {
 	}
 	same := mk(classdef.Table{1: 1, 2: 1})
 	diff := mk(classdef.Table{1: 1, 3: 1})
-	if got := diff.encodeLen() - same.encodeLen(); got != diff.Class2.AppendLen() {
+	if got := subtableLen(t, diff) - subtableLen(t, same); got != diff.Class2.AppendLen() {
 		t.Errorf("sharing saves %d bytes, want %d", got, diff.Class2.AppendLen())
 	}
 	for _, l := range []*Gpos2_2{same, diff} {
-		enc := l.encode()
-		if len(enc) != l.encodeLen() {
-			t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+		lay := layoutSubtable(t, l)
+		enc := lay.encode()
+		if len(enc) != lay.encodeLen() {
+			t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), lay.encodeLen())
 		}
 		got := readSubtable(t, readGpos2_2, enc)
 		if d := cmp.Diff(l, got); d != "" {
@@ -1934,7 +1947,7 @@ func TestGpos2_2ClassCountRange(t *testing.T) {
 		Cov:    coverage.Set{1: true},
 		Adjust: make([][]*PairAdjust, 0x10000),
 	}
-	if err := l.fits(); err == nil {
+	if _, err := l.layout(); err == nil {
 		t.Error("expected error")
 	}
 }
@@ -2092,9 +2105,41 @@ func TestLayoutOffsetErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if err := c.sub.fits(); err == nil {
+			if _, err := c.sub.layout(); err == nil {
 				t.Error("expected an error")
 			}
 		})
+	}
+}
+
+// appendAnchor returns the encoded anchor table, and fails the test if the
+// anchor cannot be encoded.
+func appendAnchor(tb testing.TB, a *anchor.Table) []byte {
+	tb.Helper()
+	data, err := a.Append(nil)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return data
+}
+
+// TestUnencodableAnchor checks that an anchor which cannot be encoded makes
+// the layout of the enclosing subtable fail.
+func TestUnencodableAnchor(t *testing.T) {
+	big := func(first int8) *device.Table {
+		deltas := make([]int8, 65535)
+		deltas[0] = first
+		return &device.Table{StartSize: 1, EndSize: 65535, Deltas: deltas, DeltaFormat: 3}
+	}
+	l := &Gpos4_1{
+		MarkCov:   coverage.Table{1: 0},
+		BaseCov:   coverage.Table{2: 0},
+		MarkArray: []markarray.Record{{Class: 0, X: 1, Y: 2}},
+		BaseArray: [][]*anchor.Table{
+			{{X: 3, Y: 4, XDev: big(1), YDev: big(2)}},
+		},
+	}
+	if _, err := l.layout(); err == nil {
+		t.Error("layout succeeded")
 	}
 }

@@ -17,8 +17,9 @@ type Subtable interface {
 	// TODO(voss): change to return (glyph.ID, bool)?
 	Lookup(r rune) glyph.ID
 
-	// Encode returns the binary form of the subtable.
-	Encode(language uint16) []byte
+	// Encode returns the binary form of the subtable.  If the mapping does
+	// not fit into the subtable format, [ErrTooLarge] is returned.
+	Encode(language uint16) ([]byte, error)
 
 	// CodeRange returns the smallest and largest code point in the subtable.
 	CodeRange() (low, high rune)

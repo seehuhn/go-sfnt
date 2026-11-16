@@ -52,7 +52,7 @@ func (cmap *Format0) Lookup(r rune) glyph.ID {
 }
 
 // Encode returns the binary form of the subtable.
-func (cmap *Format0) Encode(language uint16) []byte {
+func (cmap *Format0) Encode(language uint16) ([]byte, error) {
 	L := 2 + 2 + 2 + 256
 	buf := make([]byte, 0, L)
 	buf = append(buf,
@@ -61,7 +61,7 @@ func (cmap *Format0) Encode(language uint16) []byte {
 		byte(language>>8), byte(language), // language
 	)
 	buf = append(buf, cmap.Data[:]...)
-	return buf
+	return buf, nil
 }
 
 // CodeRange returns the smallest and largest code point in the subtable.

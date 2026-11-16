@@ -3,7 +3,9 @@
 
 package cmap
 
-import "seehuhn.de/go/sfnt/glyph"
+import (
+	"seehuhn.de/go/sfnt/glyph"
+)
 
 // maxFormat6Entries is the largest number of glyph IDs for which the
 // length of a format 6 subtable fits into its 16-bit length field.
@@ -84,12 +86,12 @@ func (cmap *Format6) Lookup(r rune) glyph.ID {
 	return cmap.GlyphIDs[i]
 }
 
-// Encode returns the binary form of the subtable.  The method panics if the
-// subtable exceeds the limits given for [Format6.GlyphIDs].
-func (cmap *Format6) Encode(language uint16) []byte {
+// Encode returns the binary form of the subtable.  If the subtable exceeds the
+// limits given for [Format6.GlyphIDs], [ErrTooLarge] is returned.
+func (cmap *Format6) Encode(language uint16) ([]byte, error) {
 	n := len(cmap.GlyphIDs)
 	if n > maxFormat6Entries || int(cmap.FirstCode)+n > 0x10000 {
-		panic("cmap: too many entries for a format 6 subtable")
+		return nil, ErrTooLarge
 	}
 	L := 10 + 2*n
 	buf := make([]byte, 0, L)
@@ -103,7 +105,7 @@ func (cmap *Format6) Encode(language uint16) []byte {
 	for _, gid := range cmap.GlyphIDs {
 		buf = append(buf, byte(gid>>8), byte(gid))
 	}
-	return buf
+	return buf, nil
 }
 
 // CodeRange returns the smallest and largest code point in the subtable.

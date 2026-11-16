@@ -5,6 +5,7 @@ package offsetpool
 
 import (
 	"bytes"
+	"errors"
 	"slices"
 	"testing"
 )
@@ -56,10 +57,10 @@ func TestRange(t *testing.T) {
 func TestAddFunc(t *testing.T) {
 	p := New("test", 0)
 	calls := 0
-	enc := func(b ...byte) func() []byte {
-		return func() []byte {
+	enc := func(b ...byte) func() ([]byte, error) {
+		return func() ([]byte, error) {
 			calls++
-			return b
+			return b, nil
 		}
 	}
 	s := []int{1, 2, 3}
@@ -67,7 +68,7 @@ func TestAddFunc(t *testing.T) {
 	x := new(int)
 	steps := []struct {
 		key  any
-		enc  func() []byte
+		enc  func() ([]byte, error)
 		want uint16
 	}{
 		{SliceKey(s), enc(1, 2), 0},
@@ -97,6 +98,16 @@ func TestAddFunc(t *testing.T) {
 	full := New("test", 0x10000)
 	if _, err := full.AddFunc(x, enc(1)); err == nil {
 		t.Error("offset past the limit accepted")
+	}
+
+	// a failed callback registers nothing
+	fail := func() ([]byte, error) { return nil, errors.New("fail") }
+	if _, err := p.AddFunc("bad", fail); err == nil {
+		t.Error("callback error not returned")
+	}
+	n := p.Len()
+	if off, err := p.AddFunc("bad", enc(9)); err != nil || int(off) != n {
+		t.Errorf("AddFunc() = %d, %v after failure; want %d, nil", off, err, n)
 	}
 }
 
@@ -201,9 +212,9 @@ func TestDeferred(t *testing.T) {
 	}
 
 	calls := 0
-	encode := func() []byte {
+	encode := func() ([]byte, error) {
 		calls++
-		return []byte{3}
+		return []byte{3}, nil
 	}
 	for range 2 {
 		c, err := d.AddFunc("key", encode)
@@ -257,7 +268,7 @@ func TestDeferredReorder(t *testing.T) {
 	if _, err := d.Add(large2); err == nil {
 		t.Error("expected error")
 	}
-	if _, err := d.AddFunc("key", func() []byte { return large2 }); err == nil {
+	if _, err := d.AddFunc("key", func() ([]byte, error) { return large2, nil }); err == nil {
 		t.Error("expected error")
 	}
 }

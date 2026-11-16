@@ -279,7 +279,6 @@ func newLigArray(name string, ligs [][][]*anchor.Table, markClassCount int) (*li
 	// still told apart
 	var keys offsetpool.SeqKeys[any]
 	for i, lig := range ligs {
-		var encErr error
 		key := keys.Key(offsetpool.SliceKey(lig), len(lig)*(1+markClassCount), func(yield func(any) bool) {
 			for _, row := range lig {
 				if !yield(len(row)) {
@@ -292,17 +291,13 @@ func newLigArray(name string, ligs [][][]*anchor.Table, markClassCount int) (*li
 				}
 			}
 		})
-		idx, err := pool.AddFunc(key, func() []byte {
+		idx, err := pool.AddFunc(key, func() ([]byte, error) {
 			m, err := newAnchorMatrix(name, lig, markClassCount)
 			if err != nil {
-				encErr = err
-				return nil
+				return nil, err
 			}
-			return m.append(make([]byte, 0, m.size()))
+			return m.append(make([]byte, 0, m.size())), nil
 		})
-		if encErr != nil {
-			return nil, encErr
-		}
 		if err != nil {
 			return nil, err
 		}
@@ -322,11 +317,10 @@ func (a *ligArray) append(buf []byte) []byte {
 	return append(buf, data...)
 }
 
-// layout computes the encoded layout of the subtable.  The mark and ligature
+// layout implements the [Subtable] interface.  The mark and ligature
 // coverage tables are stored once if they are identical, and so are
-// identical LigatureAttach tables.  An error is returned if an offset does
-// not fit into an Offset16.
-func (l *Gpos5_1) layout() (*markAttach, error) {
+// identical LigatureAttach tables.
+func (l *Gpos5_1) layout() (subtableLayout, error) {
 	markClassCount := l.countMarkClasses()
 	marks, err := newMarkArray("Gpos5_1", l.MarkArray)
 	if err != nil {
@@ -336,22 +330,9 @@ func (l *Gpos5_1) layout() (*markAttach, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newMarkAttach("Gpos5_1", l.MarkCov, l.LigCov, markClassCount, marks, ligs)
-}
-
-// encodeLen implements the [Subtable] interface.
-func (l *Gpos5_1) encodeLen() int {
-	return mustFit(l.layout()).size()
-}
-
-// encode implements the [Subtable] interface.
-func (l *Gpos5_1) encode() []byte {
-	lay := mustFit(l.layout())
-	return lay.append(make([]byte, 0, lay.size()))
-}
-
-// fits implements the [Subtable] interface.
-func (l *Gpos5_1) fits() error {
-	_, err := l.layout()
-	return err
+	lay, err := newMarkAttach("Gpos5_1", l.MarkCov, l.LigCov, markClassCount, marks, ligs)
+	if err != nil {
+		return nil, err
+	}
+	return lay, nil
 }

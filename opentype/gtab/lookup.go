@@ -4,6 +4,8 @@
 package gtab
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"sort"
 
@@ -145,14 +147,21 @@ type Subtable interface {
 	// callers responsibility to ensure this.
 	apply(ctx *Context, a, b int) int
 
-	// fits returns an error if the subtable cannot be encoded, because an
-	// offset would not fit into an Offset16.  Readers use it to drop
-	// subtables which cannot be written back.  Like encode, it requires
-	// the constraints documented on the subtable type to hold.
-	fits() error
+	// layout decides how the subtable is encoded.  An error is returned if
+	// the subtable cannot be encoded, because an offset or a count does not
+	// fit into its field.  Readers use this to drop subtables which cannot
+	// be written back.  The method requires the constraints documented on the
+	// subtable type to hold.
+	layout() (subtableLayout, error)
+}
 
+// subtableLayout is the encoded layout of a subtable, as computed by
+// [Subtable.layout].  All offsets have been checked, so encoding cannot fail.
+type subtableLayout interface {
+	// encodeLen returns the length of the encoded subtable.
 	encodeLen() int
 
+	// encode returns the encoded subtable.
 	encode() []byte
 }
 
@@ -268,7 +277,8 @@ func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList,
 		// subtable which cannot be written back.  Such subtables are
 		// dropped, so that every lookup read can be encoded.
 		subtables = slices.DeleteFunc(subtables, func(st Subtable) bool {
-			return st.fits() != nil
+			_, err := st.layout()
+			return err != nil
 		})
 
 		res[i] = &LookupTable{
@@ -309,9 +319,13 @@ const (
 	gsubExtensionLookupType uint16 = 7
 )
 
-func (ll LookupList) encode() []byte {
+// encode returns the encoded lookup list.  The encoder handles fewer than
+// 16384 lookups, each with fewer than 16384 subtables.  An error is returned
+// for a longer list, for a subtable which cannot be encoded, and for
+// offsets which do not fit even with extension subtables.
+func (ll LookupList) encode() ([]byte, error) {
 	if ll == nil {
-		return nil
+		return nil, nil
 	}
 
 	var extLookupType uint16
@@ -331,10 +345,11 @@ findTypeLoop:
 
 	lookupCount := len(ll)
 	if lookupCount >= 1<<14 {
-		panic("too many lookup tables")
+		return nil, fmt.Errorf("too many lookups (%d)", lookupCount)
 	}
 
 	// Make a list of all chunks which need to be written.
+	layouts := make([][]subtableLayout, len(ll))
 	var chunks []layoutChunk
 	chunks = append(chunks, layoutChunk{
 		code: chunkHeader,
@@ -351,13 +366,19 @@ findTypeLoop:
 			size: uint32(lookupHeaderLen),
 		})
 		if len(l.Subtables) >= 1<<14 {
-			panic("too many subtables")
+			return nil, fmt.Errorf("lookup %d: too many subtables (%d)", i, len(l.Subtables))
 		}
+		layouts[i] = make([]subtableLayout, len(l.Subtables))
 		for j, subtable := range l.Subtables {
+			lay, err := subtable.layout()
+			if err != nil {
+				return nil, fmt.Errorf("lookup %d: %w", i, err)
+			}
+			layouts[i][j] = lay
 			sCode := chunkCode(j)
 			chunks = append(chunks, layoutChunk{
 				code: chunkSubtable | tCode | sCode,
-				size: uint32(subtable.encodeLen()),
+				size: uint32(lay.encodeLen()),
 			})
 		}
 	}
@@ -366,7 +387,7 @@ findTypeLoop:
 	if outOfReach(chunks) {
 		chunks = ll.tryReorder(chunks)
 		if outOfReach(chunks) {
-			panic("too much data for lookup list table")
+			return nil, errors.New("lookup list too large for its 16-bit offsets")
 		}
 	}
 
@@ -431,15 +452,15 @@ findTypeLoop:
 				ExtensionLookupType: lookup.Meta.LookupType,
 				ExtensionOffset:     int64(extPos - pos),
 			}
-			buf = append(buf, subtable.encode()...)
+			buf = append(buf, extensionLayout{subtable}.encode()...)
 		case chunkSubtable:
 			i := code & chunkTableMask >> 14
 			j := code & chunkSubtableMask
-			subtable := ll[i].Subtables[j]
-			buf = append(buf, subtable.encode()...)
+			buf = append(buf, layouts[i][j].encode()...)
+			layouts[i][j] = nil // release the pooled encodings
 		}
 	}
-	return buf
+	return buf, nil
 }
 
 type layoutChunk struct {
@@ -633,15 +654,23 @@ func (l *extensionSubtable) apply(*Context, int, int) int {
 	panic("unreachable")
 }
 
-func (l *extensionSubtable) fits() error {
-	return nil
+// layout implements the [Subtable] interface.
+func (l *extensionSubtable) layout() (subtableLayout, error) {
+	return extensionLayout{l}, nil
 }
 
-func (l *extensionSubtable) encodeLen() int {
+// extensionLayout is the encoded layout of an [extensionSubtable], which
+// has a fixed size and holds a 32-bit offset.
+type extensionLayout struct {
+	l *extensionSubtable
+}
+
+func (lay extensionLayout) encodeLen() int {
 	return 8
 }
 
-func (l *extensionSubtable) encode() []byte {
+func (lay extensionLayout) encode() []byte {
+	l := lay.l
 	return []byte{
 		0, 1, // format
 		byte(l.ExtensionLookupType >> 8), byte(l.ExtensionLookupType),

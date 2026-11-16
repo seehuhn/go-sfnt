@@ -12,6 +12,9 @@ import (
 	"seehuhn.de/go/sfnt/parser"
 )
 
+// sid is a 2-byte string identifier.
+type sid uint16
+
 func TestCharsetDecode(t *testing.T) {
 	cases := []struct {
 		blob   []byte

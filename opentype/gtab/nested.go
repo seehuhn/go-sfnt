@@ -4,6 +4,7 @@
 package gtab
 
 import (
+	"errors"
 	"slices"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -52,38 +53,50 @@ func appendActions(buf []byte, actions []SeqLookup) []byte {
 }
 
 // encodeSeqRule encodes a rule table of a [SeqContext1] subtable.
-func encodeSeqRule(r *SeqRule) []byte {
+func encodeSeqRule(r *SeqRule) ([]byte, error) {
 	return encodeSeqRuleGeneric(r.Input, r.Actions)
 }
 
 // encodeClassSeqRule encodes a rule table of a [SeqContext2] subtable.
-func encodeClassSeqRule(r *ClassSeqRule) []byte {
+func encodeClassSeqRule(r *ClassSeqRule) ([]byte, error) {
 	return encodeSeqRuleGeneric(r.Input, r.Actions)
 }
 
-func encodeSeqRuleGeneric[T ~uint16](input []T, actions []SeqLookup) []byte {
+func encodeSeqRuleGeneric[T ~uint16](input []T, actions []SeqLookup) ([]byte, error) {
+	if len(input) >= 0xFFFF {
+		return nil, errors.New("rule input sequence too long")
+	}
+	if len(actions) > 0xFFFF {
+		return nil, errors.New("too many lookup records in rule")
+	}
 	buf := make([]byte, 0, 4+2*len(input)+4*len(actions))
 	buf = appendUint16(buf, len(input)+1)
 	buf = appendUint16(buf, len(actions))
 	for _, x := range input {
 		buf = appendUint16(buf, int(x))
 	}
-	return appendActions(buf, actions)
+	return appendActions(buf, actions), nil
 }
 
 // encodeChainedSeqRule encodes a rule table of a [ChainedSeqContext1]
 // subtable.
-func encodeChainedSeqRule(r *ChainedSeqRule) []byte {
+func encodeChainedSeqRule(r *ChainedSeqRule) ([]byte, error) {
 	return encodeChainedRuleGeneric(r.Backtrack, r.Input, r.Lookahead, r.Actions)
 }
 
 // encodeChainedClassSeqRule encodes a rule table of a [ChainedSeqContext2]
 // subtable.
-func encodeChainedClassSeqRule(r *ChainedClassSeqRule) []byte {
+func encodeChainedClassSeqRule(r *ChainedClassSeqRule) ([]byte, error) {
 	return encodeChainedRuleGeneric(r.Backtrack, r.Input, r.Lookahead, r.Actions)
 }
 
-func encodeChainedRuleGeneric[T ~uint16](backtrack, input, lookahead []T, actions []SeqLookup) []byte {
+func encodeChainedRuleGeneric[T ~uint16](backtrack, input, lookahead []T, actions []SeqLookup) ([]byte, error) {
+	if len(backtrack) > 0xFFFF || len(input) >= 0xFFFF || len(lookahead) > 0xFFFF {
+		return nil, errors.New("chained rule context sequence too long")
+	}
+	if len(actions) > 0xFFFF {
+		return nil, errors.New("too many lookup records in rule")
+	}
 	buf := make([]byte, 0, 8+2*(len(backtrack)+len(input)+len(lookahead))+4*len(actions))
 	buf = appendUint16(buf, len(backtrack))
 	for _, x := range backtrack {
@@ -98,17 +111,17 @@ func encodeChainedRuleGeneric[T ~uint16](backtrack, input, lookahead []T, action
 		buf = appendUint16(buf, int(x))
 	}
 	buf = appendUint16(buf, len(actions))
-	return appendActions(buf, actions)
+	return appendActions(buf, actions), nil
 }
 
 // encodeRuleSet encodes a rule set table.  Rules with identical encodings,
 // and rules shared between several references, are stored once.
-func encodeRuleSet[R any](name string, rules []*R, encodeRule func(*R) []byte) ([]byte, error) {
+func encodeRuleSet[R any](name string, rules []*R, encodeRule func(*R) ([]byte, error)) ([]byte, error) {
 	pool := offsetpool.NewDeferred(name+" rule", 2+2*len(rules))
 	idx := make([]int, len(rules))
 	for i, r := range rules {
 		var err error
-		idx[i], err = pool.AddFunc(r, func() []byte { return encodeRule(r) })
+		idx[i], err = pool.AddFunc(r, func() ([]byte, error) { return encodeRule(r) })
 		if err != nil {
 			return nil, err
 		}
@@ -184,21 +197,15 @@ func (lay *ruleSetLayout) add(tablesFirst bool, tables [][]byte, addSets func() 
 
 // addRuleSets stores the rule sets.  Rule sets which are nil are absent.
 // Rule sets with the same rules are encoded once.
-func addRuleSets[R any](lay *ruleSetLayout, sets [][]*R, encodeRule func(*R) []byte) error {
+func addRuleSets[R any](lay *ruleSetLayout, sets [][]*R, encodeRule func(*R) ([]byte, error)) error {
 	var keys offsetpool.SeqKeys[*R]
 	for i, rules := range sets {
 		if rules == nil {
 			continue
 		}
-		var encErr error
-		idx, err := lay.pool.AddFunc(keys.Key(offsetpool.SliceKey(rules), len(rules), slices.Values(rules)), func() []byte {
-			var enc []byte
-			enc, encErr = encodeRuleSet(lay.name, rules, encodeRule)
-			return enc
+		idx, err := lay.pool.AddFunc(keys.Key(offsetpool.SliceKey(rules), len(rules), slices.Values(rules)), func() ([]byte, error) {
+			return encodeRuleSet(lay.name, rules, encodeRule)
 		})
-		if encErr != nil {
-			return encErr
-		}
 		if err != nil {
 			return err
 		}
@@ -226,7 +233,7 @@ func (lay *ruleSetLayout) encode() []byte {
 func addCoverageSets(pool *offsetpool.Deferred, sets []coverage.Set) ([]int, error) {
 	indices := make([]int, len(sets))
 	for i, set := range sets {
-		idx, err := pool.AddFunc(offsetpool.MapKey(set), func() []byte { return set.ToTable().Encode() })
+		idx, err := pool.AddFunc(offsetpool.MapKey(set), func() ([]byte, error) { return set.ToTable().Encode(), nil })
 		if err != nil {
 			return nil, err
 		}
@@ -415,24 +422,16 @@ ruleLoop:
 	return -1
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *SeqContext1) layout() (*ruleSetLayout, error) {
+// layout implements the [Subtable] interface.
+func (l *SeqContext1) layout() (subtableLayout, error) {
 	lay := newRuleSetLayout("SeqContext1", 1, 1, len(l.Rules))
 	err := lay.add(false, [][]byte{l.Cov.Encode()}, func() error {
 		return addRuleSets(lay, l.Rules, encodeSeqRule)
 	})
-	return lay, err
-}
-
-// encodeLen implements the [Subtable] interface.
-func (l *SeqContext1) encodeLen() int {
-	return mustFit(l.layout()).encodeLen()
-}
-
-// encode implements the [Subtable] interface.
-func (l *SeqContext1) encode() []byte {
-	return mustFit(l.layout()).encode()
+	if err != nil {
+		return nil, err
+	}
+	return lay, nil
 }
 
 // SeqContext2 is used for GSUB type 5 format 2 subtables and for GPOS type 7 format 2 subtables.
@@ -611,25 +610,21 @@ ruleLoop:
 	return -1
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *SeqContext2) layout() (*ruleSetLayout, error) {
-	tables := [][]byte{l.Cov.Encode(), l.Input.Append(nil)}
+// layout implements the [Subtable] interface.
+func (l *SeqContext2) layout() (subtableLayout, error) {
+	input, err := l.Input.Append(nil)
+	if err != nil {
+		return nil, err
+	}
+	tables := [][]byte{l.Cov.Encode(), input}
 	lay := newRuleSetLayout("SeqContext2", 2, 2, len(l.Rules))
-	err := lay.add(false, tables, func() error {
+	err = lay.add(false, tables, func() error {
 		return addRuleSets(lay, l.Rules, encodeClassSeqRule)
 	})
-	return lay, err
-}
-
-// encodeLen implements the [Subtable] interface.
-func (l *SeqContext2) encodeLen() int {
-	return mustFit(l.layout()).encodeLen()
-}
-
-// encode implements the [Subtable] interface.
-func (l *SeqContext2) encode() []byte {
-	return mustFit(l.layout()).encode()
+	if err != nil {
+		return nil, err
+	}
+	return lay, nil
 }
 
 // SeqContext3 is used for GSUB type 5 format 3 and for GPOS type 7 format 3 subtables.
@@ -739,33 +734,32 @@ func (l *SeqContext3) apply(ctx *Context, a, b int) int {
 // header with the coverage offsets and the actions, followed by the
 // coverage tables.  Identical tables are stored once.
 type seqContext3Layout struct {
-	cov      []int // pool indices of the coverage tables
-	nActions int
-	pool     *offsetpool.Deferred
+	l    *SeqContext3
+	cov  []int // pool indices of the coverage tables
+	pool *offsetpool.Deferred
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *SeqContext3) layout() (*seqContext3Layout, error) {
+// layout implements the [Subtable] interface.
+func (l *SeqContext3) layout() (subtableLayout, error) {
+	if len(l.Actions) > 0xFFFF {
+		return nil, errors.New("SeqContext3: too many lookup records")
+	}
 	pool := offsetpool.NewDeferred("SeqContext3", 6+2*len(l.Input)+4*len(l.Actions))
 	cov, err := addCoverageSets(pool, l.Input)
 	if err != nil {
 		return nil, err
 	}
-	return &seqContext3Layout{cov: cov, nActions: len(l.Actions), pool: pool}, nil
+	return &seqContext3Layout{l: l, cov: cov, pool: pool}, nil
 }
 
-// encodeLen implements the [Subtable] interface.
-func (l *SeqContext3) encodeLen() int {
-	lay := mustFit(l.layout())
-	return 6 + 2*len(lay.cov) + 4*lay.nActions + lay.pool.Len()
+func (lay *seqContext3Layout) encodeLen() int {
+	return 6 + 2*len(lay.cov) + 4*len(lay.l.Actions) + lay.pool.Len()
 }
 
-// encode implements the [Subtable] interface.
-func (l *SeqContext3) encode() []byte {
-	lay := mustFit(l.layout())
+func (lay *seqContext3Layout) encode() []byte {
+	l := lay.l
 	offs, data := lay.pool.Place()
-	buf := make([]byte, 0, 6+2*len(lay.cov)+4*lay.nActions+len(data))
+	buf := make([]byte, 0, lay.encodeLen())
 	buf = appendUint16(buf, 3) // format
 	buf = appendUint16(buf, len(l.Input))
 	buf = appendUint16(buf, len(l.Actions))
@@ -980,24 +974,16 @@ ruleLoop:
 	return -1
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *ChainedSeqContext1) layout() (*ruleSetLayout, error) {
+// layout implements the [Subtable] interface.
+func (l *ChainedSeqContext1) layout() (subtableLayout, error) {
 	lay := newRuleSetLayout("ChainedSeqContext1", 1, 1, len(l.Rules))
 	err := lay.add(true, [][]byte{l.Cov.Encode()}, func() error {
 		return addRuleSets(lay, l.Rules, encodeChainedSeqRule)
 	})
-	return lay, err
-}
-
-// encodeLen implements the [Subtable] interface.
-func (l *ChainedSeqContext1) encodeLen() int {
-	return mustFit(l.layout()).encodeLen()
-}
-
-// encode implements the [Subtable] interface.
-func (l *ChainedSeqContext1) encode() []byte {
-	return mustFit(l.layout()).encode()
+	if err != nil {
+		return nil, err
+	}
+	return lay, nil
 }
 
 // ChainedSeqContext2 is used for GSUB type 6 format 2 and for GPOS type 8 format 2 subtables.
@@ -1241,30 +1227,24 @@ ruleLoop:
 	return -1
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *ChainedSeqContext2) layout() (*ruleSetLayout, error) {
-	tables := [][]byte{
-		l.Cov.Encode(),
-		l.Backtrack.Append(nil),
-		l.Input.Append(nil),
-		l.Lookahead.Append(nil),
+// layout implements the [Subtable] interface.
+func (l *ChainedSeqContext2) layout() (subtableLayout, error) {
+	tables := [][]byte{l.Cov.Encode()}
+	for _, cd := range []classdef.Table{l.Backtrack, l.Input, l.Lookahead} {
+		enc, err := cd.Append(nil)
+		if err != nil {
+			return nil, err
+		}
+		tables = append(tables, enc)
 	}
 	lay := newRuleSetLayout("ChainedSeqContext2", 2, 4, len(l.Rules))
 	err := lay.add(true, tables, func() error {
 		return addRuleSets(lay, l.Rules, encodeChainedClassSeqRule)
 	})
-	return lay, err
-}
-
-// encodeLen implements the [Subtable] interface.
-func (l *ChainedSeqContext2) encodeLen() int {
-	return mustFit(l.layout()).encodeLen()
-}
-
-// encode implements the [Subtable] interface.
-func (l *ChainedSeqContext2) encode() []byte {
-	return mustFit(l.layout()).encode()
+	if err != nil {
+		return nil, err
+	}
+	return lay, nil
 }
 
 // ChainedSeqContext3 is used for GSUB type 6 and for GPOS type 8 format 3 subtables.
@@ -1419,21 +1399,23 @@ func (l *ChainedSeqContext3) apply(ctx *Context, a, b int) int {
 // subtable: the header with the coverage offsets and the actions, followed
 // by the coverage tables.  Identical tables are stored once.
 type chainedSeqContext3Layout struct {
+	l                           *ChainedSeqContext3
 	backtrack, input, lookahead []int // pool indices of the coverage tables
-	nActions                    int
 	pool                        *offsetpool.Deferred
 }
 
 func (lay *chainedSeqContext3Layout) headerLen() int {
-	return 10 + 2*(len(lay.backtrack)+len(lay.input)+len(lay.lookahead)) + 4*lay.nActions
+	return 10 + 2*(len(lay.backtrack)+len(lay.input)+len(lay.lookahead)) + 4*len(lay.l.Actions)
 }
 
-// layout computes the encoded layout of the subtable.  An error is returned
-// if an offset does not fit into an Offset16.
-func (l *ChainedSeqContext3) layout() (*chainedSeqContext3Layout, error) {
+// layout implements the [Subtable] interface.
+func (l *ChainedSeqContext3) layout() (subtableLayout, error) {
+	if len(l.Actions) > 0xFFFF {
+		return nil, errors.New("ChainedSeqContext3: too many lookup records")
+	}
 	pool := offsetpool.NewDeferred("ChainedSeqContext3",
 		10+2*(len(l.Backtrack)+len(l.Input)+len(l.Lookahead))+4*len(l.Actions))
-	lay := &chainedSeqContext3Layout{nActions: len(l.Actions), pool: pool}
+	lay := &chainedSeqContext3Layout{l: l, pool: pool}
 	var err error
 	if lay.backtrack, err = addCoverageSets(pool, l.Backtrack); err != nil {
 		return nil, err
@@ -1447,15 +1429,12 @@ func (l *ChainedSeqContext3) layout() (*chainedSeqContext3Layout, error) {
 	return lay, nil
 }
 
-// encodeLen implements the [Subtable] interface.
-func (l *ChainedSeqContext3) encodeLen() int {
-	lay := mustFit(l.layout())
+func (lay *chainedSeqContext3Layout) encodeLen() int {
 	return lay.headerLen() + lay.pool.Len()
 }
 
-// encode implements the [Subtable] interface.
-func (l *ChainedSeqContext3) encode() []byte {
-	lay := mustFit(l.layout())
+func (lay *chainedSeqContext3Layout) encode() []byte {
+	l := lay.l
 	offs, data := lay.pool.Place()
 	buf := make([]byte, 0, lay.headerLen()+len(data))
 	buf = appendUint16(buf, 3) // format
@@ -1466,40 +1445,4 @@ func (l *ChainedSeqContext3) encode() []byte {
 	buf = appendUint16(buf, len(l.Actions))
 	buf = appendActions(buf, l.Actions)
 	return append(buf, data...)
-}
-
-// fits implements the [Subtable] interface.
-func (l *SeqContext1) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *SeqContext2) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *SeqContext3) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *ChainedSeqContext1) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *ChainedSeqContext2) fits() error {
-	_, err := l.layout()
-	return err
-}
-
-// fits implements the [Subtable] interface.
-func (l *ChainedSeqContext3) fits() error {
-	_, err := l.layout()
-	return err
 }

@@ -40,7 +40,7 @@ func baseVariationInfo() *Info {
 
 func roundTripGtab(t *testing.T, info *Info) *Info {
 	t.Helper()
-	data := info.Encode()
+	data := encodeInfo(t, info)
 	out, err := readGtab(bytes.NewReader(data), parser.NewBudget(int64(len(data))), 0, readDummySubtable)
 	if err != nil {
 		t.Fatalf("readGtab: %v", err)
@@ -104,13 +104,13 @@ func TestFeatureVariationsByteIdentity(t *testing.T) {
 	const golden = "00010000000a0020004800016c61746e0008000400000000000000020001000200036b65726e00146c696761001c66726163002200000002000000010000000100010000000100000002000600100001000000010008000100010000000100080203"
 
 	info := baseVariationInfo()
-	got := hex.EncodeToString(info.Encode())
+	got := hex.EncodeToString(encodeInfo(t, info))
 	if got != golden {
 		t.Errorf("byte-identity broken:\n got %s\nwant %s", got, golden)
 	}
 
 	// sanity: header is 10 bytes with minor version 0
-	raw := info.Encode()
+	raw := encodeInfo(t, info)
 	if raw[2] != 0 || raw[3] != 0 {
 		t.Errorf("expected minor version 0, got %d", raw[3])
 	}
@@ -120,7 +120,7 @@ func TestFeatureVariationsRawFallback(t *testing.T) {
 	// build a GSUB table with a FeatureVariations table whose single condition
 	// uses an unmodeled format (format 2); it must round-trip as raw bytes.
 	info := baseVariationInfo()
-	data := info.Encode() // version 1.0 so far
+	data := encodeInfo(t, info) // version 1.0 so far
 
 	// FeatureVariations table with one record, one condition (format 2)
 	fv := buildRawFeatureVariations()
@@ -140,7 +140,7 @@ func TestFeatureVariationsRawFallback(t *testing.T) {
 	}
 
 	// the raw bytes should re-encode and re-read byte-identically
-	data2 := out.Encode()
+	data2 := encodeInfo(t, out)
 	out2, err := readGtab(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))), 0, readDummySubtable)
 	if err != nil {
 		t.Fatalf("re-read: %v", err)
@@ -253,7 +253,7 @@ func TestFeatureVariationsDropInvalid(t *testing.T) {
 	// a substitution naming an out-of-range feature index and one naming an
 	// out-of-range lookup index must be dropped; the valid one survives.
 	// The base table has 3 features and 2 lookups.
-	fv := encodeFeatureVariations([]FeatureVariationRecord{
+	fv, err := encodeFeatureVariations([]FeatureVariationRecord{
 		{
 			Substitutions: []FeatureSubstitution{
 				{FeatureIndex: 99, Lookups: []LookupIndex{0}}, // bad feature
@@ -262,8 +262,11 @@ func TestFeatureVariationsDropInvalid(t *testing.T) {
 			},
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	base := baseVariationInfo()
-	table := spliceFeatureVariations(base.Encode(), fv)
+	table := spliceFeatureVariations(encodeInfo(t, base), fv)
 
 	out, err := readGtab(bytes.NewReader(table), parser.NewBudget(int64(len(table))), 0, readDummySubtable)
 	if err != nil {
@@ -308,7 +311,7 @@ func TestFeatureParamsIgnored(t *testing.T) {
 	fv = append(fv, fts...)
 	fv = append(fv, altFeature...)
 
-	table := spliceFeatureVariations(base.Encode(), fv)
+	table := spliceFeatureVariations(encodeInfo(t, base), fv)
 	out, err := readGtab(bytes.NewReader(table), parser.NewBudget(int64(len(table))), 0, readDummySubtable)
 	if err != nil {
 		t.Fatalf("readGtab: %v", err)

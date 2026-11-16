@@ -5,6 +5,7 @@ package gtab
 
 import (
 	"cmp"
+	"errors"
 	"slices"
 	"sort"
 
@@ -275,7 +276,8 @@ func (info ScriptListInfo) byScript() ([]otfScript, map[otfScript][]language.Tag
 // identical encodings share one copy, and so do the LangSys tables within
 // a Script table.  The Script tables are stored in the order of the scripts
 // if possible, and otherwise in order of increasing size.  An error is
-// returned if a table cannot be reached through its Offset16.
+// returned if a table cannot be reached through its Offset16, or if a count
+// does not fit into its 16-bit field.
 func (info ScriptListInfo) layout() (*scriptListLayout, error) {
 	scripts, scriptLangs := info.byScript()
 
@@ -306,7 +308,7 @@ func (info ScriptListInfo) layout() (*scriptListLayout, error) {
 		offs := make([]uint16, len(scripts))
 		for _, i := range order {
 			key := scriptKeys[i]
-			off, err := pool.AddFunc(key, func() []byte { return encs[key] })
+			off, err := pool.AddFunc(key, func() ([]byte, error) { return encs[key], nil })
 			if err != nil {
 				return nil, nil, err
 			}
@@ -450,6 +452,9 @@ func encodeScriptTable(refs []langSysRef) ([]byte, error) {
 	defaultIdx := -1
 	var records []int // indices of the non-default language systems
 	for i, ref := range refs {
+		if len(ref.features.Optional) > 0xFFFF {
+			return nil, errors.New("script: too many features in language system")
+		}
 		if ref.lang == "" {
 			defaultIdx = i
 		} else {
@@ -467,7 +472,7 @@ func encodeScriptTable(refs []langSysRef) ([]byte, error) {
 		offs := make([]uint16, len(refs))
 		for _, i := range used {
 			ff := refs[i].features
-			off, err := pool.AddFunc(ff, func() []byte { return encodeLangSys(ff) })
+			off, err := pool.AddFunc(ff, func() ([]byte, error) { return encodeLangSys(ff), nil })
 			if err != nil {
 				return nil, nil, err
 			}
@@ -516,11 +521,17 @@ func encodeLangSys(ff *Features) []byte {
 	return buf
 }
 
-func (info ScriptListInfo) encode() []byte {
+// encode returns the encoded script list.  An error is returned if a
+// table cannot be reached through its Offset16, or if a count does not fit
+// into its 16-bit field.
+func (info ScriptListInfo) encode() ([]byte, error) {
 	if info == nil {
-		return nil
+		return nil, nil
 	}
-	l := mustFitList(info.layout())
+	l, err := info.layout()
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, 2, l.encodeLen())
 	buf[0] = byte(len(l.scripts) >> 8)
@@ -529,5 +540,5 @@ func (info ScriptListInfo) encode() []byte {
 		buf = append(buf, script...)
 		buf = append(buf, byte(l.offs[i]>>8), byte(l.offs[i]))
 	}
-	return append(buf, l.pool.Bytes()...)
+	return append(buf, l.pool.Bytes()...), nil
 }

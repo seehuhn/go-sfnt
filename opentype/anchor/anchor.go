@@ -6,6 +6,7 @@ package anchor
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 
 	"seehuhn.de/go/postscript/funit"
@@ -170,9 +171,9 @@ func (r *Reader) fits(rec *Table) bool {
 // the offsets of the two tables from the start of the anchor.  If both
 // tables encode to the same bytes, they are stored once.  Otherwise the
 // shorter table is stored first, so that the offset of the second table is
-// as small as possible.  The function panics if the second table cannot be
+// as small as possible.  An error is returned if the second table cannot be
 // reached through its Offset16.
-func (rec Table) format3Layout() (xEnc, yEnc []byte, xOff, yOff int) {
+func (rec Table) format3Layout() (xEnc, yEnc []byte, xOff, yOff int, err error) {
 	if rec.XDev != nil {
 		xEnc = rec.XDev.Encode()
 		xOff = 10
@@ -192,34 +193,25 @@ func (rec Table) format3Layout() (xEnc, yEnc []byte, xOff, yOff int) {
 		yOff = 10 + len(xEnc)
 	}
 	if xOff > maxDevStart || yOff > maxDevStart {
-		panic("sfnt/anchor: Device tables too large for one anchor")
+		return nil, nil, 0, 0, errors.New("anchor: Device tables too large for one anchor")
 	}
-	return xEnc, yEnc, xOff, yOff
-}
-
-// EncodeLen returns the number of bytes in the binary representation of the
-// anchor table.
-func (rec Table) EncodeLen() int {
-	switch {
-	case rec.XDev != nil || rec.YDev != nil:
-		xEnc, yEnc, _, _ := rec.format3Layout()
-		return 10 + len(xEnc) + len(yEnc)
-	case rec.ContourPoint != nil:
-		return 8
-	default:
-		return 6
-	}
+	return xEnc, yEnc, xOff, yOff, nil
 }
 
 // Append appends the binary representation of the Anchor Table to buf.
 //
 // If XDev and YDev encode to the same bytes, the Device table is written
-// once and both offsets point at it.
-func (rec Table) Append(buf []byte) []byte {
+// once and both offsets point at it.  An error is returned if the two
+// Device tables together are too large to be reached through the 16-bit
+// offsets of the anchor table.
+func (rec Table) Append(buf []byte) ([]byte, error) {
 	switch {
 	case rec.XDev != nil || rec.YDev != nil:
 		// format 3: device offsets are relative to the anchor table start
-		xEnc, yEnc, xDevOffset, yDevOffset := rec.format3Layout()
+		xEnc, yEnc, xDevOffset, yDevOffset, err := rec.format3Layout()
+		if err != nil {
+			return nil, err
+		}
 		buf = append(buf,
 			0, 3, // anchorFormat
 			byte(rec.X>>8), byte(rec.X),
@@ -229,22 +221,22 @@ func (rec Table) Append(buf []byte) []byte {
 		)
 		if yDevOffset < xDevOffset {
 			buf = append(buf, yEnc...)
-			return append(buf, xEnc...)
+			return append(buf, xEnc...), nil
 		}
 		buf = append(buf, xEnc...)
-		return append(buf, yEnc...)
+		return append(buf, yEnc...), nil
 	case rec.ContourPoint != nil:
 		return append(buf,
 			0, 2, // anchorFormat
 			byte(rec.X>>8), byte(rec.X),
 			byte(rec.Y>>8), byte(rec.Y),
 			byte(*rec.ContourPoint>>8), byte(*rec.ContourPoint),
-		)
+		), nil
 	default:
 		return append(buf,
 			0, 1, // anchorFormat
 			byte(rec.X>>8), byte(rec.X),
 			byte(rec.Y>>8), byte(rec.Y),
-		)
+		), nil
 	}
 }

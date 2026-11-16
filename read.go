@@ -934,7 +934,7 @@ func dropInvalidCMapGlyphs(table cmap.Table, numGlyphs int) cmap.Table {
 				}
 			}
 			if changed {
-				table[key] = c.Encode(key.Language)
+				putEncoded(table, key, c)
 			}
 		case *cmap.Format6:
 			for i, g := range c.GlyphIDs {
@@ -944,7 +944,7 @@ func dropInvalidCMapGlyphs(table cmap.Table, numGlyphs int) cmap.Table {
 				}
 			}
 			if changed {
-				table[key] = c.Encode(key.Language)
+				putEncoded(table, key, c)
 			}
 		case cmap.Format4:
 			// removing mappings can split segments, so the result may
@@ -967,7 +967,7 @@ func dropInvalidCMapGlyphs(table cmap.Table, numGlyphs int) cmap.Table {
 				}
 			}
 			if changed {
-				table[key] = c.Encode(key.Language)
+				putEncoded(table, key, c)
 			}
 		}
 		if !changed {
@@ -1094,7 +1094,7 @@ func filterCoverage[T any](cov coverage.Table, data []T, keep func(T) bool) (cov
 // Callers visit the keys in sorted order, so that the result does not depend
 // on map iteration order when several subtables compete for the same key.
 func putFormat4(out cmap.Table, key cmap.Key, c cmap.Format4, orig cmap.Table) {
-	data, err := c.TryEncode(key.Language)
+	data, err := c.Encode(key.Language)
 	if err == nil {
 		out[key] = data
 		return
@@ -1116,7 +1116,18 @@ func putFormat4(out cmap.Table, key cmap.Key, c cmap.Format4, orig cmap.Table) {
 	for code, g := range c {
 		f12[uint32(code)] = g
 	}
-	out[newKey] = f12.Encode(key.Language)
+	putEncoded(out, newKey, f12)
+}
+
+// putEncoded stores the binary form of c in out.  A subtable which cannot be
+// encoded is left out.
+func putEncoded(out cmap.Table, key cmap.Key, c cmap.Subtable) {
+	data, err := c.Encode(key.Language)
+	if err != nil {
+		delete(out, key)
+		return
+	}
+	out[key] = data
 }
 
 // format12Key returns the key under which a Unicode subtable beyond the BMP

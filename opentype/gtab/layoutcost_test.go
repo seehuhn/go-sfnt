@@ -34,7 +34,7 @@ func checkLayoutCost(t *testing.T, read func(*parser.Parser, int64) (Subtable, e
 
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	err := sub.fits()
+	_, err := sub.layout()
 	runtime.ReadMemStats(&after)
 	if err != nil {
 		t.Fatal(err)
@@ -186,14 +186,14 @@ const sharedRefCount = 5000
 // 2500 times the input size.
 const sharedAllocFactor = 64
 
-// checkFitsCost checks that sub.fits() succeeds and allocates at most
+// checkSharedLayoutCost checks that sub.layout() succeeds and allocates at most
 // sharedAllocFactor times inputSize bytes.  The value inputSize is the size
 // of a font which reads as sub.
-func checkFitsCost(t *testing.T, sub Subtable, inputSize int) {
+func checkSharedLayoutCost(t *testing.T, sub Subtable, inputSize int) {
 	t.Helper()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	err := sub.fits()
+	_, err := sub.layout()
 	runtime.ReadMemStats(&after)
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +218,7 @@ func TestLayoutCostSharedRule(t *testing.T) {
 		l.Rules[i] = []*SeqRule{rule}
 	}
 	// rule sets of 4 bytes, and the shared rule
-	checkFitsCost(t, l, 6+2*sharedRefCount+4*sharedRefCount+4+2*m+6)
+	checkSharedLayoutCost(t, l, 6+2*sharedRefCount+4*sharedRefCount+4+2*m+6)
 }
 
 func TestLayoutCostSharedLigature(t *testing.T) {
@@ -230,7 +230,7 @@ func TestLayoutCostSharedLigature(t *testing.T) {
 		l.Repl[i] = []Ligature{{In: in, Out: 1}}
 	}
 	// ligature sets of 4 bytes, and the shared ligature
-	checkFitsCost(t, l, 6+2*sharedRefCount+4*sharedRefCount+4+2*m+6)
+	checkSharedLayoutCost(t, l, 6+2*sharedRefCount+4*sharedRefCount+4+2*m+6)
 }
 
 func TestLayoutCostSharedLigatureAnchor(t *testing.T) {
@@ -246,7 +246,7 @@ func TestLayoutCostSharedLigatureAnchor(t *testing.T) {
 		l.LigArray[i] = [][]*anchor.Table{{a}}
 	}
 	// LigatureAttach tables of 4 bytes, and the shared anchor
-	checkFitsCost(t, l, 12+2*sharedRefCount+4*sharedRefCount+a.EncodeLen()+64)
+	checkSharedLayoutCost(t, l, 12+2*sharedRefCount+4*sharedRefCount+len(appendAnchor(t, a))+64)
 }
 
 func TestLayoutCostSharedLangSys(t *testing.T) {
@@ -287,7 +287,7 @@ func TestLayoutCostSharedPairDevice(t *testing.T) {
 		}
 	}
 	// pair sets of 6 bytes, the shared Device table and the coverage table
-	checkFitsCost(t, l, 10+2*sharedRefCount+6*sharedRefCount+dev.EncodeLen()+10)
+	checkSharedLayoutCost(t, l, 10+2*sharedRefCount+6*sharedRefCount+dev.EncodeLen()+10)
 }
 
 func TestLayoutCostSharedAnchorDevice(t *testing.T) {
@@ -303,5 +303,5 @@ func TestLayoutCostSharedAnchorDevice(t *testing.T) {
 		l.BaseArray[i] = []*anchor.Table{{XDev: dev}}
 	}
 	// anchor tables of 10 bytes, and the shared Device table
-	checkFitsCost(t, l, 12+2*sharedRefCount+10*sharedRefCount+dev.EncodeLen()+64)
+	checkSharedLayoutCost(t, l, 12+2*sharedRefCount+10*sharedRefCount+dev.EncodeLen()+64)
 }

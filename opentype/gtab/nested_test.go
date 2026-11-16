@@ -176,13 +176,13 @@ func BenchmarkSeqContext1(b *testing.B) {
 
 func FuzzSeqContext1(f *testing.F) {
 	sub := &SeqContext1{}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Cov = coverage.Table{3: 0, 5: 1}
 	sub.Rules = [][]*SeqRule{
 		{},
 		{},
 	}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Rules = [][]*SeqRule{
 		{
 			{
@@ -211,7 +211,7 @@ func FuzzSeqContext1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 1, readSeqContext1, data)
@@ -328,13 +328,13 @@ func BenchmarkSeqContext2(b *testing.B) {
 
 func FuzzSeqContext2(f *testing.F) {
 	sub := &SeqContext2{}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Cov = coverage.Table{3: 0, 5: 1}
 	sub.Rules = [][]*ClassSeqRule{
 		{},
 		{},
 	}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Rules = [][]*ClassSeqRule{
 		{
 			{
@@ -363,7 +363,7 @@ func FuzzSeqContext2(f *testing.F) {
 			},
 		},
 	}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 2, readSeqContext2, data)
@@ -436,16 +436,16 @@ func BenchmarkSeqContext3(b *testing.B) {
 
 func FuzzSeqContext3(f *testing.F) {
 	sub := &SeqContext3{}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Input = append(sub.Input, coverage.Set{3: true, 4: true})
 	sub.Actions = []SeqLookup{
 		{SequenceIndex: 0, LookupListIndex: 1},
 		{SequenceIndex: 1, LookupListIndex: 5},
 		{SequenceIndex: 0, LookupListIndex: 4},
 	}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Input = append(sub.Input, coverage.Set{1: true, 3: true, 5: true})
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 3, readSeqContext3, data)
@@ -596,7 +596,7 @@ func BenchmarkChainedSeqContext1(b *testing.B) {
 
 func FuzzChainedSeqContext1(f *testing.F) {
 	sub := &ChainedSeqContext1{}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Cov = coverage.Table{1: 0, 3: 1}
 	sub.Rules = [][]*ChainedSeqRule{
 		{
@@ -639,7 +639,7 @@ func FuzzChainedSeqContext1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 1, readChainedSeqContext1, data)
@@ -707,7 +707,7 @@ func BenchmarkChainedSeqContext2(b *testing.B) {
 
 func FuzzChainedSeqContext2(f *testing.F) {
 	sub := &ChainedSeqContext2{}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Cov = coverage.Table{1: 0, 3: 1}
 	sub.Backtrack = classdef.Table{2: 1, 3: 1, 4: 2}
 	sub.Input = classdef.Table{3: 1, 4: 2}
@@ -753,7 +753,7 @@ func FuzzChainedSeqContext2(f *testing.F) {
 			},
 		},
 	}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 2, readChainedSeqContext2, data)
@@ -795,7 +795,7 @@ func BenchmarkChainedSeqContext3(b *testing.B) {
 
 func FuzzChainedSeqContext3(f *testing.F) {
 	sub := &ChainedSeqContext3{}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 	sub.Backtrack = []coverage.Set{
 		{1: true, 3: true},
 	}
@@ -810,7 +810,7 @@ func FuzzChainedSeqContext3(f *testing.F) {
 		{SequenceIndex: 0, LookupListIndex: 1},
 		{SequenceIndex: 0, LookupListIndex: 2},
 	}
-	f.Add(sub.encode())
+	f.Add(encodeSubtable(f, sub))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 3, readChainedSeqContext3, data)
@@ -862,15 +862,7 @@ func (l *debugNestedLookup) apply(ctx *Context, a, b int) int {
 	return next
 }
 
-func (l *debugNestedLookup) fits() error {
-	return nil
-}
-
-func (l *debugNestedLookup) encodeLen() int {
-	panic("unreachable")
-}
-
-func (l *debugNestedLookup) encode() []byte {
+func (l *debugNestedLookup) layout() (subtableLayout, error) {
 	panic("unreachable")
 }
 
@@ -975,8 +967,9 @@ func TestContextSubtableOffsetOverflow(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			l := c.make()
-			assertPanics(t, func() { l.encodeLen() })
-			assertPanics(t, func() { l.encode() })
+			if _, err := l.layout(); err == nil {
+				t.Error("layout succeeded")
+			}
 		})
 	}
 }
@@ -1086,9 +1079,10 @@ func TestChainedSeqContext3SharedCoverage(t *testing.T) {
 // reading it back gives the same subtable.
 func checkEncoded(t *testing.T, l Subtable, read func(*parser.Parser, int64) (Subtable, error), wantLen int) {
 	t.Helper()
-	enc := l.encode()
-	if len(enc) != wantLen || l.encodeLen() != wantLen {
-		t.Errorf("got %d bytes (encodeLen %d), want %d", len(enc), l.encodeLen(), wantLen)
+	lay := layoutSubtable(t, l)
+	enc := lay.encode()
+	if len(enc) != wantLen || lay.encodeLen() != wantLen {
+		t.Errorf("got %d bytes (encodeLen %d), want %d", len(enc), lay.encodeLen(), wantLen)
 	}
 	sub := readSubtable(t, read, enc)
 	if diff := cmp.Diff(l, sub); diff != "" {
@@ -1334,7 +1328,7 @@ func TestSharedRules(t *testing.T) {
 	data = append(data, glyphListCoverage(2)...)
 
 	sub := readSubtable(t, readSeqContext1, data)
-	sub2 := readSubtable(t, readSeqContext1, sub.encode())
+	sub2 := readSubtable(t, readSeqContext1, encodeSubtable(t, sub))
 	if diff := cmp.Diff(sub, sub2); diff != "" {
 		t.Errorf("round trip failed (-want +got):\n%s", diff)
 	}
@@ -1519,21 +1513,19 @@ func TestLayoutCoverageOrder(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			checkFitsRoundTrip(t, c.sub, c.read)
+			checkLayoutRoundTrip(t, c.sub, c.read)
 		})
 	}
 }
 
-// checkFitsRoundTrip checks that sub can be encoded and that reading the
+// checkLayoutRoundTrip checks that sub can be encoded and that reading the
 // encoding gives sub back.
-func checkFitsRoundTrip(t *testing.T, sub Subtable, read func(*parser.Parser, int64) (Subtable, error)) {
+func checkLayoutRoundTrip(t *testing.T, sub Subtable, read func(*parser.Parser, int64) (Subtable, error)) {
 	t.Helper()
-	if err := sub.fits(); err != nil {
-		t.Fatal(err)
-	}
-	data := sub.encode()
-	if len(data) != sub.encodeLen() {
-		t.Errorf("encodeLen() = %d, want %d", sub.encodeLen(), len(data))
+	lay := layoutSubtable(t, sub)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Errorf("encodeLen() = %d, want %d", lay.encodeLen(), len(data))
 	}
 	got := readSubtable(t, read, data)
 	if diff := cmp.Diff(sub, got); diff != "" {
@@ -1681,7 +1673,7 @@ func TestLayoutLargestLast(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			checkFitsRoundTrip(t, c.sub, c.read)
+			checkLayoutRoundTrip(t, c.sub, c.read)
 		})
 	}
 }

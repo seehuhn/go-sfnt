@@ -20,6 +20,9 @@ func (f *FontCFF2) Write(w io.Writer) error {
 	if numGlyphs == 0 {
 		return invalidSince("cff2: no glyphs")
 	}
+	if numGlyphs > maxGlyphs {
+		return invalidSince("cff2: too many glyphs")
+	}
 	if len(o.Private) == 0 {
 		return invalidSince("cff2: no private dicts")
 	}
@@ -86,7 +89,7 @@ func (f *FontCFF2) Write(w io.Writer) error {
 	blobs = append(blobs, make([]byte, 5))
 	secTopDict := len(blobs)
 	blobs = append(blobs, nil)
-	blobs = append(blobs, cffIndex(nil).encode32()) // global subr INDEX (empty)
+	blobs = append(blobs, emptyIndex32()) // global subr INDEX (empty)
 
 	secVStore := -1
 	if vstoreBlob != nil {
@@ -106,7 +109,11 @@ func (f *FontCFF2) Write(w io.Writer) error {
 		blobs = append(blobs, privateBlobs[i])
 	}
 	secCharStrings := len(blobs)
-	blobs = append(blobs, charStrings.encode32())
+	charStringsIndex, err := charStrings.encode32()
+	if err != nil {
+		return err
+	}
+	blobs = append(blobs, charStringsIndex)
 
 	numSections := len(blobs)
 	cumsum := func() []int32 {
@@ -137,7 +144,10 @@ func (f *FontCFF2) Write(w io.Writer) error {
 			}
 			fdArray[i] = fontDict.encodeCFF2()
 		}
-		blobs[secFDArray] = fdArray.encode32()
+		blobs[secFDArray], err = fdArray.encode32()
+		if err != nil {
+			return err
+		}
 
 		topDict := cffDict{}
 		if f.FontMatrix != defaultFontMatrix {

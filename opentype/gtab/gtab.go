@@ -5,6 +5,7 @@ package gtab
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"seehuhn.de/go/membudget"
@@ -181,8 +182,9 @@ func readGtab(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type, sr subt
 }
 
 // headerFits reports whether the script, feature and lookup lists can be
-// reached from the header of the encoded table.  The lists must be
-// encodable on their own, as checked by the readers.
+// reached from the header of the encoded table.  The readers make sure that
+// each list can be encoded on its own; a list which cannot is reported as
+// not fitting.
 func (info *Info) headerFits() bool {
 	hdr := 10
 	if info.Variations != nil || info.VariationsRaw != nil {
@@ -190,45 +192,59 @@ func (info *Info) headerFits() bool {
 	}
 	sizes := []int{-1, -1, -1}
 	if info.ScriptList != nil {
-		sizes[0] = mustFitList(info.ScriptList.layout()).encodeLen()
+		lay, err := info.ScriptList.layout()
+		if err != nil {
+			return false
+		}
+		sizes[0] = lay.encodeLen()
 	}
 	if info.FeatureList != nil {
-		sizes[1] = mustFitList(info.FeatureList.layout()).encodeLen()
+		lay, err := info.FeatureList.layout()
+		if err != nil {
+			return false
+		}
+		sizes[1] = lay.encodeLen()
 	}
 	if hdr+max(sizes[0], 0)+max(sizes[1], 0) <= 0xFFFF {
 		// the standard order works, whatever the length of the lookup list
 		return true
 	}
-	if info.LookupList != nil {
-		sizes[2] = len(info.LookupList.encode())
+	lookups, err := info.LookupList.encode()
+	if err != nil {
+		return false
+	}
+	if lookups != nil {
+		sizes[2] = len(lookups)
 	}
 	_, ok := offsetpool.Place(hdr, sizes)
 	return ok
 }
 
-// mustFitList returns the layout of a table which holds the data of the
-// whole GSUB or GPOS table, such as the script and feature lists, and
-// panics if the table cannot be encoded.  Such tables cannot be split.
-func mustFitList[T any](lay T, err error) T {
-	if err != nil {
-		panic("sfnt/gtab: " + err.Error())
-	}
-	return lay
-}
-
 // Encode returns the binary representation of a "GSUB" or "GPOS" table.
-func (info *Info) Encode() []byte {
-	lists := [3][]byte{
-		info.ScriptList.encode(),
-		info.FeatureList.encode(),
-		info.LookupList.encode(),
+// An error is returned if the table does not fit its 16-bit offsets or
+// counts, for example because a subtable is too large; splitting large
+// lookups into several subtables can avoid this.
+func (info *Info) Encode() ([]byte, error) {
+	var lists [3][]byte
+	var err error
+	if lists[0], err = info.ScriptList.encode(); err != nil {
+		return nil, err
+	}
+	if lists[1], err = info.FeatureList.encode(); err != nil {
+		return nil, err
+	}
+	if lists[2], err = info.LookupList.encode(); err != nil {
+		return nil, err
 	}
 
 	var variations []byte
 	if info.VariationsRaw != nil {
 		variations = info.VariationsRaw
 	} else if info.Variations != nil {
-		variations = encodeFeatureVariations(info.Variations)
+		variations, err = encodeFeatureVariations(info.Variations)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// version 1.1 adds a uint32 FeatureVariationsOffset to the header
@@ -250,7 +266,7 @@ func (info *Info) Encode() []byte {
 	}
 	offs, ok := offsetpool.Place(hdr, sizes)
 	if !ok {
-		panic("sfnt/gtab: script, feature and lookup lists too large")
+		return nil, errors.New("script, feature and lookup lists too large")
 	}
 	featureVariationsOffset := total
 	total += len(variations)
@@ -271,5 +287,5 @@ func (info *Info) Encode() []byte {
 	}
 	copy(buf[featureVariationsOffset:], variations)
 
-	return buf
+	return buf, nil
 }

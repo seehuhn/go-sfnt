@@ -112,7 +112,7 @@ func buildCFF2(spec *cff2Spec) []byte {
 	off := func() int { return base + trailer.Len() }
 
 	// global subr INDEX, immediately after the top DICT
-	trailer.Write(spec.gsubr.encode32())
+	trailer.Write(mustEncode32(spec.gsubr))
 
 	vstoreOff := 0
 	if spec.vstore != nil {
@@ -137,7 +137,7 @@ func buildCFF2(spec *cff2Spec) []byte {
 		for i := range n {
 			if spec.fds[i].subrs != nil {
 				subrOff[i] = cur
-				cur += len(spec.fds[i].subrs.encode32())
+				cur += len(mustEncode32(spec.fds[i].subrs))
 			}
 		}
 		// private dicts
@@ -151,7 +151,7 @@ func buildCFF2(spec *cff2Spec) []byte {
 		// local subrs
 		for i := range n {
 			if spec.fds[i].subrs != nil {
-				trailer.Write(spec.fds[i].subrs.encode32())
+				trailer.Write(mustEncode32(spec.fds[i].subrs))
 			}
 		}
 		// FDArray INDEX
@@ -160,7 +160,7 @@ func buildCFF2(spec *cff2Spec) []byte {
 			fdBlobs[i] = buildFontDict(spec.fds[i].fontMatrix, privLen[i], privOff[i])
 		}
 		fdArrayOff = off()
-		trailer.Write(fdBlobs.encode32())
+		trailer.Write(mustEncode32(fdBlobs))
 	}
 
 	fdSelectOff := 0
@@ -170,7 +170,7 @@ func buildCFF2(spec *cff2Spec) []byte {
 	}
 
 	charStringsOff := off()
-	trailer.Write(spec.charStrings.encode32())
+	trailer.Write(mustEncode32(spec.charStrings))
 
 	top := buildTopDict(spec, charStringsOff, vstoreOff, fdArrayOff, fdSelectOff)
 	if len(top) != L {
@@ -479,6 +479,17 @@ func TestReadCFF2Malformed(t *testing.T) {
 		}
 	})
 
+	// more charstrings than the maxp table can count
+	t.Run("too many charstrings", func(t *testing.T) {
+		spec := &cff2Spec{
+			fds:         []fdSpec{{}},
+			charStrings: make(cffIndex, maxGlyphs+1),
+		}
+		if _, err := readCFF2Bytes(t, buildCFF2(spec)); err == nil {
+			t.Error("expected error")
+		}
+	})
+
 	// too many Font DICTs (FDArray count 300)
 	t.Run("FD count 300", func(t *testing.T) {
 		data := buildTooManyFDs(300)
@@ -507,8 +518,8 @@ func buildTooManyFDs(n int) []byte {
 		fdArray.WriteByte(1) // all offsets = 1 -> empty objects
 	}
 
-	charStrings := cffIndex{cs(0, 0, t2rmoveto)}.encode32()
-	gsubr := cffIndex(nil).encode32()
+	charStrings := mustEncode32(cffIndex{cs(0, 0, t2rmoveto)})
+	gsubr := mustEncode32(cffIndex(nil))
 
 	// layout: header(5) + top + gsubr + fdArray + charStrings
 	spec := &cff2Spec{

@@ -6,6 +6,7 @@
 package classdef
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -136,6 +137,11 @@ type encInfo struct {
 	minGid, maxGid glyph.ID
 	format1Size    int
 	format2Size    int
+
+	// useFormat1 is true if format 1 is the smaller representation.  Format
+	// 1 cannot represent a table which extends over all 65536 glyph IDs,
+	// since its glyph count is a 16-bit field.
+	useFormat1 bool
 }
 
 func (info Table) getEncInfo() *encInfo {
@@ -150,12 +156,15 @@ func (info Table) getEncInfo() *encInfo {
 		}
 	}
 
-	format1Size := 6 + 2*(int(maxGid)-int(minGid)+1)
+	numGlyphs := int(maxGid) - int(minGid) + 1
+	format1Size := 6 + 2*numGlyphs
+	format1OK := numGlyphs <= 0xFFFF
 
+	// counting stops early once format 1 is known to be smaller
 	segCount := 0
 	segStart := -1
 	var segClass uint16
-	for i := int(minGid); i <= int(maxGid) && 4+6*segCount < format1Size; i++ {
+	for i := int(minGid); i <= int(maxGid) && (!format1OK || 4+6*segCount < format1Size); i++ {
 		class := info[glyph.ID(i)]
 
 		if segStart >= 0 && class != segClass {
@@ -180,30 +189,35 @@ func (info Table) getEncInfo() *encInfo {
 		maxGid:      maxGid,
 		format1Size: format1Size,
 		format2Size: format2Size,
+		useFormat1:  format1OK && format1Size <= format2Size,
 	}
 }
 
-// AppendLen returns the size of the binary table representation.
+// AppendLen returns the size of the binary table representation, for a
+// table which [Table.Append] can encode.
 func (info Table) AppendLen() int {
 	if len(info) == 0 {
 		return 4
 	}
 	encInfo := info.getEncInfo()
-	if encInfo.format1Size < encInfo.format2Size {
+	if encInfo.useFormat1 {
 		return encInfo.format1Size
 	}
 	return encInfo.format2Size
 }
 
-// Append appends the binary table representation to the given buffer.
-func (info Table) Append(buf []byte) []byte {
+// Append appends the binary table representation to the given buffer.  An
+// error is returned if the table cannot be represented, which happens when
+// the classes extend over all 65536 glyph IDs and form more than 65535
+// ranges.
+func (info Table) Append(buf []byte) ([]byte, error) {
 	if len(info) == 0 {
-		return append(buf, 0, 2, 0, 0)
+		return append(buf, 0, 2, 0, 0), nil
 	}
 
 	encInfo := info.getEncInfo()
 
-	if encInfo.format1Size <= encInfo.format2Size {
+	if encInfo.useFormat1 {
 		count := encInfo.maxGid - encInfo.minGid + 1
 		buf = append(buf,
 			0, 1,
@@ -213,10 +227,13 @@ func (info Table) Append(buf []byte) []byte {
 			class := info[encInfo.minGid+glyph.ID(i)]
 			buf = append(buf, byte(class>>8), byte(class))
 		}
-		return buf
+		return buf, nil
 	}
 
 	segCount := (encInfo.format2Size - 4) / 6
+	if segCount > 0xFFFF {
+		return nil, errors.New("class definition table too large")
+	}
 	buf = append(buf, 0, 2, byte(segCount>>8), byte(segCount))
 	segStart := -1
 	var segClass uint16
@@ -244,5 +261,5 @@ func (info Table) Append(buf []byte) []byte {
 			byte(segClass>>8), byte(segClass))
 	}
 
-	return buf
+	return buf, nil
 }

@@ -20,12 +20,9 @@ func TestGsub1_2EncodeOverflow(t *testing.T) {
 		Cov:                coverage.Table{},
 		SubstituteGlyphIDs: make([]glyph.ID, 0x8000),
 	}
-	defer func() {
-		if recover() == nil {
-			t.Error("expected panic on oversized subtable")
-		}
-	}()
-	l.encode()
+	if _, err := l.layout(); err == nil {
+		t.Error("layout succeeded")
+	}
 }
 
 func FuzzGsub1_1(f *testing.F) {
@@ -33,7 +30,7 @@ func FuzzGsub1_1(f *testing.F) {
 		Cov:   map[glyph.ID]bool{3: true},
 		Delta: 26,
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 1, readGsub1_1, data)
@@ -45,7 +42,7 @@ func FuzzGsub1_2(f *testing.F) {
 		Cov:                map[glyph.ID]int{2: 0, 3: 1},
 		SubstituteGlyphIDs: []glyph.ID{6, 7},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 1, 2, readGsub1_2, data)
@@ -78,7 +75,7 @@ func TestGsub2_1DropsEmptySequence(t *testing.T) {
 		}
 	}
 
-	st2 := readSubtable(t, readGsub2_1, g1.encode())
+	st2 := readSubtable(t, readGsub2_1, encodeSubtable(t, g1))
 	if d := cmp.Diff(st1, st2); d != "" {
 		t.Errorf("read-write-read mismatch (-first +second):\n%s", d)
 	}
@@ -107,7 +104,7 @@ func TestGsub3_1DropsEmptyAlternateSet(t *testing.T) {
 		}
 	}
 
-	st2 := readSubtable(t, readGsub3_1, g1.encode())
+	st2 := readSubtable(t, readGsub3_1, encodeSubtable(t, g1))
 	if d := cmp.Diff(st1, st2); d != "" {
 		t.Errorf("read-write-read mismatch (-first +second):\n%s", d)
 	}
@@ -208,9 +205,10 @@ func readSubtable(t *testing.T, read func(*parser.Parser, int64) (Subtable, erro
 func checkSharedRoundTrip(t *testing.T, read func(*parser.Parser, int64) (Subtable, error), data []byte) Subtable {
 	t.Helper()
 	sub := readSubtable(t, read, data)
-	enc := sub.encode()
-	if len(enc) != sub.encodeLen() {
-		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), sub.encodeLen())
+	lay := layoutSubtable(t, sub)
+	enc := lay.encode()
+	if len(enc) != lay.encodeLen() {
+		t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(enc), lay.encodeLen())
 	}
 	if len(enc) > len(data) {
 		t.Errorf("re-encoded subtable has %d bytes, input has %d", len(enc), len(data))
@@ -260,10 +258,11 @@ func TestGsub2_1SequenceSharing(t *testing.T) {
 		Cov:  coverage.Table{1: 0, 2: 1, 3: 2},
 		Repl: [][]glyph.ID{{5, 6}, {5}, {5, 6}},
 	}
-	enc := l.encode()
+	lay := layoutSubtable(t, l)
+	enc := lay.encode()
 	// header 12, sequences 6+4, coverage 10
-	if len(enc) != 32 || l.encodeLen() != 32 {
-		t.Errorf("got %d bytes (encodeLen %d), want 32", len(enc), l.encodeLen())
+	if len(enc) != 32 || lay.encodeLen() != 32 {
+		t.Errorf("got %d bytes (encodeLen %d), want 32", len(enc), lay.encodeLen())
 	}
 	sub := readSubtable(t, readGsub2_1, enc)
 	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
@@ -279,7 +278,7 @@ func FuzzGsub2_1(f *testing.F) {
 			{1, 2, 3},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 2, 1, readGsub2_1, data)
@@ -294,7 +293,7 @@ func FuzzGsub3_1(f *testing.F) {
 			{5, 6, 7},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 3, 1, readGsub3_1, data)
@@ -343,7 +342,7 @@ func FuzzGsub4_1(f *testing.F) {
 			},
 		},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 4, 1, readGsub4_1, data)
@@ -355,7 +354,7 @@ func FuzzGsub8_1(f *testing.F) {
 		Input:              coverage.Table{1: 0},
 		SubstituteGlyphIDs: []glyph.ID{2},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 	l = &Gsub8_1{
 		Input: coverage.Table{1: 0},
 		Backtrack: []coverage.Table{
@@ -369,7 +368,7 @@ func FuzzGsub8_1(f *testing.F) {
 		},
 		SubstituteGlyphIDs: []glyph.ID{2},
 	}
-	f.Add(l.encode())
+	f.Add(encodeSubtable(f, l))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		doFuzz(t, 8, 1, readGsub8_1, data)
@@ -455,9 +454,10 @@ func TestGsubLongSubtables(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			l1 := c.make()
 
-			data := l1.encode()
-			if len(data) != l1.encodeLen() {
-				t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), l1.encodeLen())
+			lay := layoutSubtable(t, l1)
+			data := lay.encode()
+			if len(data) != lay.encodeLen() {
+				t.Errorf("encode/encodeLen mismatch: %d vs %d", len(data), lay.encodeLen())
 			}
 			if len(data) <= 0xFFFF {
 				t.Fatalf("subtable is only %d bytes, the case does not test long subtables",
@@ -518,10 +518,12 @@ func TestGsub3_1AlternateSetSharing(t *testing.T) {
 		Alternates: [][]glyph.ID{{5, 6}, {5}, {5, 6}},
 	}
 	// header 12, alternate sets 6+4, coverage 10
-	if enc := l.encode(); len(enc) != 32 || l.encodeLen() != 32 {
-		t.Errorf("got %d bytes (encodeLen %d), want 32", len(enc), l.encodeLen())
+	lay := layoutSubtable(t, l)
+	enc := lay.encode()
+	if len(enc) != 32 || lay.encodeLen() != 32 {
+		t.Errorf("got %d bytes (encodeLen %d), want 32", len(enc), lay.encodeLen())
 	}
-	sub := readSubtable(t, readGsub3_1, l.encode())
+	sub := readSubtable(t, readGsub3_1, enc)
 	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
 		t.Errorf("round trip failed (-want +got):\n%s", diff)
 	}
@@ -536,7 +538,6 @@ func TestGsub3_1LayoutOverflow(t *testing.T) {
 	if _, err := l.layout(); err == nil {
 		t.Error("expected layout error")
 	}
-	assertPanics(t, func() { l.encode() })
 }
 
 // TestGsub4_1SharedLigatureSets checks that a subtable whose ligature set
@@ -589,10 +590,12 @@ func TestGsub4_1Sharing(t *testing.T) {
 		Repl: [][]Ligature{{a, b, a}, {a}, {a, b, a}},
 	}
 	// header 12; set {a,b,a}: 2+6+2*6=20; set {a}: 2+2+6=10; coverage 10
-	if enc := l.encode(); len(enc) != 52 || l.encodeLen() != 52 {
-		t.Errorf("got %d bytes (encodeLen %d), want 52", len(enc), l.encodeLen())
+	lay := layoutSubtable(t, l)
+	enc := lay.encode()
+	if len(enc) != 52 || lay.encodeLen() != 52 {
+		t.Errorf("got %d bytes (encodeLen %d), want 52", len(enc), lay.encodeLen())
 	}
-	sub := readSubtable(t, readGsub4_1, l.encode())
+	sub := readSubtable(t, readGsub4_1, enc)
 	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
 		t.Errorf("round trip failed (-want +got):\n%s", diff)
 	}
@@ -608,7 +611,6 @@ func TestGsub4_1LayoutOverflow(t *testing.T) {
 	if _, err := l.layout(); err == nil {
 		t.Error("expected layout error for ligature offsets")
 	}
-	assertPanics(t, func() { l.encode() })
 
 	// distinct ligature sets
 	l = &Gsub4_1{Cov: coverage.Table{}}
@@ -619,7 +621,6 @@ func TestGsub4_1LayoutOverflow(t *testing.T) {
 	if _, err := l.layout(); err == nil {
 		t.Error("expected layout error for set offsets")
 	}
-	assertPanics(t, func() { l.encodeLen() })
 }
 
 // TestGsub8_1SharedCoverage checks that a subtable whose backtrack and
@@ -674,10 +675,12 @@ func TestGsub8_1CoverageSharing(t *testing.T) {
 		SubstituteGlyphIDs: []glyph.ID{7, 8},
 	}
 	// header 10+2*(2+2+2)=22; coverages {1,2}: 8, {3}: 6, {4}: 6
-	if enc := l.encode(); len(enc) != 42 || l.encodeLen() != 42 {
-		t.Errorf("got %d bytes (encodeLen %d), want 42", len(enc), l.encodeLen())
+	lay := layoutSubtable(t, l)
+	enc := lay.encode()
+	if len(enc) != 42 || lay.encodeLen() != 42 {
+		t.Errorf("got %d bytes (encodeLen %d), want 42", len(enc), lay.encodeLen())
 	}
-	sub := readSubtable(t, readGsub8_1, l.encode())
+	sub := readSubtable(t, readGsub8_1, enc)
 	if diff := cmp.Diff(Subtable(l), sub); diff != "" {
 		t.Errorf("round trip failed (-want +got):\n%s", diff)
 	}
@@ -691,7 +694,6 @@ func TestGsub8_1LayoutOverflow(t *testing.T) {
 	if _, err := l.layout(); err == nil {
 		t.Error("expected layout error")
 	}
-	assertPanics(t, func() { l.encode() })
 
 	l = &Gsub8_1{Input: coverage.Table{}}
 	for i := range 0x2000 {
@@ -709,9 +711,10 @@ func TestGsub8_1LayoutOverflow(t *testing.T) {
 
 func TestGsub1_1Layout(t *testing.T) {
 	l := &Gsub1_1{Cov: coverage.Set{1: true, 2: true}, Delta: 3}
-	enc := l.encode()
-	if len(enc) != l.encodeLen() {
-		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
+	lay := layoutSubtable(t, l)
+	enc := lay.encode()
+	if len(enc) != lay.encodeLen() {
+		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), lay.encodeLen())
 	}
 	sub := readSubtable(t, readGsub1_1, enc)
 	if diff := cmp.Diff(Subtable(l), sub); diff != "" {

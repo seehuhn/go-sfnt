@@ -67,9 +67,10 @@ func TestValueRecordRoundTripAllBits(t *testing.T) {
 		},
 	}
 
-	data := l1.encode()
-	if len(data) != l1.encodeLen() {
-		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), l1.encodeLen())
+	lay := layoutSubtable(t, l1)
+	data := lay.encode()
+	if len(data) != lay.encodeLen() {
+		t.Fatalf("encode length mismatch: encode=%d encodeLen=%d", len(data), lay.encodeLen())
 	}
 
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
@@ -236,9 +237,10 @@ func TestSharedFormatZeroRecords(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			data := c.sub.encode()
-			if len(data) != c.sub.encodeLen() {
-				t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(data), c.sub.encodeLen())
+			lay := layoutSubtable(t, c.sub)
+			data := lay.encode()
+			if len(data) != lay.encodeLen() {
+				t.Fatalf("encode/encodeLen mismatch: %d vs %d", len(data), lay.encodeLen())
 			}
 			for i, want := range c.formats {
 				got := uint16(data[4+2*i])<<8 | uint16(data[5+2*i])

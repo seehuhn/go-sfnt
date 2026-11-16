@@ -4,10 +4,12 @@
 package cmap
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"seehuhn.de/go/sfnt/glyph"
 )
 
 func TestFormat4(t *testing.T) {
@@ -25,7 +27,7 @@ func TestFormat4(t *testing.T) {
 		0xba: 11,
 	}
 	t1 := Table{
-		{PlatformID: 1, EncodingID: 0}: s1.Encode(0),
+		{PlatformID: 1, EncodingID: 0}: mustEncode(t, s1),
 	}
 	data := t1.Encode()
 	t2, err := Decode(data)
@@ -118,7 +120,10 @@ func FuzzFormat4(f *testing.F) {
 			return
 		}
 
-		data2 := c1.Encode(0)
+		data2, err := c1.Encode(0)
+		if err != nil {
+			t.Fatal(err)
+		}
 		// if len(data2) > len(data) {
 		// 	t.Error("too long")
 		// }
@@ -140,3 +145,34 @@ func FuzzFormat4(f *testing.F) {
 }
 
 var _ Subtable = Format4(nil)
+
+// TestFormat4EncodeTooLarge checks that Encode returns ErrTooLarge if the
+// mapping does not fit into a format 4 subtable, and that a caller can then
+// fall back to format 12.
+func TestFormat4EncodeTooLarge(t *testing.T) {
+	c4 := Format4{}
+	c12 := Format12{}
+	// Each code needs at least 8 bytes, whether it gets a segment of its
+	// own or is stored in a glyph ID array which also spans the gaps.
+	for i := range 8200 {
+		code := 5 * i
+		g := glyph.ID(1 + (i*i)%65521)
+		c4[uint16(code)] = g
+		c12[uint32(code)] = g
+	}
+
+	var enc Subtable = c4
+	_, err := enc.Encode(0)
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("got error %v, want ErrTooLarge", err)
+	}
+	enc = c12
+	data := mustEncode(t, enc)
+	dec, err := decodeFormat12(data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(c12, dec); diff != "" {
+		t.Errorf("fallback round trip failed (-want +got):\n%s", diff)
+	}
+}

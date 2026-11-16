@@ -57,7 +57,7 @@ func TestGetLookups(t *testing.T) {
 
 func FuzzGtab(f *testing.F) {
 	info := &Info{}
-	f.Add(info.Encode())
+	f.Add(encodeInfo(f, info))
 
 	info.ScriptList = ScriptListInfo{
 		language.MustParse("und-Zzzz"): {
@@ -152,7 +152,7 @@ func FuzzGtab(f *testing.F) {
 			},
 		},
 	}
-	f.Add(info.Encode())
+	f.Add(encodeInfo(f, info))
 
 	// version 1.1 seed with a modeled FeatureVariations table
 	info.Variations = []FeatureVariationRecord{
@@ -175,7 +175,7 @@ func FuzzGtab(f *testing.F) {
 			},
 		},
 	}
-	f.Add(info.Encode())
+	f.Add(encodeInfo(f, info))
 	info.Variations = nil
 
 	f.Fuzz(func(t *testing.T, data1 []byte) {
@@ -184,7 +184,7 @@ func FuzzGtab(f *testing.F) {
 			return
 		}
 
-		data2 := info1.Encode()
+		data2 := encodeInfo(t, info1)
 
 		info2, err := readGtab(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))), 0, readDummySubtable)
 		if err != nil {
@@ -213,14 +213,15 @@ func doFuzz(t *testing.T, lookupType, lookupFormat uint16,
 	if err != nil {
 		return
 	}
-	if l1.fits() != nil {
+	lay, err := l1.layout()
+	if err != nil {
 		// readLookupList drops such subtables
 		return
 	}
 
-	data2 := l1.encode()
-	if len(data2) != l1.encodeLen() {
-		t.Errorf("encodeLen mismatch: %d != %d", len(data2), l1.encodeLen())
+	data2 := lay.encode()
+	if len(data2) != lay.encodeLen() {
+		t.Errorf("encodeLen mismatch: %d != %d", len(data2), lay.encodeLen())
 	}
 
 	p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
@@ -284,7 +285,7 @@ func TestInfoEncodeHeaderOffsets(t *testing.T) {
 						LookupList:  LookupList{},
 						Variations:  variations,
 					}
-					data := info.Encode()
+					data := encodeInfo(t, info)
 					got, err := readGtab(bytes.NewReader(data),
 						parser.NewBudget(int64(len(data))), 0, readDummySubtable)
 					if err != nil {
@@ -303,7 +304,9 @@ func TestInfoEncodeHeaderOffsets(t *testing.T) {
 					LookupList:  LookupList{},
 					Variations:  variations,
 				}
-				assertPanics(t, func() { info.Encode() })
+				if _, err := info.Encode(); err == nil {
+					t.Error("Encode succeeded")
+				}
 			})
 		})
 	}
@@ -335,7 +338,7 @@ func TestReadGtabListsTooLarge(t *testing.T) {
 	scriptList = append(scriptList, 0, 10)
 	scriptList = append(scriptList, langSys...)
 
-	featureList := FeatureListInfo{{Tag: "liga", Lookups: make([]LookupIndex, 40000)}}.encode()
+	featureList := encodeList(t, FeatureListInfo{{Tag: "liga", Lookups: make([]LookupIndex, 40000)}})
 	lookupList := []byte{0, 0}
 
 	// the lookup list comes first, so that every offset fits
@@ -384,7 +387,7 @@ func BenchmarkReadGtab(b *testing.B) {
 			Lookups: []LookupIndex{LookupIndex(i % len(info.LookupList))},
 		})
 	}
-	data := info.Encode()
+	data := encodeInfo(b, info)
 
 	b.SetBytes(int64(len(data)))
 	b.ReportAllocs()

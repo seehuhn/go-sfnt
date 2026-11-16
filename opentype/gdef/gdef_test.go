@@ -40,7 +40,7 @@ func TestGdefListsRoundTrip(t *testing.T) {
 			},
 		},
 	}
-	data := table1.Encode()
+	data := mustEncode(t, table1)
 	table2, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestGdefEncodeNoStoreByteIdentical(t *testing.T) {
 	table := &Table{}
 	check := func(want string) {
 		t.Helper()
-		got := hex.EncodeToString(table.Encode())
+		got := hex.EncodeToString(mustEncode(t, table))
 		if got != want {
 			t.Errorf("got  %s\nwant %s", got, want)
 		}
@@ -123,7 +123,7 @@ func TestGdefItemVarStoreRoundTrip(t *testing.T) {
 		GlyphClass:   classdef.Table{2: GlyphClassBase},
 		ItemVarStore: goldenItemVarStore,
 	}
-	data := table1.Encode()
+	data := mustEncode(t, table1)
 
 	major := uint16(data[0])<<8 | uint16(data[1])
 	minor := uint16(data[2])<<8 | uint16(data[3])
@@ -150,7 +150,7 @@ func TestGdefItemVarStoreWithMarkGlyphSetsRoundTrip(t *testing.T) {
 		},
 		ItemVarStore: goldenItemVarStore,
 	}
-	data := table1.Encode()
+	data := mustEncode(t, table1)
 	table2, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err != nil {
 		t.Fatal(err)
@@ -162,25 +162,25 @@ func TestGdefItemVarStoreWithMarkGlyphSetsRoundTrip(t *testing.T) {
 
 func FuzzGdef(f *testing.F) {
 	table := &Table{}
-	f.Add(table.Encode())
+	f.Add(mustEncode(f, table))
 	table.GlyphClass = classdef.Table{
 		2:  GlyphClassBase,
 		3:  GlyphClassBase,
 		4:  GlyphClassBase,
 		10: GlyphClassLigature,
 	}
-	f.Add(table.Encode())
+	f.Add(mustEncode(f, table))
 	table.MarkAttachClass = classdef.Table{
 		5: 1,
 		6: 2,
 		7: 1,
 	}
-	f.Add(table.Encode())
+	f.Add(mustEncode(f, table))
 	table.MarkGlyphSets = []coverage.Set{
 		{12: true, 13: true, 14: true},
 		{10: true, 15: true, 16: true},
 	}
-	f.Add(table.Encode())
+	f.Add(mustEncode(f, table))
 	cp := uint16(2)
 	table.AttachList = &AttachList{
 		Cov:    coverage.Table{2: 0, 4: 1},
@@ -196,9 +196,9 @@ func FuzzGdef(f *testing.F) {
 			},
 		},
 	}
-	f.Add(table.Encode())
+	f.Add(mustEncode(f, table))
 	table.ItemVarStore = goldenItemVarStore
-	f.Add(table.Encode())
+	f.Add(mustEncode(f, table))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		table1, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
@@ -206,7 +206,7 @@ func FuzzGdef(f *testing.F) {
 			return
 		}
 
-		data2 := table1.Encode()
+		data2 := mustEncode(t, table1)
 
 		// The compact re-encoding may be smaller than data, giving it a
 		// smaller input-proportional budget; reuse data's allowance so a
@@ -223,14 +223,15 @@ func FuzzGdef(f *testing.F) {
 	})
 }
 
-func assertPanics(t *testing.T, fn func()) {
-	t.Helper()
-	defer func() {
-		if recover() == nil {
-			t.Errorf("expected panic, got none")
-		}
-	}()
-	fn()
+// mustEncode returns the encoded table, and fails the test if the table
+// cannot be encoded.
+func mustEncode(tb testing.TB, table *Table) []byte {
+	tb.Helper()
+	data, err := table.Encode()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return data
 }
 
 // bigClassDef returns a class definition table of more than 64 kB.
@@ -282,7 +283,7 @@ func TestGdefEncodeOffsetRange(t *testing.T) {
 	}
 	for name, table := range fitting {
 		t.Run(name, func(t *testing.T) {
-			data := table.Encode()
+			data := mustEncode(t, table)
 			got, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 			if err != nil {
 				t.Fatal(err)
@@ -294,12 +295,15 @@ func TestGdefEncodeOffsetRange(t *testing.T) {
 	}
 
 	tooLarge := map[string]*Table{
-		"mark attach":   {LigCaretList: bigCaret, MarkAttachClass: classdef.Table{1: 1}},
-		"two big lists": {GlyphClass: cd, MarkAttachClass: cd},
+		"mark attach":    {LigCaretList: bigCaret, MarkAttachClass: classdef.Table{1: 1}},
+		"two big lists":  {GlyphClass: cd, MarkAttachClass: cd},
+		"mark set count": {MarkGlyphSets: make([]coverage.Set, 0x10000)},
 	}
 	for name, table := range tooLarge {
 		t.Run(name, func(t *testing.T) {
-			assertPanics(t, func() { table.Encode() })
+			if _, err := table.Encode(); err == nil {
+				t.Error("Encode succeeded")
+			}
 		})
 	}
 
@@ -313,7 +317,7 @@ func TestGdefEncodeOffsetRange(t *testing.T) {
 			MarkAttachClass: classdef.Table{1: 1},
 			MarkGlyphSets:   []coverage.Set{{1: true}},
 		}
-		data := table.Encode()
+		data := mustEncode(t, table)
 		got, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 		if err != nil {
 			t.Fatal(err)
@@ -337,7 +341,10 @@ func TestGdefReadDropsUnreachable(t *testing.T) {
 		0, 0, // ligature caret list
 		0, 12, // mark attachment class definition
 	}
-	data = cd.Append(data)
+	data, err := cd.Append(data)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err != nil {
@@ -349,7 +356,7 @@ func TestGdefReadDropsUnreachable(t *testing.T) {
 	}
 
 	// the result can be written
-	data2 := got.Encode()
+	data2 := mustEncode(t, got)
 	got2, err := Read(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 	if err != nil {
 		t.Fatal(err)
@@ -366,7 +373,9 @@ func TestAttachListOffsetRange(t *testing.T) {
 		for i := range n {
 			al.Cov[glyph.ID(i+1)] = i
 		}
-		assertPanics(t, func() { mustFit(al.layout()) })
+		if _, err := al.layout(); err == nil {
+			t.Error("layout succeeded")
+		}
 	})
 	t.Run("points", func(t *testing.T) {
 		// the second point list lies behind a first one of about 80 kB
@@ -374,7 +383,9 @@ func TestAttachListOffsetRange(t *testing.T) {
 			Cov:    coverage.Table{1: 0, 2: 1},
 			Points: [][]uint16{make([]uint16, 40000), {1}},
 		}
-		assertPanics(t, func() { mustFit(al.layout()) })
+		if _, err := al.layout(); err == nil {
+			t.Error("layout succeeded")
+		}
 	})
 }
 
@@ -385,7 +396,9 @@ func TestLigCaretListOffsetRange(t *testing.T) {
 		for i := range n {
 			lcl.Cov[glyph.ID(i+1)] = i
 		}
-		assertPanics(t, func() { mustFit(lcl.layout()) })
+		if _, err := lcl.layout(); err == nil {
+			t.Error("layout succeeded")
+		}
 	})
 	t.Run("ligature glyph", func(t *testing.T) {
 		// the second ligature glyph lies behind a first one of about 120 kB
@@ -393,7 +406,9 @@ func TestLigCaretListOffsetRange(t *testing.T) {
 			Cov:    coverage.Table{1: 0, 2: 1},
 			Carets: [][]CaretValue{distinctCarets(20000), {{Coordinate: 1}}},
 		}
-		assertPanics(t, func() { mustFit(lcl.layout()) })
+		if _, err := lcl.layout(); err == nil {
+			t.Error("layout succeeded")
+		}
 	})
 	t.Run("caret value", func(t *testing.T) {
 		// a single ligature glyph with so many carets that the last
@@ -402,7 +417,9 @@ func TestLigCaretListOffsetRange(t *testing.T) {
 			Cov:    coverage.Table{1: 0},
 			Carets: [][]CaretValue{distinctCarets(11000)},
 		}
-		assertPanics(t, func() { mustFit(lcl.layout()) })
+		if _, err := lcl.layout(); err == nil {
+			t.Error("layout succeeded")
+		}
 	})
 	t.Run("within limit", func(t *testing.T) {
 		lcl := &LigCaretList{
@@ -410,7 +427,7 @@ func TestLigCaretListOffsetRange(t *testing.T) {
 			Carets: [][]CaretValue{distinctCarets(10000)},
 		}
 		table := &Table{LigCaretList: lcl}
-		data := table.Encode()
+		data := mustEncode(t, table)
 		got, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 		if err != nil {
 			t.Fatal(err)
@@ -432,7 +449,7 @@ func sequentialCoverage(n int) coverage.Table {
 
 func roundTripTable(t *testing.T, table *Table) []byte {
 	t.Helper()
-	data := table.Encode()
+	data := mustEncode(t, table)
 	got, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	if err != nil {
 		t.Fatal(err)

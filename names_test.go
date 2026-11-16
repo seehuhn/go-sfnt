@@ -30,7 +30,7 @@ func makeNameTestFont() *Font {
 func TestMakeGlyphNamesInvalidCMap(t *testing.T) {
 	f := makeNameTestFont()
 	f.CMapTable = cmap.Table{
-		{PlatformID: 3, EncodingID: 1}: cmap.Format4{'B': glyph.ID(5000)}.Encode(0),
+		{PlatformID: 3, EncodingID: 1}: mustEncodeCMap(t, cmap.Format4{'B': glyph.ID(5000)}),
 	}
 
 	names := f.MakeGlyphNames()

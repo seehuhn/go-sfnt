@@ -9,6 +9,16 @@ import (
 	"testing"
 )
 
+// mustEncode encodes the subtable, failing the test on error.
+func mustEncode(tb testing.TB, s Subtable) []byte {
+	tb.Helper()
+	data, err := s.Encode(0)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return data
+}
+
 func FuzzCmapHeader(f *testing.F) {
 	f.Add([]byte{
 		0, 0,

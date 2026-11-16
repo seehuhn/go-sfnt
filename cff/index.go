@@ -6,6 +6,7 @@ package cff
 import (
 	"bytes"
 	"errors"
+	"fmt"
 
 	"seehuhn.de/go/sfnt/parser"
 )
@@ -100,41 +101,59 @@ func readIndexBody(p *parser.Parser, count int) (cffIndex, error) {
 	return res, nil
 }
 
-// encode converts a CFF INDEX to its binary representation.
-func (data cffIndex) encode() []byte {
+// emptyIndex returns the binary representation of an empty CFF INDEX.
+func emptyIndex() []byte {
+	return []byte{0, 0}
+}
+
+// emptyIndex32 returns the binary representation of an empty CFF2 INDEX.
+func emptyIndex32() []byte {
+	return []byte{0, 0, 0, 0}
+}
+
+// encode converts a CFF INDEX to its binary representation.  An error is
+// returned if the INDEX has 65536 or more items, or holds too much data for
+// 32-bit offsets.
+func (data cffIndex) encode() ([]byte, error) {
 	count := len(data)
 	if count >= 1<<16 {
-		panic("cff: too many items for INDEX")
+		return nil, fmt.Errorf("cff: too many items for INDEX (%d)", count)
 	}
 	if count == 0 {
-		return []byte{0, 0}
+		return emptyIndex(), nil
 	}
 
 	out := &bytes.Buffer{}
 	out.Write([]byte{byte(count >> 8), byte(count)}) // count
-	data.encodeBody(out)
-	return out.Bytes()
+	if err := data.encodeBody(out); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 // encode32 converts a CFF2 INDEX to its binary representation, using a
-// uint32 count.  An empty CFF2 INDEX encodes as four zero bytes.
-func (data cffIndex) encode32() []byte {
+// uint32 count.  An empty CFF2 INDEX encodes as four zero bytes.  An error
+// is returned if the INDEX holds too much data for 32-bit offsets.
+func (data cffIndex) encode32() ([]byte, error) {
 	count := len(data)
 	if count == 0 {
-		return []byte{0, 0, 0, 0}
+		return emptyIndex32(), nil
 	}
 
 	out := &bytes.Buffer{}
 	out.Write([]byte{
 		byte(count >> 24), byte(count >> 16), byte(count >> 8), byte(count), // count
 	})
-	data.encodeBody(out)
-	return out.Bytes()
+	if err := data.encodeBody(out); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 // encodeBody writes the offSize, offset array and object data of an INDEX,
-// i.e. everything after the count.  Shared by encode and encode32.
-func (data cffIndex) encodeBody(out *bytes.Buffer) {
+// i.e. everything after the count.  Shared by encode and encode32.  An error
+// is returned if the data is too large for 32-bit offsets.
+func (data cffIndex) encodeBody(out *bytes.Buffer) error {
 	count := len(data)
 
 	bodyLength := 0
@@ -147,7 +166,7 @@ func (data cffIndex) encodeBody(out *bytes.Buffer) {
 		offSize++
 	}
 	if offSize > 4 {
-		panic("cff: too much data for INDEX")
+		return errors.New("cff: too much data for INDEX")
 	}
 
 	out.WriteByte(byte(offSize))
@@ -169,4 +188,5 @@ func (data cffIndex) encodeBody(out *bytes.Buffer) {
 	for i := range count {
 		out.Write(data[i])
 	}
+	return nil
 }

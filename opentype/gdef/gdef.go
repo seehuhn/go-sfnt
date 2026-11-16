@@ -7,6 +7,7 @@ package gdef
 import (
 	"cmp"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -199,38 +200,39 @@ type listLayouts struct {
 	ligCaret *ligCaretListLayout
 }
 
-// layoutLists computes the layouts of the two lists, and panics if a list
-// cannot be encoded.
-func (table *Table) layoutLists() listLayouts {
+// layoutLists computes the layouts of the two lists.  An error is returned
+// if a list cannot be encoded.
+func (table *Table) layoutLists() (listLayouts, error) {
 	var lists listLayouts
+	var err error
 	if table.AttachList != nil {
-		lists.attach = mustFit(table.AttachList.layout())
+		if lists.attach, err = table.AttachList.layout(); err != nil {
+			return listLayouts{}, err
+		}
 	}
 	if table.LigCaretList != nil {
-		lists.ligCaret = mustFit(table.LigCaretList.layout())
+		if lists.ligCaret, err = table.LigCaretList.layout(); err != nil {
+			return listLayouts{}, err
+		}
 	}
-	return lists
+	return lists, nil
 }
 
 // subtables returns the tables reached through Offset16 fields of the
 // header, in the order of the header fields.
-func (table *Table) subtables(lists listLayouts) []subtable {
+func (table *Table) subtables(lists listLayouts, glyphClass, markAttachClass subtable) []subtable {
 	res := make([]subtable, 5)
 	for i := range res {
 		res[i].size = -1
 	}
-	if cd := table.GlyphClass; cd != nil {
-		res[0] = subtable{cd.AppendLen(), cd.Append}
-	}
+	res[0] = glyphClass
 	if lay := lists.attach; lay != nil {
 		res[1] = subtable{lay.encodeLen(), lay.append}
 	}
 	if lay := lists.ligCaret; lay != nil {
 		res[2] = subtable{lay.encodeLen(), lay.append}
 	}
-	if cd := table.MarkAttachClass; cd != nil {
-		res[3] = subtable{cd.AppendLen(), cd.Append}
-	}
+	res[3] = markAttachClass
 	if sets := table.MarkGlyphSets; sets != nil {
 		size := 4 + 4*len(sets)
 		for _, set := range sets {
@@ -277,8 +279,18 @@ func sizes(subtables []subtable) []int {
 // the header fields, and each is kept if it can be stored together with the
 // tables kept before it.
 func (table *Table) dropUnreachable(lists listLayouts) {
+	glyphClass, err := classDefSubtable(table.GlyphClass)
+	if err != nil {
+		table.GlyphClass = nil
+		glyphClass.size = -1
+	}
+	markAttachClass, err := classDefSubtable(table.MarkAttachClass)
+	if err != nil {
+		table.MarkAttachClass = nil
+		markAttachClass.size = -1
+	}
 	hdr, _ := table.headerLen()
-	all := sizes(table.subtables(lists))
+	all := sizes(table.subtables(lists, glyphClass, markAttachClass))
 	kept := make([]int, len(all))
 	for i := range kept {
 		kept[i] = -1
@@ -307,13 +319,42 @@ func (table *Table) dropUnreachable(lists listLayouts) {
 	}
 }
 
-// Encode converts the GDEF table to its binary form.
-func (table *Table) Encode() []byte {
+// classDefSubtable returns the encoded class definition table as a subtable
+// of the header.  A nil table is absent.
+func classDefSubtable(cd classdef.Table) (subtable, error) {
+	if cd == nil {
+		return subtable{size: -1}, nil
+	}
+	enc, err := cd.Append(nil)
+	if err != nil {
+		return subtable{}, err
+	}
+	return subtable{len(enc), func(buf []byte) []byte { return append(buf, enc...) }}, nil
+}
+
+// Encode converts the GDEF table to its binary form.  An error is returned
+// if the table does not fit its 16-bit offsets.
+func (table *Table) Encode() ([]byte, error) {
+	if len(table.MarkGlyphSets) > 0xFFFF {
+		return nil, fmt.Errorf("too many mark glyph sets (%d)", len(table.MarkGlyphSets))
+	}
+	glyphClass, err := classDefSubtable(table.GlyphClass)
+	if err != nil {
+		return nil, err
+	}
+	markAttachClass, err := classDefSubtable(table.MarkAttachClass)
+	if err != nil {
+		return nil, err
+	}
 	hdr, version := table.headerLen()
-	subtables := table.subtables(table.layoutLists())
+	lists, err := table.layoutLists()
+	if err != nil {
+		return nil, err
+	}
+	subtables := table.subtables(lists, glyphClass, markAttachClass)
 	offs, ok := offsetpool.Place(hdr, sizes(subtables))
 	if !ok {
-		panic("sfnt/gdef: tables too large for GDEF header")
+		return nil, errors.New("GDEF subtables too large for the header offsets")
 	}
 
 	total := hdr
@@ -350,17 +391,7 @@ func (table *Table) Encode() []byte {
 	if table.ItemVarStore != nil {
 		buf = append(buf, table.ItemVarStore.Encode()...)
 	}
-	return buf
-}
-
-// mustFit returns the layout of a table and panics if the table cannot be
-// encoded.  The encoders use it because their input comes from the API,
-// which is trusted.
-func mustFit[T any](lay T, err error) T {
-	if err != nil {
-		panic("sfnt/gdef: " + err.Error())
-	}
-	return lay
+	return buf, nil
 }
 
 // Possible values for the GlyphClass field.

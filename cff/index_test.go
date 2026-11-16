@@ -24,7 +24,7 @@ func TestIndex(t *testing.T) {
 			data[i] = blob[d : d+127]
 		}
 
-		buf := data.encode()
+		buf := mustEncode(data)
 
 		if count == 0 && len(buf) != 2 {
 			t.Error("wrong length for empty INDEX")
@@ -63,7 +63,7 @@ func TestIndex32(t *testing.T) {
 			data[i] = blob[d : d+127]
 		}
 
-		buf := data.encode32()
+		buf := mustEncode32(data)
 
 		if count == 0 && !bytes.Equal(buf, []byte{0, 0, 0, 0}) {
 			t.Errorf("empty INDEX32 = % x, want 4 zero bytes", buf)
@@ -91,7 +91,7 @@ func TestIndex32(t *testing.T) {
 func TestIndex32OffSize(t *testing.T) {
 	for _, size := range []int{1, 1000, 70000, 20000000} {
 		data := cffIndex{make([]byte, size)}
-		buf := data.encode32()
+		buf := mustEncode32(data)
 		p := parser.New(bytes.NewReader(buf), parser.NewBudget(int64(len(buf))))
 		out, err := readIndex32(p)
 		if err != nil {
@@ -105,10 +105,10 @@ func TestIndex32OffSize(t *testing.T) {
 
 func FuzzIndex32(f *testing.F) {
 	iSeed := cffIndex{}
-	f.Add(iSeed.encode32())
+	f.Add(mustEncode32(iSeed))
 	for _, d := range [][]byte{{}, {0}, {0, 1, 2, 3}} {
 		iSeed = append(iSeed, d)
-		f.Add(iSeed.encode32())
+		f.Add(mustEncode32(iSeed))
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -118,7 +118,7 @@ func FuzzIndex32(f *testing.F) {
 			return
 		}
 
-		buf := i1.encode32()
+		buf := mustEncode32(i1)
 		if len(buf) > len(data) {
 			t.Error("inefficient encoding")
 		}
@@ -137,11 +137,11 @@ func FuzzIndex32(f *testing.F) {
 
 func FuzzIndex(f *testing.F) {
 	iSeed := cffIndex{}
-	buf := iSeed.encode()
+	buf := mustEncode(iSeed)
 	f.Add(buf)
 	for _, d := range [][]byte{{}, {0}, {0, 1, 2, 3}} {
 		iSeed = append(iSeed, d)
-		buf := iSeed.encode()
+		buf := mustEncode(iSeed)
 		f.Add(buf)
 	}
 
@@ -152,7 +152,7 @@ func FuzzIndex(f *testing.F) {
 			return
 		}
 
-		buf := i1.encode()
+		buf := mustEncode(i1)
 		if len(buf) > len(data) {
 			t.Error("inefficient encoding")
 		}
@@ -167,4 +167,31 @@ func FuzzIndex(f *testing.F) {
 			t.Error("unequal")
 		}
 	})
+}
+
+// mustEncode returns the encoded INDEX.  The test data used with it is
+// known to be encodable.
+func mustEncode(data cffIndex) []byte {
+	buf, err := data.encode()
+	if err != nil {
+		panic(err)
+	}
+	return buf
+}
+
+// mustEncode32 returns the encoded CFF2 INDEX.  The test data used with it
+// is known to be encodable.
+func mustEncode32(data cffIndex) []byte {
+	buf, err := data.encode32()
+	if err != nil {
+		panic(err)
+	}
+	return buf
+}
+
+func TestIndexTooManyItems(t *testing.T) {
+	data := make(cffIndex, 1<<16)
+	if _, err := data.encode(); err == nil {
+		t.Error("INDEX with 65536 items encoded")
+	}
 }

@@ -5,6 +5,7 @@ package sfnt
 
 import (
 	"math"
+	"testing"
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/rect"
@@ -13,6 +14,7 @@ import (
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/cff"
+	"seehuhn.de/go/sfnt/cmap"
 	"seehuhn.de/go/sfnt/glyph"
 )
 
@@ -132,4 +134,14 @@ func cffFixture() *Font {
 			FDSelect: func(glyph.ID) int { return 0 },
 		},
 	}
+}
+
+// mustEncodeCMap encodes the cmap subtable, failing the test on error.
+func mustEncodeCMap(tb testing.TB, s cmap.Subtable) []byte {
+	tb.Helper()
+	data, err := s.Encode(0)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return data
 }

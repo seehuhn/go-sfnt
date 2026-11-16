@@ -144,6 +144,9 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 	if nGlyphs == 0 {
 		return nil, invalidSince("cff2: no charstrings")
 	}
+	if nGlyphs > maxGlyphs {
+		return nil, invalidSince("cff2: too many charstrings")
+	}
 
 	// section 6: FDSelect (optional; absent means all glyphs use FD 0)
 	fdSelect := fdSelectSimple

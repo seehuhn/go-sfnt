@@ -87,7 +87,9 @@ func main() {
 	cmap['A'] = 2
 	cmap['B'] = 3
 	cmap['C'] = 4
-	info.InstallCMap(cmap)
+	if err := info.InstallCMap(cmap); err != nil {
+		log.Fatal(err)
+	}
 
 	info.CodePageRange.Set(os2.CP1252) // Latin 1
 

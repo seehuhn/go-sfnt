@@ -101,21 +101,21 @@ func TestFormat12LookupNegative(t *testing.T) {
 }
 
 func FuzzFormat12(f *testing.F) {
-	f.Add(Format12{}.Encode(0))
-	f.Add(Format12{
+	f.Add(mustEncode(f, Format12{}))
+	f.Add(mustEncode(f, Format12{
 		1: 1,
-	}.Encode(0))
-	f.Add(Format12{
+	}))
+	f.Add(mustEncode(f, Format12{
 		65:  1,
 		66:  2,
 		67:  3,
 		100: 4,
-	}.Encode(0))
-	f.Add(Format12{
+	}))
+	f.Add(mustEncode(f, Format12{
 		1: 3,
 		2: 2,
 		3: 1,
-	}.Encode(0))
+	}))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		c1, err := decodeFormat12(data, nil)
@@ -123,7 +123,7 @@ func FuzzFormat12(f *testing.F) {
 			return
 		}
 
-		data2 := c1.Encode(0)
+		data2 := mustEncode(t, c1)
 		if len(data2) > len(data) {
 			t.Error("too long")
 		}

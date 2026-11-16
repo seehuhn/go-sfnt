@@ -107,7 +107,11 @@ func main() {
 
 	// Create cmap table with the subtable
 	cmapTable := make(cmap.Table)
-	cmapTable[cmap.Key{PlatformID: 3, EncodingID: 1}] = subtable.Encode(0) // Windows Unicode BMP, language 0
+	data, err := subtable.Encode(0)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cmapTable[cmap.Key{PlatformID: 3, EncodingID: 1}] = data // Windows Unicode BMP, language 0
 	info.CMapTable = cmapTable
 
 	// Write the font file

@@ -257,7 +257,9 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 		Gsub:               gsub,
 		Gpos:               gpos,
 	}
-	otfInfo.InstallCMap(cmap)
+	if err := otfInfo.InstallCMap(cmap); err != nil {
+		return nil, err
+	}
 
 	// TODO(voss): how to choose this?
 	otfInfo.CodePageRange.Set(os2.CP1252) // Latin 1

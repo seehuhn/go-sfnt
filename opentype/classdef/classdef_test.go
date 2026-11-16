@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -22,7 +23,10 @@ func FuzzClassDef(f *testing.F) {
 			return
 		}
 
-		data2 := info.Append(nil)
+		data2, err := info.Append(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		// The compact re-encoding may be smaller than data, giving it a
 		// smaller input-proportional budget; reuse data's allowance so a
@@ -56,4 +60,40 @@ func FuzzClassDef(f *testing.F) {
 			t.Error("different")
 		}
 	})
+}
+
+// TestAppendAllGlyphs checks that a table which covers all glyph IDs is
+// written in a form which reads back unchanged.
+func TestAppendAllGlyphs(t *testing.T) {
+	info := Table{}
+	for i := range 0x10000 {
+		info[glyph.ID(i)] = uint16(i/1000%2 + 1)
+	}
+	data, err := info.Append(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != info.AppendLen() {
+		t.Errorf("wrong length, expected %d, got %d", info.AppendLen(), len(data))
+	}
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(1<<20))
+	info2, err := Read(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(info, info2) {
+		t.Error("round trip failed")
+	}
+}
+
+// TestAppendTooLarge checks that a table which neither format can represent
+// is refused.
+func TestAppendTooLarge(t *testing.T) {
+	info := Table{}
+	for i := range 0x10000 {
+		info[glyph.ID(i)] = uint16(i%2 + 1)
+	}
+	if _, err := info.Append(nil); err == nil {
+		t.Error("encoding succeeded")
+	}
 }

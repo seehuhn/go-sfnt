@@ -5,9 +5,6 @@ package cff
 
 import "errors"
 
-// 2-byte string identifier
-type sid uint16
-
 type cffStrings struct {
 	data []string
 	rev  map[string]int32
@@ -82,7 +79,7 @@ func (ss *cffStrings) encode() ([]byte, error) {
 	for _, s := range ss.data {
 		stringIndex = append(stringIndex, []byte(s))
 	}
-	return stringIndex.encode(), nil
+	return stringIndex.encode()
 }
 
 // from Appendix A of the CFF specification

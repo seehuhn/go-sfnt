@@ -23,7 +23,7 @@ func TestScriptListFeatureIndexSentinel(t *testing.T) {
 		Required: 0xFFFF,
 		Optional: []FeatureIndex{1, 0xFFFF, 3},
 	}
-	data := info.encode()
+	data := encodeList(t, info)
 
 	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 	got, err := readScriptList(p, 0)
@@ -47,7 +47,7 @@ func FuzzScriptList(f *testing.F) {
 		Required: 0xFFFF,
 		Optional: []FeatureIndex{0},
 	}
-	f.Add(info.encode())
+	f.Add(encodeList(f, info))
 	info = ScriptListInfo{}
 	info[language.English] = &Features{
 		Required: 0xFFFF,
@@ -57,13 +57,13 @@ func FuzzScriptList(f *testing.F) {
 		Required: 7,
 		Optional: []FeatureIndex{5, 6},
 	}
-	f.Add(info.encode())
+	f.Add(encodeList(f, info))
 	info = ScriptListInfo{}
 	info[language.MustParse("und-Arab")] = &Features{
 		Required: FeatureIndex(0),
 		Optional: []FeatureIndex{1, 2},
 	}
-	f.Add(info.encode())
+	f.Add(encodeList(f, info))
 	info = ScriptListInfo{}
 	info[language.Arabic] = &Features{
 		Required: FeatureIndex(0xFFFF),
@@ -73,7 +73,7 @@ func FuzzScriptList(f *testing.F) {
 		Required: FeatureIndex(0xFFFF),
 		Optional: []FeatureIndex{2, 4, 6},
 	}
-	f.Add(info.encode())
+	f.Add(encodeList(f, info))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
@@ -82,7 +82,7 @@ func FuzzScriptList(f *testing.F) {
 			return
 		}
 
-		data2 := info.encode()
+		data2 := encodeList(t, info)
 
 		// if len(data2) > len(data) {
 		// 	fmt.Printf("A % x\n", data)
@@ -133,7 +133,7 @@ func TestScriptListOffsetRange(t *testing.T) {
 	}
 	for name, info := range fitting {
 		t.Run(name, func(t *testing.T) {
-			data := info.encode()
+			data := encodeList(t, info)
 			p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
 			got, err := readScriptList(p, 0)
 			if err != nil {
@@ -166,7 +166,9 @@ func TestScriptListOffsetRange(t *testing.T) {
 	}
 	for name, info := range tooLarge {
 		t.Run(name, func(t *testing.T) {
-			assertPanics(t, func() { info.encode() })
+			if _, err := info.encode(); err == nil {
+				t.Error("encode succeeded")
+			}
 		})
 	}
 }
@@ -225,7 +227,7 @@ func TestScriptListSharedTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	enc := info.encode()
+	enc := encodeList(t, info)
 	if len(enc) != l.encodeLen() {
 		t.Errorf("encode/encodeLen mismatch: %d vs %d", len(enc), l.encodeLen())
 	}
@@ -326,7 +328,7 @@ func TestScriptListRepairLangSys(t *testing.T) {
 		t.Errorf("%d language systems kept", len(info))
 	}
 
-	data2 := info.encode()
+	data2 := encodeList(t, info)
 	p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 	info2, err := readScriptList(p, 0)
 	if err != nil {
@@ -389,7 +391,7 @@ func TestScriptListRepairScripts(t *testing.T) {
 		t.Errorf("%d language systems kept, want 4", len(info))
 	}
 
-	data2 := info.encode()
+	data2 := encodeList(t, info)
 	p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 	info2, err := readScriptList(p, 0)
 	if err != nil {

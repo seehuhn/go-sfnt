@@ -78,13 +78,13 @@ func buildSubrBombCFF() []byte {
 	const fanOut = 47
 
 	gsubrs := buildSubrBomb(fanOut)
-	gsubrEnc := gsubrs.encode()
+	gsubrEnc := mustEncode(gsubrs)
 
 	// charstring: push gsubr 0; callgsubr; endchar
-	charStringsEnc := cffIndex{{pushGsubrIdx(0), byte(t2callgsubr), byte(t2endchar)}}.encode()
+	charStringsEnc := mustEncode(cffIndex{{pushGsubrIdx(0), byte(t2callgsubr), byte(t2endchar)}})
 
-	nameIdxEnc := cffIndex{[]byte("X")}.encode()
-	stringIdxEnc := cffIndex{}.encode()
+	nameIdxEnc := mustEncode(cffIndex{[]byte("X")})
+	stringIdxEnc := mustEncode(cffIndex{})
 
 	// Top DICT, with all integer operands encoded as int32 (0x1D + 4
 	// bytes) so the dict size is independent of the offset values:

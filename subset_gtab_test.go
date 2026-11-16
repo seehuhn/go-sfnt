@@ -955,8 +955,9 @@ func TestSubsetGposContextDroppedDoesNotPanic(t *testing.T) {
 	if len(got.LookupList) != 0 {
 		t.Errorf("expected lookup dropped, got %d", len(got.LookupList))
 	}
-	// re-encoding must not panic
-	_ = got.Encode()
+	if _, err := got.Encode(); err != nil {
+		t.Errorf("re-encoding failed: %v", err)
+	}
 }
 
 // TestSubsetGposEmptySubtableDropped: a non-contextual subtable whose
@@ -1158,7 +1159,10 @@ func TestSubsetGtabNoLookupsLeft(t *testing.T) {
 		if len(info.LookupList) != 0 {
 			t.Fatalf("got %d lookups, want 0", len(info.LookupList))
 		}
-		data := info.Encode()
+		data, err := info.Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if lookupListOffset := int(data[8])<<8 | int(data[9]); lookupListOffset == 0 {
 			t.Error("lookup list offset is NULL")
 		}

@@ -40,6 +40,9 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 	if err := f.checkUnitsPerEm(); err != nil {
 		return 0, err
 	}
+	if err := f.checkNumGlyphs(); err != nil {
+		return 0, err
+	}
 
 	tableData := make(map[string][]byte)
 
@@ -122,13 +125,22 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 	tableData["head"] = f.makeHead(locaFormat)
 
 	if f.Gdef != nil {
-		tableData["GDEF"] = f.Gdef.Encode()
+		tableData["GDEF"], err = f.Gdef.Encode()
+		if err != nil {
+			return 0, err
+		}
 	}
 	if f.Gsub != nil {
-		tableData["GSUB"] = f.Gsub.Encode()
+		tableData["GSUB"], err = f.Gsub.Encode()
+		if err != nil {
+			return 0, err
+		}
 	}
 	if f.Gpos != nil {
-		tableData["GPOS"] = f.Gpos.Encode()
+		tableData["GPOS"], err = f.Gpos.Encode()
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if fvarTable != nil {
@@ -216,6 +228,9 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 	if err := f.checkUnitsPerEm(); err != nil {
 		return 0, err
 	}
+	if err := f.checkNumGlyphs(); err != nil {
+		return 0, err
+	}
 
 	tableData := make(map[string][]byte)
 
@@ -288,6 +303,15 @@ func (f *Font) WriteOpenTypeCFFPDF(w io.Writer) error {
 
 	_, err = header.Write(w, header.ScalerTypeCFF, tableData)
 	return err
+}
+
+// checkNumGlyphs verifies that the number of glyphs can be stored in the
+// "maxp" table, which holds a uint16 glyph count.
+func (f *Font) checkNumGlyphs() error {
+	if n := f.NumGlyphs(); n < 1 || n > 0xFFFF {
+		return fmt.Errorf("sfnt: %d glyphs, need 1...65535", n)
+	}
+	return nil
 }
 
 // checkUnitsPerEm verifies that the units per em of the font can be stored in
@@ -575,18 +599,25 @@ func (f *Font) makeCFF(outlines *cff.Outlines) ([]byte, error) {
 }
 
 // InstallCMap replaces the cmap table in the font with the given subtable.
-func (f *Font) InstallCMap(s cmap.Subtable) {
+// If the subtable cannot be encoded, for example because the mapping does not
+// fit into the subtable format, an error is returned and the font is
+// unchanged.
+func (f *Font) InstallCMap(s cmap.Subtable) error {
 	uniEncoding := uint16(3)
 	winEncoding := uint16(1)
 	if _, high := s.CodeRange(); high > 0xFFFF {
 		uniEncoding = 4
 		winEncoding = 10
 	}
-	cmapSubtable := s.Encode(0)
+	cmapSubtable, err := s.Encode(0)
+	if err != nil {
+		return err
+	}
 	f.CMapTable = cmap.Table{
 		{PlatformID: 0, EncodingID: uniEncoding}: cmapSubtable,
 		{PlatformID: 3, EncodingID: winEncoding}: cmapSubtable,
 	}
+	return nil
 }
 
 // makeMinimalName builds a "name" table holding the font's PostScript name and

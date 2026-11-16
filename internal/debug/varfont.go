@@ -148,7 +148,9 @@ func MakeVarFont() *sfnt.Font {
 	m['C'] = VarGidComp
 	m['D'] = VarGidTwo
 	m['E'] = VarGidSwap
-	f.InstallCMap(m)
+	if err := f.InstallCMap(m); err != nil {
+		panic(err)
+	}
 
 	f.Fvar = &fvar.Table{
 		Axes: []fvar.Axis{

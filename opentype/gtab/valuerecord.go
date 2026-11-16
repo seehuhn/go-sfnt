@@ -236,7 +236,7 @@ func (p devicePool) add(t *device.Table) (int, error) {
 	if t == nil {
 		return -1, nil
 	}
-	return p.AddFunc(t, t.Encode)
+	return p.AddFunc(t, func() ([]byte, error) { return t.Encode(), nil })
 }
 
 // addRecord registers the Device tables of vr, in the canonical order

@@ -183,7 +183,9 @@ func MakeSimpleFont() *sfnt.Font {
 
 		Outlines: newOutlines,
 	}
-	res.InstallCMap(cmap)
+	if err := res.InstallCMap(cmap); err != nil {
+		panic(err)
+	}
 
 	return res
 }

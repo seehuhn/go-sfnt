@@ -345,7 +345,22 @@ func readAlternateFeature(p *parser.Parser, pos int64) ([]LookupIndex, error) {
 }
 
 // encodeFeatureVariations serializes a modeled FeatureVariations table.
-func encodeFeatureVariations(records []FeatureVariationRecord) []byte {
+func encodeFeatureVariations(records []FeatureVariationRecord) ([]byte, error) {
+	for i := range records {
+		r := &records[i]
+		if len(r.Conditions) > 0xFFFF {
+			return nil, errors.New("feature variations: too many conditions")
+		}
+		if len(r.Substitutions) > 0xFFFF {
+			return nil, errors.New("feature variations: too many substitutions")
+		}
+		for j := range r.Substitutions {
+			if len(r.Substitutions[j].Lookups) > 0xFFFF {
+				return nil, errors.New("feature variations: too many lookups")
+			}
+		}
+	}
+
 	n := len(records)
 	headerLen := 8 + 8*n // version (4) + count (4) + records (8 each)
 
@@ -372,7 +387,7 @@ func encodeFeatureVariations(records []FeatureVariationRecord) []byte {
 		buf = binary.BigEndian.AppendUint32(buf, offs[i].fts)
 	}
 	buf = append(buf, body...)
-	return buf
+	return buf, nil
 }
 
 func encodeConditionSet(conds []Condition) []byte {

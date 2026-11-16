@@ -214,17 +214,17 @@ func TestSubsetCMap(t *testing.T) {
 
 	font := ttfFixture(t)
 	font.CMapTable = cmap.Table{
-		key4: cmap.Format4{
+		key4: mustEncodeCMap(t, cmap.Format4{
 			'A': 3,
 			'B': 7,
 			'C': 9,
 			'D': 11,
-		}.Encode(0),
-		key12: cmap.Format12{
+		}),
+		key12: mustEncodeCMap(t, cmap.Format12{
 			0x1F600: 7,
 			0x1F601: 9,
 			0x1F602: 11,
-		}.Encode(0),
+		}),
 	}
 
 	subset, err := font.Subset([]glyph.ID{0, 9, 3, 7})
@@ -378,17 +378,17 @@ func TestSubsetCMapMac(t *testing.T) {
 	cases := []testCase{
 		{
 			name: "format 4",
-			table: cmap.Format4{
+			table: mustEncodeCMap(t, cmap.Format4{
 				'A':  7,
 				0x80: 12,
 				'B':  3,
 				'C':  5,
-			}.Encode(0),
+			}),
 			want: map[rune]glyph.ID{'A': 1, 'Ä': 2, 'B': 292, 'C': 0},
 		},
 		{
 			name:  "format 0",
-			table: format0.Encode(0),
+			table: mustEncodeCMap(t, format0),
 			want:  map[rune]glyph.ID{'A': 1, 'Ä': 2, 'B': 0, 'C': 0},
 		},
 	}

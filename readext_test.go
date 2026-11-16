@@ -96,10 +96,10 @@ func TestReadDropsCMapGlyphsOutOfRange(t *testing.T) {
 		data []byte
 		want map[uint16]glyph.ID // expected content after reading, for format 4
 	}{
-		{"format4", cmap.Key{PlatformID: 3, EncodingID: 1}, bad.Encode(0), good},
+		{"format4", cmap.Key{PlatformID: 3, EncodingID: 1}, mustEncodeCMapExt(t, bad), good},
 		{"format12", cmap.Key{PlatformID: 3, EncodingID: 10},
-			cmap.Format12{'A': 4, 'B': 60000}.Encode(0), nil},
-		{"format0", cmap.Key{PlatformID: 1, EncodingID: 0}, f0.Encode(0), nil},
+			mustEncodeCMapExt(t, cmap.Format12{'A': 4, 'B': 60000}), nil},
+		{"format0", cmap.Key{PlatformID: 1, EncodingID: 0}, mustEncodeCMapExt(t, &f0), nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -177,7 +177,7 @@ func TestReadCompositeOutOfRange(t *testing.T) {
 			{Flags: glyf.FlagArg1And2AreWords | glyf.FlagArgsAreXYValues, GlyphIndex: 60000, Data: []byte{0, 0, 0, 0}},
 		}},
 	}
-	font.CMapTable = cmap.Table{{PlatformID: 3, EncodingID: 1}: cmap.Format4{'A': 5}.Encode(0)}
+	font.CMapTable = cmap.Table{{PlatformID: 3, EncodingID: 1}: mustEncodeCMapExt(t, cmap.Format4{'A': 5})}
 
 	buf := &bytes.Buffer{}
 	if _, err := font.Write(buf); err != nil {
@@ -613,4 +613,14 @@ func TestReadVerticalCFF2(t *testing.T) {
 			checkRoundTrip(t, font1)
 		})
 	}
+}
+
+// mustEncodeCMapExt encodes the cmap subtable, failing the test on error.
+func mustEncodeCMapExt(tb testing.TB, s cmap.Subtable) []byte {
+	tb.Helper()
+	data, err := s.Encode(0)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return data
 }
