@@ -6,6 +6,7 @@
 package classdef
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -67,18 +68,15 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 		}
 		startGlyphID := glyph.ID(data[0])<<8 | glyph.ID(data[1])
 		glyphCount := int(data[2])<<8 | int(data[3])
-		if int(startGlyphID)+glyphCount-1 > 0xFFFF {
-			return nil, &parser.InvalidFontError{
-				SubSystem: "opentype/classdef",
-				Reason:    "glyph count too large in class definition table",
-			}
-		}
 
-		if err := p.Budget.Charge(glyphCount * 24); err != nil {
+		// class values past glyph ID 0xFFFF refer to no glyph and are ignored
+		numValid := min(glyphCount, 0x10000-int(startGlyphID))
+
+		if err := p.Budget.Charge(numValid * 24); err != nil {
 			return nil, err
 		}
-		res := make(Table, glyphCount)
-		for i := range glyphCount {
+		res := make(Table, numValid)
+		for i := range numValid {
 			classValue, err := p.ReadUint16()
 			if err != nil {
 				return nil, err
@@ -95,32 +93,71 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 			return nil, err
 		}
 
-		res := Table{}
-		var prevEnd glyph.ID
-		for i := 0; i < int(classRangeCount); i++ {
+		// Each range contributes a start and an end event.  Sweeping over
+		// the events in glyph order, a glyph keeps its class if all ranges
+		// covering it agree.  Glyphs where the ranges assign different
+		// classes are dropped, so that they fall into class 0.
+		events, err := p.Budget.AllocSlice[rangeEvent](2 * int(classRangeCount))
+		if err != nil {
+			return nil, err
+		}
+		events = events[:0]
+		for range int(classRangeCount) {
 			data, err := p.ReadBytes(6)
 			if err != nil {
 				return nil, err
 			}
-			startGlyphID := glyph.ID(data[0])<<8 | glyph.ID(data[1])
-			endGlyphID := glyph.ID(data[2])<<8 | glyph.ID(data[3])
+			startGlyphID := int(data[0])<<8 | int(data[1])
+			endGlyphID := int(data[2])<<8 | int(data[3])
 			classValue := uint16(data[4])<<8 | uint16(data[5])
 
-			if i > 0 && startGlyphID <= prevEnd {
-				return nil, &parser.InvalidFontError{
-					SubSystem: "opentype/classdef",
-					Reason:    "overlapping ranges in class definition table",
-				}
+			if endGlyphID < startGlyphID {
+				// an inverted range covers no glyphs
+				continue
 			}
-			prevEnd = endGlyphID
+			events = append(events,
+				rangeEvent{pos: startGlyphID, class: classValue, delta: 1},
+				rangeEvent{pos: endGlyphID + 1, class: classValue, delta: -1})
+		}
+		slices.SortFunc(events, func(a, b rangeEvent) int {
+			return cmp.Compare(a.pos, b.pos)
+		})
 
-			if classValue != 0 {
-				if err := p.Budget.Charge((int(endGlyphID) - int(startGlyphID) + 1) * 24); err != nil {
-					return nil, err
+		// number of open ranges for each class
+		if err := p.Budget.ChargeN(int(classRangeCount), 24); err != nil {
+			return nil, err
+		}
+		active := make(map[uint16]int)
+
+		res := Table{}
+		for i := 0; i < len(events); {
+			pos := events[i].pos
+			for i < len(events) && events[i].pos == pos {
+				e := events[i]
+				active[e.class] += e.delta
+				if active[e.class] == 0 {
+					delete(active, e.class)
 				}
-				for j := int(startGlyphID); j <= int(endGlyphID); j++ {
-					res[glyph.ID(j)] = classValue
-				}
+				i++
+			}
+			if len(active) != 1 {
+				continue
+			}
+			// Here i < len(events), since the end event of every open
+			// range is still to come.
+			var classValue uint16
+			for c := range active {
+				classValue = c
+			}
+			if classValue == 0 {
+				continue
+			}
+			next := events[i].pos
+			if err := p.Budget.Charge((next - pos) * 24); err != nil {
+				return nil, err
+			}
+			for gid := pos; gid < next; gid++ {
+				res[glyph.ID(gid)] = classValue
 			}
 		}
 		return res, nil
@@ -131,6 +168,14 @@ func Read(p *parser.Parser, pos int64) (Table, error) {
 			Feature:   fmt.Sprintf("class definition table version %d", version),
 		}
 	}
+}
+
+// rangeEvent marks the start or the end of a format 2 class range.
+// For an end event, pos is the first glyph after the range.
+type rangeEvent struct {
+	pos   int
+	class uint16
+	delta int
 }
 
 type encInfo struct {
