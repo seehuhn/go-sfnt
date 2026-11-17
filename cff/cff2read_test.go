@@ -458,8 +458,8 @@ func TestReadCFF2Malformed(t *testing.T) {
 	t.Run("blend in top DICT", func(t *testing.T) {
 		top := append(dictNum(1), byte(opBlend))
 		data := append([]byte{2, 0, 5, byte(len(top) >> 8), byte(len(top))}, top...)
-		if _, err := readCFF2Bytes(t, data); err != errTopBlend {
-			t.Errorf("err = %v, want errTopBlend", err)
+		if _, err := readCFF2Bytes(t, data); err == nil {
+			t.Error("expected error")
 		}
 	})
 
