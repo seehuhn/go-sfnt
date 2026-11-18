@@ -4,6 +4,7 @@
 package cmap
 
 import (
+	"encoding/binary"
 	"reflect"
 	"testing"
 
@@ -53,23 +54,6 @@ func TestFormat12(t *testing.T) {
 // TestFormat12GlyphRange checks that segments whose glyph IDs do not fit in
 // the uint16 glyph.ID range are rejected rather than silently wrapped around.
 func TestFormat12GlyphRange(t *testing.T) {
-	subtable := func(startGlyphID, endCharCode uint32) []byte {
-		data := make([]byte, 28)
-		data[1] = 12                     // format
-		data[7] = 28                     // length
-		data[15] = 1                     // numGroups
-		put := func(off int, v uint32) { // big-endian uint32
-			data[off] = byte(v >> 24)
-			data[off+1] = byte(v >> 16)
-			data[off+2] = byte(v >> 8)
-			data[off+3] = byte(v)
-		}
-		put(16, 0)           // startCharCode
-		put(20, endCharCode) // endCharCode
-		put(24, startGlyphID)
-		return data
-	}
-
 	cases := []struct {
 		desc       string
 		startGID   uint32
@@ -82,7 +66,7 @@ func TestFormat12GlyphRange(t *testing.T) {
 		{"range overflows uint16", 1, 0xFFFF, true},
 	}
 	for _, c := range cases {
-		_, err := decodeFormat12(subtable(c.startGID, c.endChar), nil)
+		_, err := decodeFormat12(makeFormat12([3]uint32{0, c.endChar, c.startGID}), nil)
 		if c.wantReject && err == nil {
 			t.Errorf("%s: accepted, want rejected", c.desc)
 		}
@@ -92,12 +76,47 @@ func TestFormat12GlyphRange(t *testing.T) {
 	}
 }
 
-// TestFormat12LookupNegative checks that negative runes are not mapped.
-func TestFormat12LookupNegative(t *testing.T) {
-	cmap := Format12{0xFFFFFFFF: 3}
-	if g := cmap.Lookup(-1); g != 0 {
-		t.Errorf("Lookup(-1) = %d, want 0", g)
+// TestFormat12BeyondUnicode checks that a subtable with character codes
+// beyond the Unicode range can be read, and that a read-write-read cycle is
+// stable.
+func TestFormat12BeyondUnicode(t *testing.T) {
+	data := makeFormat12(
+		[3]uint32{'A', 'Z', 2},
+		[3]uint32{0x10_FFFE, 0x11_0001, 30},
+		[3]uint32{0x8000_0000, 0x8000_0003, 40},
+		[3]uint32{0xFFFF_FFFF, 0xFFFF_FFFF, 0x1_0000},
+	)
+	if err := format12RoundTrip(t, data); err != nil {
+		t.Fatal(err)
 	}
+}
+
+// TestFormat12EncodeBeyondUnicode checks that codes beyond the Unicode range
+// cannot be encoded.
+func TestFormat12EncodeBeyondUnicode(t *testing.T) {
+	if _, err := (Format12{0x10_FFFF: 1}).Encode(0); err != nil {
+		t.Errorf("U+10FFFF: %v", err)
+	}
+	for _, code := range []uint32{0x11_0000, 0xFFFF_FFFF} {
+		if _, err := (Format12{'A': 1, code: 2}).Encode(0); err == nil {
+			t.Errorf("0x%X: expected an error", code)
+		}
+	}
+}
+
+// makeFormat12 returns a format 12 subtable with the given segments.
+// Each segment is given as startCharCode, endCharCode, startGlyphID.
+func makeFormat12(segments ...[3]uint32) []byte {
+	data := make([]byte, 16+12*len(segments))
+	binary.BigEndian.PutUint16(data[0:], 12)
+	binary.BigEndian.PutUint32(data[4:], uint32(len(data)))
+	binary.BigEndian.PutUint32(data[12:], uint32(len(segments)))
+	for i, seg := range segments {
+		for j, v := range seg {
+			binary.BigEndian.PutUint32(data[16+12*i+4*j:], v)
+		}
+	}
+	return data
 }
 
 func FuzzFormat12(f *testing.F) {
@@ -116,27 +135,41 @@ func FuzzFormat12(f *testing.F) {
 		2: 2,
 		3: 1,
 	}))
+	f.Add(makeFormat12(
+		[3]uint32{'A', 'Z', 2},
+		[3]uint32{0x10_FFFE, 0x11_0001, 30},
+	))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		c1, err := decodeFormat12(data, nil)
-		if err != nil {
-			return
-		}
-
-		data2 := mustEncode(t, c1)
-		if len(data2) > len(data) {
-			t.Error("too long")
-		}
-
-		c2, err := decodeFormat12(data2, nil)
-		if err != nil {
-			t.Error(err)
-		}
-
-		if !reflect.DeepEqual(c1, c2) {
-			t.Error("not equal")
-		}
+		_ = format12RoundTrip(t, data)
 	})
+}
+
+// format12RoundTrip decodes data, encodes the result and checks that
+// decoding this again gives the same subtable.
+// The error from the first decode is returned.
+func format12RoundTrip(t *testing.T, data []byte) error {
+	t.Helper()
+
+	c1, err := decodeFormat12(data, nil)
+	if err != nil {
+		return err
+	}
+
+	data2 := mustEncode(t, c1)
+	if len(data2) > len(data) {
+		t.Error("too long")
+	}
+
+	c2, err := decodeFormat12(data2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(c1, c2) {
+		t.Error("not equal")
+	}
+	return nil
 }
 
 var _ Subtable = Format12(nil)

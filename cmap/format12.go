@@ -5,6 +5,7 @@ package cmap
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 
@@ -14,6 +15,7 @@ import (
 // Format12 represents a format 12 cmap subtable.
 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap#format-12-segmented-coverage
 //
+// The keys are Unicode code points, in the range 0 to 0x10FFFF.
 // The binary encoding is most efficient, if consecutive code points are mapped
 // to consecutive glyph IDs.
 type Format12 map[uint32]glyph.ID
@@ -42,14 +44,18 @@ func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 		endCharCode := uint32(data[base+4])<<24 | uint32(data[base+5])<<16 | uint32(data[base+6])<<8 | uint32(data[base+7])
 		startGlyphID := uint32(data[base+8])<<24 | uint32(data[base+9])<<16 | uint32(data[base+10])<<8 | uint32(data[base+11])
 
-		if (i > 0 && startCharCode <= prevEnd) ||
-			endCharCode < startCharCode ||
-			endCharCode == 0xFFFF_FFFF || // avoid integer overflow in the loop below
-			startGlyphID > 0xFFFF || // glyph.ID is a uint16
-			startGlyphID+(endCharCode-startCharCode) > 0xFFFF {
+		if (i > 0 && startCharCode <= prevEnd) || endCharCode < startCharCode {
 			return nil, errMalformedSubtable
 		}
 		prevEnd = endCharCode
+		if endCharCode > 0x10_FFFF {
+			// codes beyond the Unicode range cannot be looked up
+			continue
+		}
+		if startGlyphID > 0xFFFF || // glyph.ID is a uint16
+			startGlyphID+(endCharCode-startCharCode) > 0xFFFF {
+			return nil, errMalformedSubtable
+		}
 
 		size += endCharCode - startCharCode + 1
 		if size > 65536 {
@@ -69,6 +75,9 @@ func decodeFormat12(data []byte, code2rune func(c int) rune) (Subtable, error) {
 func (cmap Format12) Encode(language uint16) ([]byte, error) {
 	var ss []format12segment
 	keys := slices.Sorted(maps.Keys(cmap))
+	if len(keys) > 0 && keys[len(keys)-1] > 0x10_FFFF {
+		return nil, fmt.Errorf("cmap: format 12: code 0x%X beyond Unicode range", keys[len(keys)-1])
+	}
 	segStart := 0
 	for i := 1; i < len(keys); i++ {
 		if keys[i] != keys[i-1]+1 || cmap[keys[i]] != cmap[keys[i-1]]+1 {
@@ -116,9 +125,6 @@ func (cmap Format12) Encode(language uint16) ([]byte, error) {
 }
 
 func (cmap Format12) Lookup(code rune) glyph.ID {
-	if code < 0 {
-		return 0
-	}
 	return cmap[uint32(code)]
 }
 

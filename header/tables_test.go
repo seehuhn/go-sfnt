@@ -29,6 +29,42 @@ func TestReadTableOffsetOverflow(t *testing.T) {
 	}
 }
 
+// TestReadInvalidTag checks that a font with invalid table tags can be read,
+// and that a read-write-read cycle is stable.
+func TestReadInvalidTag(t *testing.T) {
+	data := makeFont("cmap", "a b ", " abc", "ab\x01c", "    ")
+	if err := checkRoundTrip(t, data); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestReadDuplicateTag checks that a font with a repeated table tag can be
+// read, and that a read-write-read cycle is stable.
+func TestReadDuplicateTag(t *testing.T) {
+	data := makeFont("cmap", "head", "cmap")
+	if err := checkRoundTrip(t, data); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// makeFont returns an sfnt file with a table directory listing the given
+// tags in order.  Each table holds four bytes, distinct for each entry.
+func makeFont(tags ...string) []byte {
+	start := 12 + 16*len(tags)
+	data := make([]byte, start+4*len(tags))
+	binary.BigEndian.PutUint32(data[0:], ScalerTypeTrueType)
+	binary.BigEndian.PutUint16(data[4:], uint16(len(tags)))
+	for i, tag := range tags {
+		rec := data[12+16*i : 28+16*i]
+		copy(rec[0:], tag)
+		offset := start + 4*i
+		binary.BigEndian.PutUint32(rec[8:], uint32(offset))
+		binary.BigEndian.PutUint32(rec[12:], 4)
+		binary.BigEndian.PutUint32(data[offset:], uint32(i+1))
+	}
+	return data
+}
+
 func FuzzTables(f *testing.F) {
 	buf := &bytes.Buffer{}
 	_, _ = Write(buf, ScalerTypeTrueType, map[string][]byte{
@@ -47,44 +83,54 @@ func FuzzTables(f *testing.F) {
 	})
 	f.Add(bytes.Clone(buf.Bytes()))
 
-	f.Fuzz(func(t *testing.T, data1 []byte) {
-		r1 := bytes.NewReader(data1)
-		info1, err := Read(r1)
-		if err != nil {
-			return
-		}
-		tables1 := make(map[string][]byte, len(info1.Toc))
-		for name := range info1.Toc {
-			body, err := info1.ReadTableBytes(r1, name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			tables1[name] = body
-		}
-
-		buf := &bytes.Buffer{}
-		_, err = Write(buf, info1.ScalerType, tables1)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		data2 := buf.Bytes()
-		r2 := bytes.NewReader(data2)
-		info2, err := Read(r2)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tables2 := make(map[string][]byte, len(info2.Toc))
-		for name := range info2.Toc {
-			body, err := info2.ReadTableBytes(r2, name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			tables2[name] = body
-		}
-
-		if d := cmp.Diff(tables1, tables2); d != "" {
-			t.Errorf("tables differ: %s", d)
-		}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_ = checkRoundTrip(t, data)
 	})
+}
+
+// checkRoundTrip reads the tables from data, writes them to a new file and
+// checks that reading this file gives the same tables.
+// The error from the first read is returned.
+func checkRoundTrip(t *testing.T, data1 []byte) error {
+	t.Helper()
+
+	r1 := bytes.NewReader(data1)
+	info1, err := Read(r1)
+	if err != nil {
+		return err
+	}
+	tables1 := make(map[string][]byte, len(info1.Toc))
+	for name := range info1.Toc {
+		body, err := info1.ReadTableBytes(r1, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tables1[name] = body
+	}
+
+	buf := &bytes.Buffer{}
+	_, err = Write(buf, info1.ScalerType, tables1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data2 := buf.Bytes()
+	r2 := bytes.NewReader(data2)
+	info2, err := Read(r2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables2 := make(map[string][]byte, len(info2.Toc))
+	for name := range info2.Toc {
+		body, err := info2.ReadTableBytes(r2, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tables2[name] = body
+	}
+
+	if d := cmp.Diff(tables1, tables2); d != "" {
+		t.Errorf("tables differ: %s", d)
+	}
+	return nil
 }

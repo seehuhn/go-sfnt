@@ -231,9 +231,8 @@ func (p *Parser) ReadBytes(n int) ([]byte, error) {
 
 // ReadBlob reads n bytes from the file, starting at the current position.
 // Unlike [Parser.ReadBytes], n may be arbitrarily large: the returned slice
-// is freshly allocated and charged against p.Budget, and the read proceeds
-// in bufferSize-sized chunks. Use this for file-controlled sizes that may
-// exceed the internal buffer.
+// is freshly allocated and charged against p.Budget.
+// Use this for file-controlled sizes that may exceed the internal buffer.
 func (p *Parser) ReadBlob(n int) ([]byte, error) {
 	buf, err := p.Budget.AllocSlice[byte](n)
 	if err != nil {

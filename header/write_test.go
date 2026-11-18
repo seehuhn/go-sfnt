@@ -10,9 +10,8 @@ import (
 	"testing"
 )
 
-// TestWriteSkipsNilTables checks that tables with nil data, and table names
-// which are not four bytes long, are neither written nor counted in the
-// table directory.
+// TestWriteSkipsNilTables checks that tables with nil data are neither
+// written nor counted in the table directory.
 func TestWriteSkipsNilTables(t *testing.T) {
 	tables := map[string][]byte{
 		"head": make([]byte, 54),
@@ -20,7 +19,6 @@ func TestWriteSkipsNilTables(t *testing.T) {
 		"glyf": {},
 		"VORG": nil,
 		"vmtx": nil,
-		"bad":  {5, 6, 7, 8},
 	}
 	buf := &bytes.Buffer{}
 	if _, err := Write(buf, ScalerTypeTrueType, tables); err != nil {
@@ -60,14 +58,53 @@ func TestWriteSkipsNilTables(t *testing.T) {
 	}
 }
 
-// TestWriteNilHead checks that a nil "head" entry is skipped rather than
-// patched.
-func TestWriteNilHead(t *testing.T) {
-	tables := map[string][]byte{
-		"head": nil,
-		"cmap": {1, 2, 3, 4},
+// TestWriteInvalidName checks that a table name which is not a valid tag is
+// rejected, whether or not the table has data.
+func TestWriteInvalidName(t *testing.T) {
+	invalid := []string{
+		"bad", "toolong", "äö", "ab\x00c", "ab\x7fc", "a b ", " abc", "    ",
 	}
-	if _, err := Write(&bytes.Buffer{}, ScalerTypeTrueType, tables); err != nil {
+	for _, name := range invalid {
+		for _, data := range [][]byte{{1, 2, 3, 4}, nil} {
+			tables := map[string][]byte{
+				"cmap": {5, 6, 7, 8},
+				name:   data,
+			}
+			if _, err := Write(&bytes.Buffer{}, ScalerTypeTrueType, tables); err == nil {
+				t.Errorf("%q, data %v: expected an error", name, data)
+			}
+		}
+	}
+}
+
+// TestWriteNoTables checks that writing a font without tables fails.
+func TestWriteNoTables(t *testing.T) {
+	for _, tables := range []map[string][]byte{{}, {"cmap": nil}} {
+		if _, err := Write(&bytes.Buffer{}, ScalerTypeTrueType, tables); err == nil {
+			t.Errorf("%v: expected an error", tables)
+		}
+	}
+}
+
+// TestWriteSpacePadding checks that tags padded with trailing spaces are
+// written.
+func TestWriteSpacePadding(t *testing.T) {
+	tables := map[string][]byte{
+		"cvt ": {1, 2, 3, 4},
+		"ab  ": {5, 6, 7, 8},
+		"a   ": {9, 10, 11, 12},
+	}
+	buf := &bytes.Buffer{}
+	if _, err := Write(buf, ScalerTypeTrueType, tables); err != nil {
 		t.Fatal(err)
+	}
+	info, err := Read(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name := range tables {
+		if _, ok := info.Toc[name]; !ok {
+			t.Errorf("table %q missing", name)
+		}
 	}
 }

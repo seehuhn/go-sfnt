@@ -6,23 +6,34 @@ package header
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"math/bits"
 	"sort"
 )
 
 // Write writes an sfnt file containing the given tables.
-// Tables where the data is nil are not written, use a zero-length slice
-// to write a table with no data.
+// Table names must be valid sfnt tags: one to four printable ASCII
+// characters (0x21 to 0x7E), padded with trailing spaces to four bytes.
+// Tables where the data is nil are not written; use a zero-length slice
+// to write a table with no data.  At least one table must be written.
+// Write returns an error if these conditions are not met.
 // This changes the checksum in the "head" table in place.
 func Write(w io.Writer, scalerType uint32, tables map[string][]byte) (int64, error) {
 	tableNames := make([]string, 0, len(tables))
 	for name, data := range tables {
-		if data != nil && len(name) == 4 {
+		if !validTag(name) {
+			return 0, fmt.Errorf("sfnt: invalid table name %q", name)
+		}
+		if data != nil {
 			tableNames = append(tableNames, name)
 		}
 	}
 	numTables := len(tableNames)
+	if numTables == 0 {
+		return 0, errors.New("sfnt: no tables to write")
+	}
 
 	// sort the table names in the recommended order
 	sort.Slice(tableNames, func(i, j int) bool {
@@ -137,6 +148,24 @@ type rawRecord struct {
 
 // tag represents a tag string composed of 4 ASCII bytes
 type tag [4]byte
+
+// validTag reports whether name is a valid sfnt tag: one to four printable
+// ASCII characters, padded with trailing spaces to four bytes.
+func validTag(name string) bool {
+	if len(name) != 4 || name[0] == ' ' {
+		return false
+	}
+	padding := false
+	for i := range 4 {
+		switch c := name[i]; {
+		case c == ' ':
+			padding = true
+		case c < 0x20 || c > 0x7e || padding:
+			return false
+		}
+	}
+	return true
+}
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/recom#optimized-table-ordering
 var ttTableOrder = map[string]int{

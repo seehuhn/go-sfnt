@@ -81,23 +81,17 @@ func Read(r io.ReaderAt) (*Info, error) {
 		if err != nil {
 			return nil, err
 		}
-		for i := range 4 {
-			if buf[i] < 0x20 || buf[i] > 0x7e {
-				return nil, &parser.InvalidFontError{
-					SubSystem: "sfnt/header",
-					Reason:    "invalid table name",
-				}
-			}
-		}
 		name := string(buf[:4])
+		if !validTag(name) {
+			// no valid table can have this name
+			continue
+		}
 		offset := uint32(buf[8])<<24 | uint32(buf[9])<<16 | uint32(buf[10])<<8 | uint32(buf[11])
 		length := uint32(buf[12])<<24 | uint32(buf[13])<<16 | uint32(buf[14])<<8 | uint32(buf[15])
 
 		if _, exists := h.Toc[name]; exists {
-			return nil, &parser.InvalidFontError{
-				SubSystem: "sfnt/header",
-				Reason:    "duplicate table " + name,
-			}
+			// first entry wins
+			continue
 		}
 		h.Toc[name] = Record{
 			Offset: offset,
