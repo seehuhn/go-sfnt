@@ -66,14 +66,14 @@ func Write(w io.Writer, scalerType uint32, tables map[string][]byte) (int64, err
 	for i, name := range tableNames {
 		body := tables[name]
 		length := uint32(len(body))
-		checksum := checksum(body)
+		sum := checksum(body)
 
 		records[i].Tag = tag{name[0], name[1], name[2], name[3]}
-		records[i].CheckSum = checksum
+		records[i].CheckSum = sum
 		records[i].Offset = offset
 		records[i].Length = length
 
-		totalSum += checksum
+		totalSum += sum
 		offset += 4 * ((length + 3) / 4)
 	}
 	sort.Slice(records, func(i, j int) bool {
@@ -124,8 +124,8 @@ func clearChecksum(head []byte) {
 
 // patchChecksum updates the checksum of the head table.
 // The argument is the checksum of the entire font before patching.
-func patchChecksum(head []byte, checksum uint32) {
-	binary.BigEndian.PutUint32(head[8:12], 0xB1B0AFBA-checksum)
+func patchChecksum(head []byte, sum uint32) {
+	binary.BigEndian.PutUint32(head[8:12], 0xB1B0AFBA-sum)
 }
 
 // The offsets sub-table forms the first part of Header.

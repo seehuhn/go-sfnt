@@ -64,11 +64,11 @@ func TestChecksum(t *testing.T) {
 		{[]byte{255, 255, 255, 255, 0, 0, 0, 1}, 0},
 	}
 
-	for i, test := range cases {
+	for _, test := range cases {
 		computed := checksum(test.Body)
 		if computed != test.Expected {
-			t.Errorf("test %d failed: %08x != %08x",
-				i+1, computed, test.Expected)
+			t.Errorf("checksum(%v) = %#08x, want %#08x",
+				test.Body, computed, test.Expected)
 		}
 	}
 }
