@@ -5,6 +5,7 @@ package gvar
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -350,5 +351,55 @@ func TestApplyWorkBudget(t *testing.T) {
 	}
 	if wb != 1000-nPoints {
 		t.Errorf("work budget = %d, want %d", wb, 1000-nPoints)
+	}
+}
+
+// TestApplyRange checks that a point coordinate, advance width or component
+// offset which leaves its 16-bit range gives an error.
+func TestApplyRange(t *testing.T) {
+	square := func(x funit.Int16) *glyf.Glyph {
+		return makeSimple([]glyf.Point{
+			{X: x, Y: 0, OnCurve: true},
+			{X: x + 100, Y: 0, OnCurve: true},
+			{X: x + 100, Y: 100, OnCurve: true},
+			{X: x, Y: 100, OnCurve: true},
+		})
+	}
+	wordComposite := &glyf.Glyph{
+		Data: glyf.CompositeGlyph{Components: []glyf.GlyphComponent{{
+			Flags:      glyf.FlagArgsAreXYValues | glyf.FlagArg1And2AreWords,
+			GlyphIndex: 1,
+			Data:       []byte{0x7D, 0x00, 0x00, 0x00}, // (32000, 0)
+		}}},
+	}
+	cases := []struct {
+		name    string
+		glyph   *glyf.Glyph
+		width   funit.Uint16
+		nPoints int
+		deltaX  []int32 // x deltas, the y deltas are zero
+	}{
+		{"outline point", square(32000), 200, 8, []int32{0, 1000, 0, 0, 0, 0, 0, 0}},
+		{"advance width", square(0), 65000, 8, []int32{0, 0, 0, 0, 0, 1000, 0, 0}},
+		{"component offset", wordComposite, 300, 5, []int32{1000, 0, 0, 0, 0}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			deltas := append(slices.Clone(c.deltaX), make([]int32, c.nPoints)...)
+			tuples := []variation.TupleVariation{{Peak: []variation.F2Dot14{0x4000}, Deltas: deltas}}
+			tbl := &Table{
+				AxisCount: 1,
+				PerGlyph:  []GlyphData{{Data: mustEncode(t, tuples, 1, c.nPoints)}},
+			}
+			glyphs := glyf.Glyphs{c.glyph}
+			widths := []funit.Uint16{c.width}
+
+			if _, err := tbl.Apply(glyphs, widths, 0, []variation.F2Dot14{0}, testBudget(), nil); err != nil {
+				t.Errorf("default instance: %v", err)
+			}
+			if _, err := tbl.Apply(glyphs, widths, 0, []variation.F2Dot14{0x4000}, testBudget(), nil); err == nil {
+				t.Error("out-of-range value accepted")
+			}
+		})
 	}
 }

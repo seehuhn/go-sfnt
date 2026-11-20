@@ -4,11 +4,15 @@
 package glyf
 
 import (
+	"errors"
+	"math"
+
 	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/internal/clamp"
 )
+
+var errBBoxRange = errors.New("glyf: composite glyph bounding box exceeds the int16 range")
 
 // RecomputeCompositeBBoxes replaces the bounding box of every composite glyph
 // by the union of its components' bounding boxes, each mapped through its
@@ -31,16 +35,23 @@ import (
 // glyph is referenced many times over.  A component which refers back to a
 // glyph still being computed (a reference cycle, which valid fonts do not
 // contain) contributes that glyph's stored box.
-func (gg Glyphs) RecomputeCompositeBBoxes() {
+//
+// If the box of a composite glyph does not fit into the int16 coordinates of the
+// glyph header, RecomputeCompositeBBoxes returns an error.  The glyphs are
+// then left partly updated.
+func (gg Glyphs) RecomputeCompositeBBoxes() error {
 	state := make([]bboxState, len(gg))
 	for gid, g := range gg {
 		if g == nil || state[gid] != bboxPending {
 			continue
 		}
 		if _, ok := g.Data.(CompositeGlyph); ok {
-			gg.recomputeCompositeBBox(glyph.ID(gid), state)
+			if err := gg.recomputeCompositeBBox(glyph.ID(gid), state); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // bboxState tracks the progress of RecomputeCompositeBBoxes for one glyph.
@@ -54,7 +65,7 @@ const (
 
 // recomputeCompositeBBox computes the box of the composite glyph gid, first
 // computing any composite components which are still pending.
-func (gg Glyphs) recomputeCompositeBBox(gid glyph.ID, state []bboxState) {
+func (gg Glyphs) recomputeCompositeBBox(gid glyph.ID, state []bboxState) error {
 	state[gid] = bboxComputing
 
 	var box funit.Rect16
@@ -64,7 +75,9 @@ func (gg Glyphs) recomputeCompositeBBox(gid glyph.ID, state []bboxState) {
 			continue
 		}
 		if _, ok := gg[child].Data.(CompositeGlyph); ok && state[child] == bboxPending {
-			gg.recomputeCompositeBBox(child, state)
+			if err := gg.recomputeCompositeBBox(child, state); err != nil {
+				return err
+			}
 		}
 
 		// a child still being computed lies on a reference cycle and
@@ -77,11 +90,33 @@ func (gg Glyphs) recomputeCompositeBBox(gid glyph.ID, state []bboxState) {
 		if err != nil {
 			continue
 		}
-		box.Extend(clamp.Rect16(rectOf(childBox).Transform(cu.Trfm)))
+		b, err := rect16(rectOf(childBox).Transform(cu.Trfm))
+		if err != nil {
+			return err
+		}
+		box.Extend(b)
 	}
 
 	gg[gid].Rect16 = box
 	state[gid] = bboxDone
+	return nil
+}
+
+// rect16 rounds r outwards and converts it to the integer type used in the
+// glyph header, so that the stored box still contains r.
+func rect16(r rect.Rect) (funit.Rect16, error) {
+	r = r.Rounded()
+	for _, x := range []float64{r.LLx, r.LLy, r.URx, r.URy} {
+		if !(x >= math.MinInt16 && x <= math.MaxInt16) {
+			return funit.Rect16{}, errBBoxRange
+		}
+	}
+	return funit.Rect16{
+		LLx: funit.Int16(r.LLx),
+		LLy: funit.Int16(r.LLy),
+		URx: funit.Int16(r.URx),
+		URy: funit.Int16(r.URy),
+	}, nil
 }
 
 // rectOf converts a glyph header box to a rect.Rect.

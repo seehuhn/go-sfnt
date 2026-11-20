@@ -193,7 +193,10 @@ func TestMakeVarFontExpect(t *testing.T) {
 	if got := decodeCVT(cvt); !equalInt16(got, exp.CVTDefault) {
 		t.Errorf("default cvt = %v, want %v", got, exp.CVTDefault)
 	}
-	varied := f.Cvar.Apply(cvt, coords)
+	varied, err := f.Cvar.Apply(cvt, coords)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := decodeCVT(varied); !equalInt16(got, exp.CVTInstance) {
 		t.Errorf("instanced cvt = %v, want %v", got, exp.CVTInstance)
 	}

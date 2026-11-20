@@ -72,7 +72,9 @@ func main() {
 
 	// Create the glyphs
 	glyphs := createPythagorasGlyphs()
-	glyphs.RecomputeCompositeBBoxes()
+	if err := glyphs.RecomputeCompositeBBoxes(); err != nil {
+		log.Fatal(err)
+	}
 
 	widths := make([]funit.Uint16, len(glyphs))
 	for i := range widths {

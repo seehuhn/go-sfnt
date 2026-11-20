@@ -202,8 +202,8 @@ type Font struct {
 	// Windows clipping metrics from the OS/2 table.  Fonts constructed in
 	// memory may leave both values zero, in which case the values are
 	// derived from the font bounding box when writing.
-	WinAscent  funit.Int16
-	WinDescent funit.Int16 // positive
+	WinAscent  funit.Uint16
+	WinDescent funit.Uint16 // positive
 
 	CapHeight          funit.Int16
 	XHeight            funit.Int16
@@ -373,13 +373,13 @@ func (f *Font) hheaMetrics() (ascent, descent, lineGap funit.Int16) {
 
 // winMetrics returns the Windows ascent and descent for the OS/2 table,
 // deriving them from the font bounding box when the values are unset.
-func (f *Font) winMetrics() (ascent, descent funit.Int16) {
+func (f *Font) winMetrics() (ascent, descent funit.Uint16) {
 	if f.WinAscent == 0 && f.WinDescent == 0 {
 		// TODO(voss): larger values may be needed, if GPOS rules move some
 		// glyphs outside this range.
 		bbox := f.FontBBox()
-		ascent = clamp.Int16[funit.Int16](math.Ceil(bbox.URy))
-		descent = clamp.Int16[funit.Int16](math.Ceil(-bbox.LLy))
+		ascent = clamp.Uint16[funit.Uint16](math.Ceil(bbox.URy))
+		descent = clamp.Uint16[funit.Uint16](math.Ceil(-bbox.LLy))
 		return ascent, descent
 	}
 	return f.WinAscent, f.WinDescent

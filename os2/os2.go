@@ -31,8 +31,8 @@ type Info struct {
 
 	Ascent     funit.Int16
 	Descent    funit.Int16 // negative
-	WinAscent  funit.Int16
-	WinDescent funit.Int16 // positive
+	WinAscent  funit.Uint16
+	WinDescent funit.Uint16 // positive
 	LineGap    funit.Int16
 	CapHeight  funit.Int16
 	XHeight    funit.Int16
@@ -462,8 +462,8 @@ type v0MsData struct {
 	TypoAscender  funit.Int16
 	TypoDescender funit.Int16
 	TypoLineGap   funit.Int16
-	WinAscent     funit.Int16
-	WinDescent    funit.Int16 // positive
+	WinAscent     funit.Uint16
+	WinDescent    funit.Uint16 // positive
 }
 
 type v2Data struct {

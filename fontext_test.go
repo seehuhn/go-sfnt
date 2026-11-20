@@ -984,3 +984,17 @@ func TestWidthRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestWinMetricsRoundTrip checks that Windows clipping metrics beyond the
+// int16 range survive writing and reading a font.
+func TestWinMetricsRoundTrip(t *testing.T) {
+	f := readGoRegular(t)
+	f.WinAscent = 40000
+	f.WinDescent = 33000
+
+	f2 := writeAndRead(t, f)
+	if f2.WinAscent != 40000 || f2.WinDescent != 33000 {
+		t.Errorf("got WinAscent %d, WinDescent %d; want 40000, 33000",
+			f2.WinAscent, f2.WinDescent)
+	}
+}

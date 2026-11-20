@@ -5,8 +5,6 @@ package os2
 
 import (
 	"bytes"
-	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -25,10 +23,22 @@ func FuzzOS2(f *testing.F) {
 			t.Fatal(err)
 		}
 
-		if !reflect.DeepEqual(i1, i2) {
-			d := cmp.Diff(i1, i2)
-			fmt.Println(d)
-			t.Fatal("not equal")
+		if diff := cmp.Diff(i1, i2); diff != "" {
+			t.Errorf("round trip failed (-want +got):\n%s", diff)
 		}
 	})
+}
+
+// TestWinMetricsUnsigned checks that usWinAscent and usWinDescent values
+// beyond the int16 range are read and written correctly.
+func TestWinMetricsUnsigned(t *testing.T) {
+	info := &Info{WinAscent: 40000, WinDescent: 65535}
+	got, err := Read(bytes.NewReader(info.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WinAscent != 40000 || got.WinDescent != 65535 {
+		t.Errorf("got WinAscent %d, WinDescent %d; want 40000, 65535",
+			got.WinAscent, got.WinDescent)
+	}
 }

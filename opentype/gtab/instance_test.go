@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/coverage"
@@ -22,8 +21,8 @@ func varIdx(inner uint16) *device.Table {
 	return &device.Table{DeltaFormat: device.VariationIndexFormat, InnerIndex: inner}
 }
 
-func testResolve(outer, inner uint16) funit.Int16 {
-	return funit.Int16(inner)
+func testResolve(outer, inner uint16) int64 {
+	return int64(inner)
 }
 
 func TestBakeVariationDevices(t *testing.T) {
@@ -65,7 +64,10 @@ func TestBakeVariationDevices(t *testing.T) {
 		},
 	}}
 
-	got := ll.BakeVariationDevices(testResolve)
+	got, err := ll.BakeVariationDevices(testResolve)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("unexpected result (-want +got):\n%s", diff)
 	}
@@ -103,7 +105,10 @@ func TestBakeVariationDevicesShared(t *testing.T) {
 
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	out := ll.BakeVariationDevices(testResolve)
+	out, err := ll.BakeVariationDevices(testResolve)
+	if err != nil {
+		t.Fatal(err)
+	}
 	runtime.ReadMemStats(&after)
 
 	// copying the shared LigatureAttach table per ligature would allocate
@@ -144,8 +149,35 @@ func TestBakeVariationDevicesEmpty(t *testing.T) {
 			&Gpos4_1{MarkArray: []markarray.Record{}, BaseArray: [][]*anchor.Table{}},
 		},
 	}}
-	out := ll.BakeVariationDevices(testResolve)
+	out, err := ll.BakeVariationDevices(testResolve)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if diff := cmp.Diff(ll, out); diff != "" {
 		t.Errorf("baking changed the lookups (-want +got):\n%s", diff)
+	}
+}
+
+// TestBakeVariationDevicesRange checks that a value record or anchor which
+// leaves the 16-bit range after baking gives an error.
+func TestBakeVariationDevicesRange(t *testing.T) {
+	resolve := func(outer, inner uint16) int64 { return -1000 }
+	cases := []Subtable{
+		&Gpos1_1{
+			Cov:    coverage.Table{1: 0},
+			Adjust: &GposValueRecord{XAdvance: -32000, XAdvanceDev: varIdx(0)},
+		},
+		&Gpos3_1{
+			Cov: coverage.Table{1: 0},
+			Records: []EntryExitRecord{{
+				Entry: &anchor.Table{Y: -32000, YDev: varIdx(0)},
+			}},
+		},
+	}
+	for i, st := range cases {
+		ll := LookupList{{Meta: &LookupMetaInfo{LookupType: 1}, Subtables: []Subtable{st}}}
+		if _, err := ll.BakeVariationDevices(resolve); err == nil {
+			t.Errorf("%d: out-of-range value accepted", i)
+		}
 	}
 }

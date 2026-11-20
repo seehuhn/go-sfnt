@@ -16,7 +16,7 @@ import (
 	"math"
 
 	"seehuhn.de/go/membudget"
-	"seehuhn.de/go/sfnt/internal/clamp"
+	"seehuhn.de/go/sfnt/internal/vardelta"
 	"seehuhn.de/go/sfnt/variation"
 )
 
@@ -147,12 +147,12 @@ func (t *Table) Encode(cvtCount int) ([]byte, error) {
 // bytes: big-endian int16 FWORD entries, with an optional trailing odd byte
 // preserved verbatim.  For each tuple whose interpolation weight is
 // non-zero, its deltas are scaled by that weight and accumulated per CVT
-// index; the accumulated deltas are rounded once and clamped to int16 before
-// being added to the original values.
+// index; the original value plus the accumulated deltas is rounded once.
+// If a result does not fit into an int16, Apply returns an error.
 //
 // A CVT index referenced by a tuple that falls outside the range covered by
 // cvt is silently ignored.
-func (t *Table) Apply(cvt []byte, coords []variation.F2Dot14) []byte {
+func (t *Table) Apply(cvt []byte, coords []variation.F2Dot14) ([]byte, error) {
 	n := len(cvt) / 2
 
 	deltas := make([]float64, n)
@@ -184,14 +184,17 @@ func (t *Table) Apply(cvt []byte, coords []variation.F2Dot14) []byte {
 	out := make([]byte, len(cvt))
 	for i := range n {
 		orig := int16(u16(cvt, 2*i))
-		v := clamp.Int16[int16](variation.OTRound(float64(orig) + deltas[i]))
+		v, err := vardelta.Int16[int16](variation.OTRound(float64(orig) + deltas[i]))
+		if err != nil {
+			return nil, err
+		}
 		out[2*i] = byte(uint16(v) >> 8)
 		out[2*i+1] = byte(uint16(v))
 	}
 	if len(cvt)%2 == 1 {
 		out[len(out)-1] = cvt[len(cvt)-1]
 	}
-	return out
+	return out, nil
 }
 
 func u16(b []byte, i int) uint16 {

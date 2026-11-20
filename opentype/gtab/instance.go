@@ -6,6 +6,7 @@ package gtab
 import (
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/internal/vardelta"
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/device"
 	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
@@ -18,7 +19,8 @@ import (
 // t.InnerIndex) supplies the delta added to the paired coordinate
 // (XPlacement/YPlacement/XAdvance/YAdvance for value records, X/Y for anchors);
 // the device pointer is then cleared.  Plain (non-variation) Device tables are
-// left in place unchanged.
+// left in place unchanged.  If a coordinate with its delta added does not fit
+// into 16 bits, BakeVariationDevices returns an error.
 //
 // The returned LookupList shares immutable structure with ll: only the value
 // records, anchors, subtables and lookups that can carry a device table are
@@ -26,7 +28,7 @@ import (
 // as the readers return them for tables reached through several offsets, are
 // copied once and remain shared in the result.  This is used when
 // instantiating a variable font.
-func (ll LookupList) BakeVariationDevices(resolve func(outer, inner uint16) funit.Int16) LookupList {
+func (ll LookupList) BakeVariationDevices(resolve func(outer, inner uint16) int64) (LookupList, error) {
 	b := &baker{
 		resolve: resolve,
 		values:  map[*GposValueRecord]*GposValueRecord{},
@@ -45,14 +47,19 @@ func (ll LookupList) BakeVariationDevices(resolve func(outer, inner uint16) funi
 			Subtables: subtables,
 		}
 	}
-	return out
+	// the first error is reported; the partial result is discarded
+	if b.err != nil {
+		return nil, b.err
+	}
+	return out, nil
 }
 
 // baker bakes VariationIndex tables into the values which refer to them.
 // Each value is baked once, so that shared values stay shared, and the
 // memory used is proportional to the size of the input.
 type baker struct {
-	resolve func(outer, inner uint16) funit.Int16
+	resolve func(outer, inner uint16) int64
+	err     error // the first value out of range
 	values  map[*GposValueRecord]*GposValueRecord
 	pairs   map[*PairAdjust]*PairAdjust
 	anchors map[*anchor.Table]*anchor.Table
@@ -199,10 +206,10 @@ func (b *baker) valueRecord(vr *GposValueRecord) *GposValueRecord {
 		return res
 	}
 	c := *vr
-	c.XPlacement += b.device(&c.XPlacementDev)
-	c.YPlacement += b.device(&c.YPlacementDev)
-	c.XAdvance += b.device(&c.XAdvanceDev)
-	c.YAdvance += b.device(&c.YAdvanceDev)
+	b.bake(&c.XPlacement, &c.XPlacementDev)
+	b.bake(&c.YPlacement, &c.YPlacementDev)
+	b.bake(&c.XAdvance, &c.XAdvanceDev)
+	b.bake(&c.YAdvance, &c.YAdvanceDev)
 	b.values[vr] = &c
 	return &c
 }
@@ -220,19 +227,23 @@ func (b *baker) anchor(a *anchor.Table) *anchor.Table {
 }
 
 func (b *baker) anchorValue(a anchor.Table) anchor.Table {
-	a.X += b.device(&a.XDev)
-	a.Y += b.device(&a.YDev)
+	b.bake(&a.X, &a.XDev)
+	b.bake(&a.Y, &a.YDev)
 	return a
 }
 
-// device returns the delta for a VariationIndex table and clears the
-// pointer.  For a plain Device table (or nil) it returns 0 and leaves the
-// pointer untouched.
-func (b *baker) device(dev **device.Table) funit.Int16 {
+// bake adds the delta of a VariationIndex table to v and clears the
+// pointer.  A plain Device table (or nil) is left untouched.  If the sum
+// does not fit into v, the error is recorded in b.err.
+func (b *baker) bake(v *funit.Int16, dev **device.Table) {
 	d := *dev
 	if d == nil || !d.IsVariationIndex() {
-		return 0
+		return
 	}
 	*dev = nil
-	return b.resolve(d.OuterIndex, d.InnerIndex)
+	x, err := vardelta.AddInt16(*v, b.resolve(d.OuterIndex, d.InnerIndex))
+	if err != nil && b.err == nil {
+		b.err = err
+	}
+	*v = x
 }

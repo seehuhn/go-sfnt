@@ -4,7 +4,7 @@
 package gdef
 
 import (
-	"seehuhn.de/go/postscript/funit"
+	"seehuhn.de/go/sfnt/internal/vardelta"
 	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
 )
 
@@ -13,7 +13,8 @@ import (
 // coordinate and removed.  For each such table t, resolve(t.OuterIndex,
 // t.InnerIndex) supplies the delta added to the caret Coordinate; the Device
 // pointer is then cleared.  Plain (non-variation) Device tables are left in
-// place unchanged.
+// place unchanged.  If a coordinate with its delta added does not fit into
+// 16 bits, BakeVariationDevices returns an error.
 //
 // The returned table shares immutable structure with table: only the ligature
 // caret list is copied, so table itself is not modified.  Rows of caret
@@ -22,15 +23,19 @@ import (
 // in the result.  ItemVarStore is carried over unchanged; the caller clears
 // it once every reference has been baked out.  This is used when
 // instantiating a variable font.
-func (table *Table) BakeVariationDevices(resolve func(outer, inner uint16) funit.Int16) *Table {
+func (table *Table) BakeVariationDevices(resolve func(outer, inner uint16) int64) (*Table, error) {
+	lc, err := bakeLigCaretList(table.LigCaretList, resolve)
+	if err != nil {
+		return nil, err
+	}
 	c := *table
-	c.LigCaretList = bakeLigCaretList(table.LigCaretList, resolve)
-	return &c
+	c.LigCaretList = lc
+	return &c, nil
 }
 
-func bakeLigCaretList(lc *LigCaretList, resolve func(uint16, uint16) funit.Int16) *LigCaretList {
+func bakeLigCaretList(lc *LigCaretList, resolve func(uint16, uint16) int64) (*LigCaretList, error) {
 	if lc == nil {
-		return nil
+		return nil, nil
 	}
 	carets := make([][]CaretValue, len(lc.Carets))
 	baked := map[any][]CaretValue{} // keyed by [offsetpool.SliceKey]
@@ -47,12 +52,16 @@ func bakeLigCaretList(lc *LigCaretList, resolve func(uint16, uint16) funit.Int16
 		for j, cv := range row {
 			res[j] = cv
 			if cv.Device != nil && cv.Device.IsVariationIndex() {
-				res[j].Coordinate += resolve(cv.Device.OuterIndex, cv.Device.InnerIndex)
+				x, err := vardelta.AddInt16(cv.Coordinate, resolve(cv.Device.OuterIndex, cv.Device.InnerIndex))
+				if err != nil {
+					return nil, err
+				}
+				res[j].Coordinate = x
 				res[j].Device = nil
 			}
 		}
 		baked[key] = res
 		carets[i] = res
 	}
-	return &LigCaretList{Cov: lc.Cov, Carets: carets}
+	return &LigCaretList{Cov: lc.Cov, Carets: carets}, nil
 }

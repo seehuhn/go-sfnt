@@ -22,7 +22,9 @@ import (
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/internal/debug"
+	"seehuhn.de/go/sfnt/opentype/device"
 	"seehuhn.de/go/sfnt/opentype/gtab"
+	"seehuhn.de/go/sfnt/opentype/mathtable"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/parser"
 )
@@ -799,6 +801,77 @@ func TestInstantiateKeepsVertical(t *testing.T) {
 			}
 			if diff := cmp.Diff(font.Vertical, inst2.Vertical); diff != "" {
 				t.Errorf("instance round trip (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestInstantiateRange checks that Instantiate fails where a value with its
+// variation delta added does not fit into 16 bits, and succeeds at the
+// default instance.
+func TestInstantiateRange(t *testing.T) {
+	cases := []struct {
+		name string
+		make func() *sfnt.Font
+	}{
+		{"MATH value", func() *sfnt.Font {
+			// +25 at wght=900
+			vi := &device.Table{DeltaFormat: device.VariationIndexFormat}
+			f := debug.MakeVarFont()
+			f.Math = &mathtable.Info{}
+			f.Math.Constants.AxisHeight = mathtable.Value{V: 32760, Device: vi}
+			return f
+		}},
+		{"GPOS value", func() *sfnt.Font {
+			// the kern pair carries the same delta as the MATH value
+			f := debug.MakeVarFont()
+			adj := f.Gpos.LookupList[0].Subtables[0].(*gtab.Gpos2_1).Adjust
+			for _, a := range adj {
+				a.First.XAdvance = 32760
+			}
+			return f
+		}},
+		{"ascent", func() *sfnt.Font {
+			// MVAR adds 50 at wght=900
+			f := debug.MakeVarFont()
+			f.Ascent = 32760
+			return f
+		}},
+		{"advance width", func() *sfnt.Font {
+			// HVAR adds 80 to glyph Rect at wght=900
+			f := debug.MakeVarFont()
+			f.Outlines.(*glyf.Outlines).Widths[debug.VarGidRect] = 65500
+			return f
+		}},
+		{"CFF2 advance width", func() *sfnt.Font {
+			// HVAR adds 50 to glyph 1 at wght=900
+			f := debug.MakeVarCFF2Font()
+			f.Outlines.(*cff.OutlinesCFF2).Widths[1] = 65500
+			return f
+		}},
+		{"composite bounding box", func() *sfnt.Font {
+			// gvar moves component 1 by +200 and the right edge of its
+			// child by +40 at wght=900, so the box reaches x = 32840 while
+			// the offset still fits
+			f := debug.MakeVarFont()
+			g := f.Outlines.(*glyf.Outlines).Glyphs[debug.VarGidComp]
+			comps := g.Data.(glyf.CompositeGlyph).Components
+			u, err := comps[1].Unpack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			u.Trfm[4] = 32000
+			comps[1] = u.Pack()
+			return f
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := c.make().Instantiate(map[string]float64{"wght": 400}); err != nil {
+				t.Errorf("default instance: %v", err)
+			}
+			if _, err := c.make().Instantiate(map[string]float64{"wght": 900}); err == nil {
+				t.Error("out-of-range value accepted")
 			}
 		})
 	}

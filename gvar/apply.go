@@ -11,7 +11,7 @@ import (
 	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/internal/clamp"
+	"seehuhn.de/go/sfnt/internal/vardelta"
 	"seehuhn.de/go/sfnt/variation"
 )
 
@@ -55,6 +55,9 @@ type ApplyResult struct {
 // recomputed here, because it depends on the final child outlines; once every
 // glyph has been instanced, the caller recomputes the composite boxes with
 // [glyf.Glyphs.RecomputeCompositeBBoxes].
+//
+// If an outline point coordinate, the advance width or a component offset
+// with its delta added does not fit into 16 bits, Apply returns an error.
 //
 // budget bounds memory use.  workBudget, when non-nil, is decremented by the
 // number of active tuples times the point count; Apply returns ErrWorkLimit
@@ -226,9 +229,11 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 		}
 	}
 
-	res := &ApplyResult{
-		Advance: clamp.Uint16[funit.Uint16](variation.OTRound(float64(aw) + dx[nBase+1] - dx[nBase])),
+	adv, err := vardelta.Uint16[funit.Uint16](variation.OTRound(float64(aw) + dx[nBase+1] - dx[nBase]))
+	if err != nil {
+		return nil, err
 	}
+	res := &ApplyResult{Advance: adv}
 
 	switch {
 	case simple != nil:
@@ -236,8 +241,14 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 		for ci := range simple.Contours {
 			for pi := range simple.Contours[ci] {
 				pt := &simple.Contours[ci][pi]
-				pt.X = clamp.Int16[funit.Int16](variation.OTRound(origX[p] + dx[p]))
-				pt.Y = clamp.Int16[funit.Int16](variation.OTRound(origY[p] + dy[p]))
+				pt.X, err = vardelta.Int16[funit.Int16](variation.OTRound(origX[p] + dx[p]))
+				if err != nil {
+					return nil, err
+				}
+				pt.Y, err = vardelta.Int16[funit.Int16](variation.OTRound(origY[p] + dy[p]))
+				if err != nil {
+					return nil, err
+				}
 				p++
 			}
 		}
@@ -251,7 +262,9 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 			ddx := int(variation.OTRound(dx[k]))
 			ddy := int(variation.OTRound(dy[k]))
 			if comp.Flags&glyf.FlagArgsAreXYValues != 0 && (ddx != 0 || ddy != 0) {
-				spliceOffset(&nc, ddx, ddy)
+				if err := spliceOffset(&nc, ddx, ddy); err != nil {
+					return nil, err
+				}
 			}
 			newComps[k] = nc
 		}
@@ -267,9 +280,10 @@ func (t *Table) Apply(glyphs glyf.Glyphs, widths []funit.Uint16, gid glyph.ID, c
 // spliceOffset adds (ddx, ddy) to a component's X/Y offset arguments in place,
 // preserving all trailing transform bytes and every flag except that it sets
 // ARG_1_AND_2_ARE_WORDS when a byte-encoded value no longer fits in an int8.
-// Widened arguments exceeding the int16 range are clamped.
+// If an argument no longer fits in an int16, spliceOffset returns
+// [vardelta.ErrRange] and leaves comp unchanged.
 // It must be called only for components with ARGS_ARE_XY_VALUES set.
-func spliceOffset(comp *glyf.GlyphComponent, ddx, ddy int) {
+func spliceOffset(comp *glyf.GlyphComponent, ddx, ddy int) error {
 	words := comp.Flags&glyf.FlagArg1And2AreWords != 0
 	data := comp.Data
 
@@ -277,20 +291,24 @@ func spliceOffset(comp *glyf.GlyphComponent, ddx, ddy int) {
 	if words {
 		argLen = 4
 		if len(data) < 4 {
-			return
+			return nil
 		}
 		arg1 = int(int16(uint16(data[0])<<8 | uint16(data[1])))
 		arg2 = int(int16(uint16(data[2])<<8 | uint16(data[3])))
 	} else {
 		argLen = 2
 		if len(data) < 2 {
-			return
+			return nil
 		}
 		arg1 = int(int8(data[0]))
 		arg2 = int(int8(data[1]))
 	}
 	arg1 += ddx
 	arg2 += ddy
+	if arg1 < math.MinInt16 || arg1 > math.MaxInt16 ||
+		arg2 < math.MinInt16 || arg2 > math.MaxInt16 {
+		return vardelta.ErrRange
+	}
 
 	if !words && (arg1 < math.MinInt8 || arg1 > math.MaxInt8 ||
 		arg2 < math.MinInt8 || arg2 > math.MaxInt8) {
@@ -301,8 +319,7 @@ func spliceOffset(comp *glyf.GlyphComponent, ddx, ddy int) {
 	trailing := data[argLen:]
 	var buf []byte
 	if words {
-		a1 := int16(min(max(arg1, math.MinInt16), math.MaxInt16))
-		a2 := int16(min(max(arg2, math.MinInt16), math.MaxInt16))
+		a1, a2 := int16(arg1), int16(arg2)
 		buf = make([]byte, 0, 4+len(trailing))
 		buf = append(buf, byte(uint16(a1)>>8), byte(a1), byte(uint16(a2)>>8), byte(a2))
 	} else {
@@ -311,4 +328,5 @@ func spliceOffset(comp *glyf.GlyphComponent, ddx, ddy int) {
 	}
 	buf = append(buf, trailing...)
 	comp.Data = buf
+	return nil
 }

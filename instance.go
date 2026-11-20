@@ -20,7 +20,7 @@ import (
 	"seehuhn.de/go/sfnt/fvar"
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/internal/clamp"
+	"seehuhn.de/go/sfnt/internal/vardelta"
 	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
@@ -41,6 +41,9 @@ var ErrNotVariable = errors.New("sfnt: font is not variable")
 // pinned instance, and its PostScript name follows Adobe Technical Note
 // #5902.  The vertical metrics in [Font.Vertical], if any, are carried over
 // unchanged from the default instance.
+//
+// If a value of the instance does not fit into the 16-bit field which stores
+// it in a font file, Instantiate returns an error.
 func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	// step 1: guards
 	if !f.IsVariable() {
@@ -99,7 +102,9 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	}
 
 	// step 7: MVAR font-wide metrics
-	applyMVAR(&out, f.Mvar, norm)
+	if err := applyMVAR(&out, f.Mvar, norm); err != nil {
+		return nil, err
+	}
 
 	// step 8: OS/2 weight and width classes
 	for i, ax := range f.Fvar.Axes {
@@ -111,12 +116,12 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 		}
 	}
 
-	// steps 9 & 10: GSUB/GPOS feature variations and GPOS/GDEF device baking
-	resolve := func(outer, inner uint16) funit.Int16 {
+	// steps 9 & 10: GSUB/GPOS feature variations and GPOS/GDEF/MATH device baking
+	resolve := func(outer, inner uint16) int64 {
 		if f.Gdef == nil || f.Gdef.ItemVarStore == nil {
 			return 0
 		}
-		return funit.Int16(variation.OTRound(f.Gdef.ItemVarStore.Evaluate(outer, inner, norm)))
+		return int64(variation.OTRound(f.Gdef.ItemVarStore.Evaluate(outer, inner, norm)))
 	}
 	if f.Gsub != nil {
 		c := *f.Gsub
@@ -128,16 +133,27 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 		c := *f.Gpos
 		c.FeatureList = applyFeatureVariations(f.Gpos.FeatureList, f.Gpos.Variations, norm)
 		c.Variations = nil
-		c.LookupList = f.Gpos.LookupList.BakeVariationDevices(resolve)
+		ll, err := f.Gpos.LookupList.BakeVariationDevices(resolve)
+		if err != nil {
+			return nil, err
+		}
+		c.LookupList = ll
 		out.Gpos = &c
 	}
 	if f.Gdef != nil {
-		g := f.Gdef.BakeVariationDevices(resolve)
+		g, err := f.Gdef.BakeVariationDevices(resolve)
+		if err != nil {
+			return nil, err
+		}
 		g.ItemVarStore = nil
 		out.Gdef = g
 	}
 	if f.Math != nil {
-		out.Math = f.Math.BakeVariationDevices(resolve)
+		m, err := f.Math.BakeVariationDevices(resolve)
+		if err != nil {
+			return nil, err
+		}
+		out.Math = m
 	}
 
 	// step 11: drop the variation tables
@@ -221,7 +237,9 @@ func instanceGlyf(f *Font, out *Font, outlines *glyf.Outlines, norm []variation.
 			newGlyphs[gid] = res.Glyph
 			phantomAdvances[gid] = res.Advance
 		}
-		newGlyphs.RecomputeCompositeBBoxes()
+		if err := newGlyphs.RecomputeCompositeBBoxes(); err != nil {
+			return err
+		}
 	} else {
 		// no gvar table: glyph outlines and advances are unaffected by the
 		// variation coordinates.
@@ -241,7 +259,11 @@ func instanceGlyf(f *Font, out *Font, outlines *glyf.Outlines, norm []variation.
 				if gid < len(outlines.Widths) {
 					base = float64(outlines.Widths[gid])
 				}
-				newWidths[gid] = clamp.Uint16[funit.Uint16](variation.OTRound(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm)))
+				w, err := vardelta.Uint16[funit.Uint16](variation.OTRound(base + f.Hvar.AdvanceDelta(glyph.ID(gid), norm)))
+				if err != nil {
+					return err
+				}
+				newWidths[gid] = w
 			} else {
 				newWidths[gid] = phantomAdvances[gid]
 			}
@@ -253,7 +275,11 @@ func instanceGlyf(f *Font, out *Font, outlines *glyf.Outlines, norm []variation.
 	if f.Cvar != nil {
 		if cvt, ok := outlines.Tables["cvt "]; ok {
 			tables := maps.Clone(outlines.Tables)
-			tables["cvt "] = f.Cvar.Apply(cvt, norm)
+			newCvt, err := f.Cvar.Apply(cvt, norm)
+			if err != nil {
+				return err
+			}
+			tables["cvt "] = newCvt
 			newOutlines.Tables = tables
 		}
 	}
@@ -269,8 +295,8 @@ func instanceCFF2(f *Font, out *Font, outlines *cff.OutlinesCFF2, norm []variati
 	// advance widths in design units; HVAR overrides the static widths when
 	// present.  outlines.Widths is in design units, but HVAR deltas are in
 	// hmtx (UnitsPerEm) units, so the delta is applied to the hmtx width and
-	// the result, rounded and kept within the hmtx range as for a font with
-	// TrueType outlines, is converted back to design units.
+	// the result, rounded and checked against the hmtx range as for a font
+	// with TrueType outlines, is converted back to design units.
 	var widths []float64
 	if f.Hvar != nil {
 		widths = make([]float64, len(outlines.Glyphs))
@@ -284,7 +310,10 @@ func instanceCFF2(f *Font, out *Font, outlines *cff.OutlinesCFF2, norm []variati
 				base = math.Round(outlines.Widths[gid] * q * upm)
 			}
 			delta := f.Hvar.AdvanceDelta(glyph.ID(gid), norm)
-			h := clamp.Uint16[funit.Uint16](variation.OTRound(base + delta))
+			h, err := vardelta.Uint16[funit.Uint16](variation.OTRound(base + delta))
+			if err != nil {
+				return err
+			}
 			widths[gid] = advanceFromHmtx(h, q, upm)
 		}
 	}
@@ -329,13 +358,20 @@ func applyFeatureVariations(feats gtab.FeatureListInfo, vars []gtab.FeatureVaria
 }
 
 // applyMVAR folds the supported MVAR deltas into the metric fields of out.
-func applyMVAR(out *Font, mv *mvar.Table, norm []variation.F2Dot14) {
+// It returns an error if a metric no longer fits into its 16-bit field.
+func applyMVAR(out *Font, mv *mvar.Table, norm []variation.F2Dot14) error {
 	if mv == nil {
-		return
+		return nil
 	}
+	var err error
 	int16Field := func(field *funit.Int16, tag string) {
-		if d, ok := mv.Delta(tag, norm); ok {
-			*field = clamp.Int16[funit.Int16](variation.OTRound(float64(*field) + d))
+		if d, ok := mv.Delta(tag, norm); ok && err == nil {
+			*field, err = vardelta.Int16[funit.Int16](variation.OTRound(float64(*field) + d))
+		}
+	}
+	uint16Field := func(field *funit.Uint16, tag string) {
+		if d, ok := mv.Delta(tag, norm); ok && err == nil {
+			*field, err = vardelta.Uint16[funit.Uint16](variation.OTRound(float64(*field) + d))
 		}
 	}
 	floatField := func(field *funit.Float64, tag string) {
@@ -357,12 +393,13 @@ func applyMVAR(out *Font, mv *mvar.Table, norm []variation.F2Dot14) {
 		out.HheaDescent = out.Descent
 		out.HheaLineGap = out.LineGap
 	}
-	int16Field(&out.WinAscent, "hcla")
-	int16Field(&out.WinDescent, "hcld")
+	uint16Field(&out.WinAscent, "hcla")
+	uint16Field(&out.WinDescent, "hcld")
 	int16Field(&out.CapHeight, "cpht")
 	int16Field(&out.XHeight, "xhgt")
 	floatField(&out.UnderlinePosition, "undo")
 	floatField(&out.UnderlineThickness, "unds")
+	return err
 }
 
 // widthClassTable maps the wdth axis percentage to an OS/2 usWidthClass value.

@@ -173,7 +173,10 @@ func TestApplyVectors(t *testing.T) {
 
 	// at coords = [1.0] (F2Dot14 0x4000): tuple 0 peaks exactly (scalar 1),
 	// tuple 1 (peak -1.0) does not contribute (scalar 0, coord on other side)
-	got := tab.Apply(cvt, []variation.F2Dot14{0x4000})
+	got, err := tab.Apply(cvt, []variation.F2Dot14{0x4000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []byte{
 		0x00, 0x6E, // 100+10 = 110
 		0x00, 0xC8, // unchanged
@@ -186,7 +189,10 @@ func TestApplyVectors(t *testing.T) {
 
 	// at coords = [-1.0] (F2Dot14 -0x4000): tuple 0 (peak 1.0) is zero,
 	// tuple 1 (peak -1.0) peaks exactly, applying deltas [1,2,3,4]
-	got2 := tab.Apply(cvt, []variation.F2Dot14{-0x4000})
+	got2, err := tab.Apply(cvt, []variation.F2Dot14{-0x4000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want2 := []byte{
 		0x00, 0x65, // 100+1
 		0x00, 0xCA, // 200+2
@@ -200,7 +206,10 @@ func TestApplyVectors(t *testing.T) {
 
 func TestApplyEmptyCvt(t *testing.T) {
 	tab := &Table{AxisCount: 1, Tuples: goldenTuples}
-	got := tab.Apply(nil, []variation.F2Dot14{0x4000})
+	got, err := tab.Apply(nil, []variation.F2Dot14{0x4000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 0 {
 		t.Errorf("expected empty result, got %v", got)
 	}
@@ -209,7 +218,10 @@ func TestApplyEmptyCvt(t *testing.T) {
 func TestApplyOddLengthCvt(t *testing.T) {
 	tab := &Table{AxisCount: 1, Tuples: goldenTuples}
 	cvt := []byte{0x00, 0x64, 0xAB} // one entry plus a trailing odd byte
-	got := tab.Apply(cvt, []variation.F2Dot14{0x4000})
+	got, err := tab.Apply(cvt, []variation.F2Dot14{0x4000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 3 {
 		t.Fatalf("expected 3 bytes, got %d", len(got))
 	}
@@ -235,7 +247,10 @@ func TestApplyNegativeHalfTie(t *testing.T) {
 	cvt := []byte{0x00, 0x00} // cvt[0] = 0
 
 	// at coords = [0.5]: scalar 0.5, delta = 0.5 * -7 = -3.5
-	got := tab.Apply(cvt, []variation.F2Dot14{0x2000})
+	got, err := tab.Apply(cvt, []variation.F2Dot14{0x2000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []byte{0xFF, 0xFD} // -3, not -4 (math.Round would give 0xFFFC)
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("apply at coords=[0.5] (-want +got):\n%s", diff)
@@ -255,9 +270,27 @@ func TestApplyDropsOutOfRangeIndices(t *testing.T) {
 		},
 	}
 	cvt := []byte{0x00, 0x64} // single entry
-	got := tab.Apply(cvt, []variation.F2Dot14{0x4000})
+	got, err := tab.Apply(cvt, []variation.F2Dot14{0x4000})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []byte{0x00, 0x6E} // only index 0 applied
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("out-of-range index handling (-want +got):\n%s", diff)
+	}
+}
+
+// TestApplyRange checks that a cvt value which leaves the int16 range gives
+// an error.
+func TestApplyRange(t *testing.T) {
+	tab := &Table{
+		AxisCount: 1,
+		Tuples: []variation.TupleVariation{
+			{Peak: []variation.F2Dot14{0x4000}, Deltas: []int32{1000}},
+		},
+	}
+	cvt := []byte{0x7D, 0x00} // 32000
+	if _, err := tab.Apply(cvt, []variation.F2Dot14{0x4000}); err == nil {
+		t.Error("out-of-range cvt value accepted")
 	}
 }

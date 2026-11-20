@@ -7,8 +7,8 @@ import (
 	"iter"
 	"maps"
 
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/internal/vardelta"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 )
 
@@ -17,18 +17,29 @@ import (
 // removed.  For each such table t, resolve(t.OuterIndex, t.InnerIndex)
 // supplies the delta which is added to the value.  Plain Device tables are
 // left in place.  A kern table whose correction heights are out of order
-// after the deltas have been added is removed.
+// after the deltas have been added is removed.  If a value with its delta
+// added does not fit into 16 bits, BakeVariationDevices returns an error.
 //
 // The receiver is not modified.  Kern tables, glyph constructions and
 // assemblies which are shared in info are shared in the result.
-func (info *Info) BakeVariationDevices(resolve func(outer, inner uint16) funit.Int16) *Info {
-	return info.MapValues(func(v Value) Value {
+func (info *Info) BakeVariationDevices(resolve func(outer, inner uint16) int64) (*Info, error) {
+	var err error
+	res := info.MapValues(func(v Value) Value {
 		if v.Device != nil && v.Device.IsVariationIndex() {
-			v.V += resolve(v.Device.OuterIndex, v.Device.InnerIndex)
+			x, e := vardelta.AddInt16(v.V, resolve(v.Device.OuterIndex, v.Device.InnerIndex))
+			if e != nil && err == nil {
+				err = e
+			}
+			v.V = x
 			v.Device = nil
 		}
 		return v
 	})
+	// the first error is reported; the partial result is discarded
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // MapValues returns a copy of info in which fn has been applied to every

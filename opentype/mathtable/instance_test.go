@@ -222,7 +222,10 @@ func TestBakeUnsortedKern(t *testing.T) {
 		},
 	}
 
-	baked := info.BakeVariationDevices(func(outer, inner uint16) funit.Int16 { return -150 })
+	baked, err := info.BakeVariationDevices(func(outer, inner uint16) int64 { return -150 })
+	if err != nil {
+		t.Fatal(err)
+	}
 	ki := baked.Kerns[1]
 	if ki.TopRight != nil {
 		t.Errorf("kern table with unsorted heights kept: %+v", ki.TopRight)
@@ -247,9 +250,12 @@ func TestBakeKeepsDevices(t *testing.T) {
 	}
 	info.ItalicsCorrection[4] = Value{V: 10, Device: variationIndex(1, 2)}
 
-	got := info.BakeVariationDevices(func(outer, inner uint16) funit.Int16 {
-		return funit.Int16(100*outer + inner)
+	got, err := info.BakeVariationDevices(func(outer, inner uint16) int64 {
+		return int64(100*outer + inner)
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	want := &Info{ItalicsCorrection: map[glyph.ID]Value{4: {V: 112}}}
 	for i, d := range devs {
@@ -264,10 +270,13 @@ func TestBakeVariationDevices(t *testing.T) {
 	info := sampleInfo()
 	before, _ := sampleInfo().Encode()
 
-	resolve := func(outer, inner uint16) funit.Int16 {
-		return funit.Int16(1000*int(outer) + int(inner))
+	resolve := func(outer, inner uint16) int64 {
+		return 1000*int64(outer) + int64(inner)
 	}
-	got := info.BakeVariationDevices(resolve)
+	got, err := info.BakeVariationDevices(resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// the receiver is unchanged
 	after, err := info.Encode()
@@ -302,5 +311,17 @@ func TestBakeVariationDevices(t *testing.T) {
 	}
 	if _, err := got.Encode(); err != nil {
 		t.Error(err)
+	}
+}
+
+// TestBakeVariationDevicesRange checks that a value which leaves the 16-bit
+// range after baking gives an error.
+func TestBakeVariationDevicesRange(t *testing.T) {
+	info := &Info{
+		TopAccent: map[glyph.ID]Value{1: {V: 32000, Device: variationIndex(0, 0)}},
+	}
+	resolve := func(outer, inner uint16) int64 { return 1000 }
+	if _, err := info.BakeVariationDevices(resolve); err == nil {
+		t.Error("out-of-range value accepted")
 	}
 }

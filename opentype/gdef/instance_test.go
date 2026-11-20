@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"seehuhn.de/go/postscript/funit"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/device"
 )
@@ -24,9 +23,12 @@ func TestBakeVariationDevices(t *testing.T) {
 			Carets: [][]CaretValue{shared, nil, shared},
 		},
 	}
-	resolve := func(outer, inner uint16) funit.Int16 { return funit.Int16(inner) }
+	resolve := func(outer, inner uint16) int64 { return int64(inner) }
 
-	got := table.BakeVariationDevices(resolve)
+	got, err := table.BakeVariationDevices(resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	baked := []CaretValue{{Coordinate: 15}, {Coordinate: 20, Device: plain}}
 	want := &Table{
@@ -46,5 +48,22 @@ func TestBakeVariationDevices(t *testing.T) {
 	}
 	if shared[0].Device == nil {
 		t.Error("input modified")
+	}
+}
+
+// TestBakeVariationDevicesRange checks that a caret coordinate which leaves
+// the 16-bit range after baking gives an error.
+func TestBakeVariationDevicesRange(t *testing.T) {
+	table := &Table{
+		LigCaretList: &LigCaretList{
+			Cov: coverage.Table{1: 0},
+			Carets: [][]CaretValue{{
+				{Coordinate: 32000, Device: &device.Table{DeltaFormat: device.VariationIndexFormat}},
+			}},
+		},
+	}
+	resolve := func(outer, inner uint16) int64 { return 1000 }
+	if _, err := table.BakeVariationDevices(resolve); err == nil {
+		t.Error("out-of-range caret coordinate accepted")
 	}
 }

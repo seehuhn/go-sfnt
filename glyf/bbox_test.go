@@ -37,7 +37,9 @@ func TestCompositeBBoxUnion(t *testing.T) {
 		squareGlyph(100),
 		compositeOf(offsetComponent(0, 0, 0), offsetComponent(0, 150, 0)),
 	}
-	gg.RecomputeCompositeBBoxes()
+	if err := gg.RecomputeCompositeBBoxes(); err != nil {
+		t.Fatal(err)
+	}
 	checkBBoxes(t, gg, []funit.Rect16{
 		{URx: 100, URy: 100},
 		{URx: 250, URy: 100},
@@ -53,7 +55,9 @@ func TestCompositeBBoxNested(t *testing.T) {
 		compositeOf(offsetComponent(2, 0, 0), offsetComponent(2, 150, 0)), // outer
 		compositeOf(offsetComponent(0, 0, 0)),                             // inner
 	}
-	gg.RecomputeCompositeBBoxes()
+	if err := gg.RecomputeCompositeBBoxes(); err != nil {
+		t.Fatal(err)
+	}
 	checkBBoxes(t, gg, []funit.Rect16{
 		{URx: 100, URy: 100},
 		{URx: 250, URy: 100},
@@ -75,7 +79,9 @@ func TestCompositeBBoxChain(t *testing.T) {
 		gg[i] = compositeOf(offsetComponent(next, 0, 0), offsetComponent(next, 10, 0))
 	}
 
-	gg.RecomputeCompositeBBoxes()
+	if err := gg.RecomputeCompositeBBoxes(); err != nil {
+		t.Fatal(err)
+	}
 
 	want := make([]funit.Rect16, depth+1)
 	for i := range want {
@@ -102,7 +108,9 @@ func TestCompositeBBoxCycle(t *testing.T) {
 		squareGlyph(100),
 		withBox(compositeOf(offsetComponent(3, 0, 0), offsetComponent(4, 50, 0))), // outline, then itself
 	}
-	gg.RecomputeCompositeBBoxes()
+	if err := gg.RecomputeCompositeBBoxes(); err != nil {
+		t.Fatal(err)
+	}
 	checkBBoxes(t, gg, []funit.Rect16{
 		{LLx: 10, URx: 110, URy: 100},
 		{LLx: 20, URx: 120, URy: 100}, // b was computed inside a, from a's stored box
@@ -122,7 +130,9 @@ func TestCompositeBBoxBlankChild(t *testing.T) {
 		nil,
 		blank,
 	}
-	gg.RecomputeCompositeBBoxes()
+	if err := gg.RecomputeCompositeBBoxes(); err != nil {
+		t.Fatal(err)
+	}
 	checkBBoxes(t, gg, []funit.Rect16{{}})
 }
 
@@ -134,7 +144,9 @@ func TestCompositeBBoxRotated(t *testing.T) {
 		squareGlyph(100),
 		compositeOf(rotated),
 	}
-	gg.RecomputeCompositeBBoxes()
+	if err := gg.RecomputeCompositeBBoxes(); err != nil {
+		t.Fatal(err)
+	}
 	// the square's corners map to (0,0), (±70.7, 70.7) and (0, 141.4)
 	checkBBoxes(t, gg, []funit.Rect16{
 		{URx: 100, URy: 100},
@@ -142,26 +154,40 @@ func TestCompositeBBoxRotated(t *testing.T) {
 	})
 }
 
-// TestCompositeBBoxSaturation checks that a transformed box which leaves the
-// int16 range is clamped, corner by corner, while the corners still in range
-// stay exact.
-func TestCompositeBBoxSaturation(t *testing.T) {
+// TestCompositeBBoxRange checks that a box which reaches the limits of the
+// int16 range is accepted, and that a box beyond them gives an error.
+func TestCompositeBBoxRange(t *testing.T) {
 	full := &Glyph{
 		LLx: -32768, LLy: -32768, URx: 32767, URy: 32767,
 		Data: SimpleGlyph{NumContours: 0, Encoded: []byte{0, 0}},
 	}
-	scaled := (&ComponentUnpacked{
-		Child: 0,
-		Trfm:  matrix.Matrix{1.99, 0, 0, 1.99, 32767, -32768},
-	}).Pack()
-	gg := Glyphs{full, compositeOf(scaled)}
-	gg.RecomputeCompositeBBoxes()
-
-	// the stored scale is 32604/16384, so -32768 scales to exactly -65208
+	gg := Glyphs{
+		full,
+		squareGlyph(1000),
+		compositeOf(offsetComponent(0, 0, 0)),
+		compositeOf(offsetComponent(1, 31767, -32768)),
+	}
+	if err := gg.RecomputeCompositeBBoxes(); err != nil {
+		t.Fatal(err)
+	}
 	checkBBoxes(t, gg, []funit.Rect16{
 		{LLx: -32768, LLy: -32768, URx: 32767, URy: 32767},
-		{LLx: -32441, LLy: -32768, URx: 32767, URy: 32439},
+		{URx: 1000, URy: 1000},
+		{LLx: -32768, LLy: -32768, URx: 32767, URy: 32767},
+		{LLx: 31767, LLy: -32768, URx: 32767, URy: -31768},
 	})
+
+	cases := []GlyphComponent{
+		offsetComponent(1, 32000, 0),
+		offsetComponent(0, 0, -1),
+		(&ComponentUnpacked{Child: 1, Trfm: matrix.Matrix{1.99, 0, 0, 1, 31000, 0}}).Pack(),
+	}
+	for i, comp := range cases {
+		gg := Glyphs{full, squareGlyph(1000), compositeOf(comp)}
+		if err := gg.RecomputeCompositeBBoxes(); err == nil {
+			t.Errorf("%d: out-of-range box accepted: %+v", i, gg[2].Rect16)
+		}
+	}
 }
 
 // TestCompositeBBoxTruncatedComponent checks that a component whose data is
@@ -172,7 +198,9 @@ func TestCompositeBBoxTruncatedComponent(t *testing.T) {
 		squareGlyph(100),
 		compositeOf(truncated, offsetComponent(0, 150, 0)),
 	}
-	gg.RecomputeCompositeBBoxes()
+	if err := gg.RecomputeCompositeBBoxes(); err != nil {
+		t.Fatal(err)
+	}
 	checkBBoxes(t, gg, []funit.Rect16{
 		{URx: 100, URy: 100},
 		{LLx: 150, URx: 250, URy: 100},
