@@ -261,9 +261,20 @@ func TestMathWriteMissingVariation(t *testing.T) {
 	}
 }
 
-// withRawMath returns the encoding of f with its "MATH" table replaced by
-// the encoding of info.  This bypasses the checks of [sfnt.Font.Write].
+// withRawMath returns the binary form of f with info as its "MATH" table,
+// written without the checks of [sfnt.Font.Write].
 func withRawMath(t *testing.T, f *sfnt.Font, info *mathtable.Info) []byte {
+	t.Helper()
+	data, err := info.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return withRawTable(t, f, "MATH", data)
+}
+
+// withRawTable returns the binary form of f with the table tag replaced by
+// data, written without the checks of [sfnt.Font.Write].
+func withRawTable(t *testing.T, f *sfnt.Font, tag string, data []byte) []byte {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	if _, err := f.Write(buf); err != nil {
@@ -281,10 +292,7 @@ func withRawMath(t *testing.T, f *sfnt.Font, info *mathtable.Info) []byte {
 			t.Fatal(err)
 		}
 	}
-	tables["MATH"], err = info.Encode()
-	if err != nil {
-		t.Fatal(err)
-	}
+	tables[tag] = data
 	out := &bytes.Buffer{}
 	if _, err := header.Write(out, dir.ScalerType, tables); err != nil {
 		t.Fatal(err)

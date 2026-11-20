@@ -181,3 +181,122 @@ func TestBakeVariationDevicesRange(t *testing.T) {
 		}
 	}
 }
+
+// TestMapDevices checks that MapDevices replaces and removes device tables,
+// keeps the coordinates, keeps shared values shared and leaves the receiver
+// unchanged.
+func TestMapDevices(t *testing.T) {
+	plain := &device.Table{StartSize: 8, EndSize: 8, Deltas: []int8{1}, DeltaFormat: 1}
+	shared := &GposValueRecord{XAdvance: 10, XAdvanceDev: varIdx(5), YPlacement: 3, YPlacementDev: plain}
+	ll := LookupList{
+		{
+			Meta: &LookupMetaInfo{LookupType: 1},
+			Subtables: []Subtable{
+				&Gpos1_2{Cov: coverage.Table{1: 0, 2: 1}, Adjust: []*GposValueRecord{shared, shared}},
+				&Gpos3_1{
+					Cov:     coverage.Table{1: 0},
+					Records: []EntryExitRecord{{Entry: &anchor.Table{X: 7, XDev: varIdx(1)}}},
+				},
+			},
+		},
+	}
+
+	// remove the VariationIndex tables, keep the others
+	got := ll.MapDevices(func(d *device.Table) *device.Table {
+		if d.IsVariationIndex() {
+			return nil
+		}
+		return d
+	})
+
+	adj := got[0].Subtables[0].(*Gpos1_2).Adjust
+	want := &GposValueRecord{XAdvance: 10, YPlacement: 3, YPlacementDev: plain}
+	if diff := cmp.Diff(want, adj[0]); diff != "" {
+		t.Errorf("value record (-want +got):\n%s", diff)
+	}
+	if adj[0] != adj[1] {
+		t.Error("shared value record not shared in the result")
+	}
+	entry := got[0].Subtables[1].(*Gpos3_1).Records[0].Entry
+	if diff := cmp.Diff(&anchor.Table{X: 7}, entry); diff != "" {
+		t.Errorf("anchor (-want +got):\n%s", diff)
+	}
+	if shared.XAdvanceDev == nil {
+		t.Error("receiver modified")
+	}
+}
+
+// TestDevices checks that Devices yields the device tables of value records
+// and anchors, visits shared values once, and stops when asked to.
+func TestDevices(t *testing.T) {
+	devs := make([]*device.Table, 11)
+	for i := range devs {
+		devs[i] = varIdx(uint16(i))
+	}
+	sharedVR := &GposValueRecord{XAdvanceDev: devs[0], YPlacementDev: devs[1]}
+	gridRow := []*anchor.Table{{XDev: devs[2]}, {YDev: devs[3]}}
+	grid := [][]*anchor.Table{gridRow, gridRow}
+	pa := &PairAdjust{First: sharedVR, Second: &GposValueRecord{XAdvanceDev: devs[4]}}
+	marks := []markarray.Record{{XDev: devs[5]}}
+	row := []*PairAdjust{{First: &GposValueRecord{XPlacementDev: devs[7]}}}
+	lookup := func(lookupType uint16, st Subtable) *LookupTable {
+		return &LookupTable{Meta: &LookupMetaInfo{LookupType: lookupType}, Subtables: []Subtable{st}}
+	}
+	ll := LookupList{
+		lookup(1, &Gpos1_2{Cov: coverage.Table{1: 0, 2: 1}, Adjust: []*GposValueRecord{sharedVR, sharedVR}}),
+		lookup(2, &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{
+			{Left: 1, Right: 2}: pa,
+			{Left: 1, Right: 3}: pa,
+		}}),
+		lookup(5, &Gpos5_1{
+			MarkCov:   coverage.Table{3: 0},
+			LigCov:    coverage.Table{4: 0, 5: 1},
+			MarkArray: marks,
+			LigArray:  [][][]*anchor.Table{grid, grid},
+		}),
+		lookup(1, &Gpos1_1{Cov: coverage.Table{1: 0}, Adjust: &GposValueRecord{YAdvanceDev: devs[6]}}),
+		lookup(2, &Gpos2_2{Cov: coverage.Set{1: true, 2: true}, Adjust: [][]*PairAdjust{row, row}}),
+		lookup(3, &Gpos3_1{
+			Cov:     coverage.Table{1: 0},
+			Records: []EntryExitRecord{{Entry: &anchor.Table{XDev: devs[8]}}},
+		}),
+		lookup(4, &Gpos4_1{
+			MarkCov:   coverage.Table{3: 0},
+			BaseCov:   coverage.Table{1: 0},
+			MarkArray: marks,
+			BaseArray: [][]*anchor.Table{{{YDev: devs[9]}}},
+		}),
+		lookup(6, &Gpos6_1{
+			Mark1Cov:   coverage.Table{3: 0},
+			Mark2Cov:   coverage.Table{2: 0},
+			Mark1Array: marks,
+			Mark2Array: [][]*anchor.Table{{{XDev: devs[10]}}},
+		}),
+	}
+	ll = append(ll, ll[0])
+
+	count := map[*device.Table]int{}
+	for d := range ll.Devices() {
+		count[d]++
+	}
+	want := map[*device.Table]int{}
+	for _, d := range devs {
+		want[d] = 1
+	}
+	if diff := cmp.Diff(want, count); diff != "" {
+		t.Errorf("yielded device tables (-want +got):\n%s", diff)
+	}
+
+	for n := 1; n <= len(devs); n++ {
+		i := 0
+		for range ll.Devices() {
+			i++
+			if i == n {
+				break
+			}
+		}
+		if i != n {
+			t.Errorf("stopping after %d tables: got %d", n, i)
+		}
+	}
+}

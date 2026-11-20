@@ -325,3 +325,81 @@ func TestBakeVariationDevicesRange(t *testing.T) {
 		t.Error("out-of-range value accepted")
 	}
 }
+
+// TestValuesShared checks that Values yields the values of a shared kern
+// table or assembly once.
+func TestValuesShared(t *testing.T) {
+	k := &Kern{Kerns: []Value{{V: 7}}}
+	a := &Assembly{ItalicsCorrection: Value{V: 9}}
+	info := &Info{
+		Kerns: map[glyph.ID]*KernInfo{
+			1: {TopRight: k, TopLeft: k},
+			2: {BottomLeft: k},
+		},
+		Vertical:   map[glyph.ID]*Construction{1: {Assembly: a}},
+		Horizontal: map[glyph.ID]*Construction{2: {Assembly: a}},
+	}
+
+	count := map[funit.Int16]int{}
+	for v := range info.Values() {
+		count[v.V]++
+	}
+	if count[7] != 1 || count[9] != 1 {
+		t.Errorf("shared values yielded %d and %d times, want once", count[7], count[9])
+	}
+}
+
+// TestMapDevices checks that MapDevices replaces and removes device tables,
+// keeps the values and shared kern tables, and leaves the receiver
+// unchanged.
+func TestMapDevices(t *testing.T) {
+	plain := &device.Table{StartSize: 8, EndSize: 8, Deltas: []int8{1}, DeltaFormat: 1}
+	vi := &device.Table{DeltaFormat: device.VariationIndexFormat, InnerIndex: 5}
+	k := &Kern{Kerns: []Value{{V: 7, Device: vi}}}
+	info := &Info{
+		ItalicsCorrection: map[glyph.ID]Value{1: {V: 3, Device: plain}},
+		Kerns:             map[glyph.ID]*KernInfo{1: {TopRight: k}, 2: {TopLeft: k}},
+	}
+
+	got := info.MapDevices(func(d *device.Table) *device.Table {
+		if d.IsVariationIndex() {
+			return nil
+		}
+		return d
+	})
+
+	if diff := cmp.Diff(Value{V: 3, Device: plain}, got.ItalicsCorrection[1]); diff != "" {
+		t.Errorf("italics correction (-want +got):\n%s", diff)
+	}
+	gotKern := got.Kerns[1].TopRight
+	if diff := cmp.Diff(&Kern{Kerns: []Value{{V: 7}}}, gotKern); diff != "" {
+		t.Errorf("kern (-want +got):\n%s", diff)
+	}
+	if got.Kerns[2].TopLeft != gotKern {
+		t.Error("shared kern table not shared in the result")
+	}
+	if k.Kerns[0].Device != vi {
+		t.Error("receiver modified")
+	}
+}
+
+// TestDevices checks that Devices yields the device tables of the values
+// and visits a shared kern table once.
+func TestDevices(t *testing.T) {
+	d1 := &device.Table{DeltaFormat: device.VariationIndexFormat, InnerIndex: 1}
+	d2 := &device.Table{DeltaFormat: device.VariationIndexFormat, InnerIndex: 2}
+	k := &Kern{Heights: []Value{{V: 10, Device: d2}}, Kerns: []Value{{V: 7}, {V: 8}}}
+	info := &Info{
+		TopAccent: map[glyph.ID]Value{1: {V: 3, Device: d1}, 2: {V: 4}},
+		Kerns:     map[glyph.ID]*KernInfo{1: {TopRight: k}, 2: {BottomLeft: k}},
+	}
+
+	count := map[*device.Table]int{}
+	for d := range info.Devices() {
+		count[d]++
+	}
+	want := map[*device.Table]int{d1: 1, d2: 1}
+	if diff := cmp.Diff(want, count); diff != "" {
+		t.Errorf("yielded device tables (-want +got):\n%s", diff)
+	}
+}

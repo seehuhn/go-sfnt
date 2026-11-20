@@ -591,7 +591,7 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			}
 		}
 	}
-	info.Math = repairMath(info.Math, info.NumGlyphs(), info.Gdef)
+	info.Math = repairMath(info.Math, info.NumGlyphs())
 
 	// TODO(voss): should we try to read the "morx" table, if there is no
 	// "GSUB" table?
@@ -650,6 +650,7 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			}
 		}
 	}
+	info.dropMissingVariations()
 
 	// Variation tables.  fvar is the gate: without it (or with no axes) the
 	// font is not variable and the remaining tables are skipped.  Each table

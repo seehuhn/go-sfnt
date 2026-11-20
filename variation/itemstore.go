@@ -15,6 +15,11 @@ import (
 // the rest 8-bit.
 const longWordsFlag = 0x8000
 
+// NoVariationIndex, used as both the outer and the inner index, is the
+// delta-set index which refers to no variation data.  It is equivalent to a
+// row of zero deltas, and needs no row in the store.
+const NoVariationIndex = 0xFFFF
+
 // ItemVariationStore holds a shared set of variation regions together
 // with the delta values that apply within them.  It is the common delta
 // container used by the HVAR, MVAR, GDEF and CFF2 tables.
@@ -277,8 +282,9 @@ func checkCount(p *parser.Parser, count, elemSize int) error {
 
 // Evaluate returns the interpolated delta for the given outer and inner
 // index at the normalized axis coordinates coords.  The result is a raw
-// floating-point value; callers apply any required rounding.  An
-// out-of-range outer or inner index yields 0.
+// floating-point value; callers apply any required rounding.  An index
+// without a row in the store, such as [NoVariationIndex] for both parts,
+// yields 0.
 func (s *ItemVariationStore) Evaluate(outer, inner uint16, coords []F2Dot14) float64 {
 	if int(outer) >= len(s.Data) {
 		return 0

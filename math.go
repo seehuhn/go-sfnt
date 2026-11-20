@@ -4,54 +4,19 @@
 package sfnt
 
 import (
-	"fmt"
-
 	"seehuhn.de/go/sfnt/glyph"
-	"seehuhn.de/go/sfnt/opentype/device"
-	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/mathtable"
 )
 
 // repairMath removes the parts of a "MATH" table read from a file which
-// refer to glyphs beyond numGlyphs.  VariationIndex tables which refer to
-// rows missing from the GDEF item variation store are dropped.
-func repairMath(info *mathtable.Info, numGlyphs int, gdefTable *gdef.Table) *mathtable.Info {
+// refer to glyphs beyond numGlyphs.
+func repairMath(info *mathtable.Info, numGlyphs int) *mathtable.Info {
 	if info == nil {
 		return nil
 	}
-	info = info.MapGlyphs(func(gid glyph.ID) (glyph.ID, bool) {
+	return info.MapGlyphs(func(gid glyph.ID) (glyph.ID, bool) {
 		return gid, int(gid) < numGlyphs
 	})
-	return info.MapValues(func(v mathtable.Value) mathtable.Value {
-		if v.Device != nil && v.Device.IsVariationIndex() && !hasVariationRow(gdefTable, v.Device) {
-			v.Device = nil
-		}
-		return v
-	})
-}
-
-// checkMathVariations returns an error if a VariationIndex table in info
-// refers to a row missing from the GDEF item variation store.
-func checkMathVariations(info *mathtable.Info, gdefTable *gdef.Table) error {
-	for v := range info.Values() {
-		d := v.Device
-		if d != nil && d.IsVariationIndex() && !hasVariationRow(gdefTable, d) {
-			return fmt.Errorf("sfnt: MATH refers to missing variation data (%d, %d)",
-				d.OuterIndex, d.InnerIndex)
-		}
-	}
-	return nil
-}
-
-// hasVariationRow reports whether the GDEF item variation store contains
-// the row selected by the VariationIndex table d.
-func hasVariationRow(gdefTable *gdef.Table, d *device.Table) bool {
-	if gdefTable == nil || gdefTable.ItemVarStore == nil {
-		return false
-	}
-	data := gdefTable.ItemVarStore.Data
-	outer, inner := int(d.OuterIndex), int(d.InnerIndex)
-	return outer < len(data) && inner < len(data[outer].Deltas)
 }
 
 // closeMath adds the size variants and assembly parts of the glyphs in the

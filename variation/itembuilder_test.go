@@ -198,38 +198,75 @@ func TestStoreBuilderRandom(t *testing.T) {
 // the builder unchanged.
 func TestStoreBuilderTooManySubtables(t *testing.T) {
 	const nRegions = 16
-	regions := make([]Region, nRegions+1)
+	regions := make([]Region, nRegions+2)
 	for i := range regions {
 		regions[i] = Region{{Start: 0, Peak: F2Dot14FromFloat(float64(i+1) / 32), End: F2Dot14FromFloat(1)}}
 	}
-
-	// every subset of the first 16 regions gives a separate subtable;
-	// together with the empty row this is one more than fits
+	// every non-empty subset of the first 16 regions except {regions[0]}
+	// gives a separate subtable; {regions[0], regions[16]} fills the store
 	b := NewStoreBuilder()
-	for set := range 1 << nRegions {
+	ones := func(n int) []int32 {
+		dd := make([]int32, n)
+		for i := range dd {
+			dd[i] = 1
+		}
+		return dd
+	}
+	for set := 2; set < 1<<nRegions; set++ {
 		var rr []Region
-		var dd []int32
 		for i := range nRegions {
 			if set&(1<<i) != 0 {
 				rr = append(rr, regions[i])
-				dd = append(dd, 1)
 			}
 		}
-		_, _, err := b.Add(rr, dd)
-		if set < 0xFFFF && err != nil {
+		if _, _, err := b.Add(rr, ones(len(rr))); err != nil {
 			t.Fatalf("subtable %d: %v", set, err)
 		}
-		if set == 0xFFFF && err == nil {
-			t.Fatal("too many subtables accepted")
-		}
+	}
+	last := []Region{regions[0], regions[nRegions]}
+	if _, _, err := b.Add(last, ones(2)); err != nil {
+		t.Fatalf("last subtable: %v", err)
 	}
 	before := b.Build()
 
-	if _, _, err := b.Add(regions[nRegions:], []int32{1}); err == nil {
-		t.Fatal("too many subtables accepted for a new region")
+	for _, rr := range [][]Region{
+		regions[:1],          // known region, new region set
+		regions[nRegions+1:], // new region
+	} {
+		if _, _, err := b.Add(rr, ones(1)); err == nil {
+			t.Fatal("too many subtables accepted")
+		}
+		if diff := cmp.Diff(before, b.Build()); diff != "" {
+			t.Errorf("failed Add changed the builder (-want +got):\n%s", diff)
+		}
+	}
+}
+
+// TestStoreBuilderZeroRow checks that a row without non-zero deltas is
+// given the index of no variation data and adds nothing to the store.
+func TestStoreBuilderZeroRow(t *testing.T) {
+	rs := testRegions()
+	b := NewStoreBuilder()
+	if _, _, err := b.Add([]Region{rs[0]}, []int32{5}); err != nil {
+		t.Fatal(err)
+	}
+	before := b.Build()
+
+	for _, row := range []testRow{
+		{regions: nil, deltas: nil},
+		{regions: []Region{rs[1]}, deltas: []int32{0}},
+		{regions: []Region{rs[2], rs[2]}, deltas: []int32{3, -3}},
+	} {
+		outer, inner, err := b.Add(row.regions, row.deltas)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if outer != NoVariationIndex || inner != NoVariationIndex {
+			t.Errorf("zero row %v at (%d, %d), want no variation index", row.deltas, outer, inner)
+		}
 	}
 	if diff := cmp.Diff(before, b.Build()); diff != "" {
-		t.Errorf("failed Add changed the builder (-want +got):\n%s", diff)
+		t.Errorf("zero rows changed the store (-want +got):\n%s", diff)
 	}
 }
 

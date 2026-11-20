@@ -124,6 +124,9 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 
 	tableData["head"] = f.makeHead(locaFormat)
 
+	if err := f.checkVariations(); err != nil {
+		return 0, err
+	}
 	if f.Gdef != nil {
 		tableData["GDEF"], err = f.Gdef.Encode()
 		if err != nil {
@@ -131,9 +134,6 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 		}
 	}
 	if f.Math != nil {
-		if err := checkMathVariations(f.Math, f.Gdef); err != nil {
-			return 0, err
-		}
 		tableData["MATH"], err = f.Math.Encode()
 		if err != nil {
 			return 0, err

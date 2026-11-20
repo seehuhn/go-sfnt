@@ -48,14 +48,11 @@ func NewStoreBuilder() *StoreBuilder {
 // [StoreBuilder.Build].  The delta deltas[i] applies within regions[i].
 //
 // If a region appears more than once in regions, the corresponding deltas
-// are summed.  Regions with a zero delta are not stored.  A row without any
-// non-zero delta is valid; it is placed in a subtable without region
-// columns.  Adding a row equal to an earlier one returns the earlier
+// are summed.  Regions with a zero delta are not stored.  For a row without
+// any non-zero delta, Add returns [NoVariationIndex] for both indices and
+// stores nothing.  Adding a row equal to an earlier one returns the earlier
 // indices.  Indices returned by Add remain valid after later calls to Add
 // and Build.
-//
-// An all-zero row needs no device table or VariationIndex at all: the
-// store's reader drops the rows of subtables without region columns.
 //
 // An error is returned if the summed delta of a region does not fit into an
 // int32, or if the store would need more than 0xFFFF regions or more than
@@ -84,6 +81,9 @@ func (b *StoreBuilder) Add(regions []Region, deltas []int32) (outer, inner uint1
 		}
 	}
 	entries = slices.DeleteFunc(entries, func(e entry) bool { return e.delta == 0 })
+	if len(entries) == 0 {
+		return NoVariationIndex, NoVariationIndex, nil
+	}
 
 	newRegions := 0
 	for _, e := range entries {

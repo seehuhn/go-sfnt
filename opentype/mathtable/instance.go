@@ -10,6 +10,7 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/internal/vardelta"
 	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/device"
 )
 
 // BakeVariationDevices returns a copy of info in which every value with a
@@ -51,7 +52,7 @@ func (info *Info) BakeVariationDevices(resolve func(outer, inner uint16) int64) 
 // The receiver is not modified.  Kern tables, glyph constructions and
 // assemblies which are shared in info are shared in the result.
 func (info *Info) MapValues(fn func(Value) Value) *Info {
-	b := &baker{
+	b := &mapper{
 		fn:            fn,
 		kerns:         map[*Kern]*Kern{},
 		assemblies:    map[*Assembly]*Assembly{},
@@ -83,8 +84,9 @@ func (info *Info) MapValues(fn func(Value) Value) *Info {
 
 // Values yields every Value in info: the constants, italics corrections,
 // top accent attachments, kern heights and kerns, and the italics
-// corrections of assemblies, in no particular order.  A value in a shared
-// table is yielded once for each reference to the table.
+// corrections of assemblies, in no particular order.  The values of a kern
+// table or assembly which is shared within info are yielded once, so that
+// the work done is proportional to the memory used by info.
 func (info *Info) Values() iter.Seq[Value] {
 	return func(yield func(Value) bool) {
 		for _, v := range info.Constants.values() {
@@ -99,11 +101,13 @@ func (info *Info) Values() iter.Seq[Value] {
 				}
 			}
 		}
+		seenKerns := map[*Kern]bool{}
 		for _, ki := range info.Kerns {
 			for _, k := range ki.corners() {
-				if k == nil {
+				if k == nil || seenKerns[k] {
 					continue
 				}
+				seenKerns[k] = true
 				for _, vv := range [...][]Value{k.Heights, k.Kerns} {
 					for _, v := range vv {
 						if !yield(v) {
@@ -113,9 +117,15 @@ func (info *Info) Values() iter.Seq[Value] {
 				}
 			}
 		}
+		seenAssemblies := map[*Assembly]bool{}
 		for _, m := range [...]map[glyph.ID]*Construction{info.Vertical, info.Horizontal} {
 			for _, c := range m {
-				if c.Assembly != nil && !yield(c.Assembly.ItalicsCorrection) {
+				a := c.Assembly
+				if a == nil || seenAssemblies[a] {
+					continue
+				}
+				seenAssemblies[a] = true
+				if !yield(a.ItalicsCorrection) {
 					return
 				}
 			}
@@ -123,14 +133,44 @@ func (info *Info) Values() iter.Seq[Value] {
 	}
 }
 
-type baker struct {
+// MapDevices returns a copy of info in which the device table t of every
+// Value has been replaced by fn(t).  fn is called only for device tables
+// which are present.  If fn returns nil, the device table is removed and
+// the value is kept.
+//
+// The receiver is not modified.  Kern tables, glyph constructions and
+// assemblies which are shared in info are shared in the result.
+func (info *Info) MapDevices(fn func(*device.Table) *device.Table) *Info {
+	return info.MapValues(func(v Value) Value {
+		if v.Device != nil {
+			v.Device = fn(v.Device)
+		}
+		return v
+	})
+}
+
+// Devices yields the device tables of the values in info, in no particular
+// order.  The device tables of a kern table or assembly which is shared
+// within info are yielded once, so that the work done is proportional to
+// the memory used by info.
+func (info *Info) Devices() iter.Seq[*device.Table] {
+	return func(yield func(*device.Table) bool) {
+		for v := range info.Values() {
+			if v.Device != nil && !yield(v.Device) {
+				return
+			}
+		}
+	}
+}
+
+type mapper struct {
 	fn            func(Value) Value
 	kerns         map[*Kern]*Kern
 	assemblies    map[*Assembly]*Assembly
 	constructions map[*Construction]*Construction
 }
 
-func (b *baker) values(vv []Value) []Value {
+func (b *mapper) values(vv []Value) []Value {
 	if vv == nil {
 		return nil
 	}
@@ -141,7 +181,7 @@ func (b *baker) values(vv []Value) []Value {
 	return res
 }
 
-func (b *baker) valueMap(m map[glyph.ID]Value) map[glyph.ID]Value {
+func (b *mapper) valueMap(m map[glyph.ID]Value) map[glyph.ID]Value {
 	if m == nil {
 		return nil
 	}
@@ -152,7 +192,7 @@ func (b *baker) valueMap(m map[glyph.ID]Value) map[glyph.ID]Value {
 	return res
 }
 
-func (b *baker) kern(k *Kern) *Kern {
+func (b *mapper) kern(k *Kern) *Kern {
 	if k == nil {
 		return nil
 	}
@@ -178,7 +218,7 @@ func heightsSorted(heights []Value) bool {
 	return true
 }
 
-func (b *baker) assembly(a *Assembly) *Assembly {
+func (b *mapper) assembly(a *Assembly) *Assembly {
 	if a == nil {
 		return nil
 	}
@@ -190,7 +230,7 @@ func (b *baker) assembly(a *Assembly) *Assembly {
 	return res
 }
 
-func (b *baker) constructionMap(m map[glyph.ID]*Construction) map[glyph.ID]*Construction {
+func (b *mapper) constructionMap(m map[glyph.ID]*Construction) map[glyph.ID]*Construction {
 	if m == nil {
 		return nil
 	}
