@@ -130,6 +130,15 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 			return 0, err
 		}
 	}
+	if f.Math != nil {
+		if err := checkMathVariations(f.Math, f.Gdef); err != nil {
+			return 0, err
+		}
+		tableData["MATH"], err = f.Math.Encode()
+		if err != nil {
+			return 0, err
+		}
+	}
 	if f.Gsub != nil {
 		tableData["GSUB"], err = f.Gsub.Encode()
 		if err != nil {
@@ -208,8 +217,8 @@ func (f *Font) assignVariationNameIDs() (*fvar.Table, *stat.Table, map[name.ID]s
 // loca, maxp, glyf, and cmap when present), any tables in
 // outlines.Tables (typically cvt, fpgm, prep, gasp), a "post" table
 // when outlines.Names is non-nil, and a minimal "name" table holding the
-// font's PostScript name.  The "OS/2", "GSUB", "GPOS", "GDEF", and "kern"
-// tables are omitted, as they are not required for PDF embedding.
+// font's PostScript name.  All other tables are omitted, as PDF embedding
+// does not require them.
 //
 // If the font does not use TrueType outlines, the function returns an error.
 //

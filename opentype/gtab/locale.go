@@ -272,7 +272,7 @@ var scriptBcp47 = map[otfScript]string{
 	"mani": "Mani", // Manichaean
 	"marc": "Marc", // Marchen
 	"gonm": "Gonm", // Masaram Gondi
-	// "math": "Math", // Mathematical Alphanumeric Symbols
+	"math": "Zmth", // Mathematical notation
 	"medf": "Medf", // Medefaidrin
 	"mtei": "Mtei", // Meitei Mayek
 	"mend": "Mend", // Mende Kikakui

@@ -27,7 +27,8 @@ var ErrVariableFont = errors.New("sfnt: cannot subset variable font; call Instan
 // Subset returns a subset of the font containing the given
 // glyphs at the first positions.  More glyphs are included in the
 // subset where GSUB lookups can produce them from the given glyphs,
-// and where composite glyphs use them as components.
+// where composite glyphs use them as components, and where the "MATH"
+// table uses them as size variants or assembly parts of the given glyphs.
 //
 // The slice glyphs must start with glyph ID 0 to represent the notdef glyph.
 //
@@ -76,14 +77,15 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 		}
 	}
 
-	// GSUB outputs may be composite glyphs, so alternate the two closures
-	// until the glyph list is complete.  All tables below are built from
-	// the complete list, so that composite components keep their GDEF
-	// and GPOS data.
+	// GSUB outputs and MATH variants may be composite glyphs, so alternate
+	// the closures until the glyph list is complete.  All tables below are
+	// built from the complete list, so that composite components keep their
+	// GDEF, GPOS and MATH data.
 	glyfOutlines, _ := f.Outlines.(*glyf.Outlines)
 	for {
 		n := len(s.glyphs)
 		s.closeGsub(f.Gsub)
+		s.closeMath(f.Math)
 		if glyfOutlines != nil {
 			s.closeGlyf(glyfOutlines)
 		}
@@ -95,6 +97,7 @@ func (f *Font) Subset(glyphs []glyph.ID) (*Font, error) {
 	res.Gsub = s.SubsetGsub(f.Gsub)
 	res.Gpos = s.SubsetGpos(f.Gpos)
 	res.Gdef = s.SubsetGdef(f.Gdef)
+	res.Math = s.SubsetMath(f.Math)
 
 	switch outlines := f.Outlines.(type) {
 	case *cff.Outlines:

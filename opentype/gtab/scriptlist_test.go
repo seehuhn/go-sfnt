@@ -401,3 +401,41 @@ func TestScriptListRepairScripts(t *testing.T) {
 		t.Errorf("round trip failed (-want +got):\n%s", diff)
 	}
 }
+
+// TestScriptListMath checks that language systems under the "math" script
+// are read and written.
+func TestScriptListMath(t *testing.T) {
+	data := []byte{
+		0, 1, // scriptCount
+		'm', 'a', 't', 'h', 0, 8, // script record
+		0, 4, 0, 0, // Script table: default LangSys at offset 4, no others
+		0, 0, 0xFF, 0xFF, 0, 1, 0, 7, // LangSys: one feature, index 7
+	}
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	info, err := readScriptList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ScriptListInfo{
+		language.MustParse("und-Zmth-x-math"): &Features{
+			Required: 0xFFFF,
+			Optional: []FeatureIndex{7},
+		},
+	}
+	if diff := cmp.Diff(want, info); diff != "" {
+		t.Fatalf("read failed (-want +got):\n%s", diff)
+	}
+
+	enc := encodeList(t, info)
+	p = parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
+	info2, err := readScriptList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(info, info2); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+	if !bytes.Contains(enc, []byte("math")) {
+		t.Error("encoded script list lacks the math script tag")
+	}
+}

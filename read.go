@@ -42,6 +42,7 @@ import (
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
+	"seehuhn.de/go/sfnt/opentype/mathtable"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/post"
@@ -579,6 +580,18 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			}
 		}
 	}
+
+	if dir.Has("MATH") {
+		mathFd, err := dir.TableReader(rr, "MATH")
+		if err == nil {
+			info.Math, err = mathtable.Read(mathFd, budget)
+			if err != nil {
+				// skip malformed MATH table
+				info.Math = nil
+			}
+		}
+	}
+	info.Math = repairMath(info.Math, info.NumGlyphs(), info.Gdef)
 
 	// TODO(voss): should we try to read the "morx" table, if there is no
 	// "GSUB" table?

@@ -36,11 +36,11 @@ var ErrNotVariable = errors.New("sfnt: font is not variable")
 // keep their default value, and an unknown tag causes an error.
 //
 // The receiver is left unmodified.  The returned font carries no variation
-// tables: the glyph outlines, advance widths, "cvt " values, font-wide metrics
-// and GPOS/GDEF device adjustments are all resolved to the pinned instance, and
-// its PostScript name follows Adobe Technical Note #5902.  The vertical
-// metrics in [Font.Vertical], if any, are carried over unchanged from the
-// default instance.
+// tables: the glyph outlines, advance widths, "cvt " values, font-wide
+// metrics and GPOS/GDEF/MATH device adjustments are all resolved to the
+// pinned instance, and its PostScript name follows Adobe Technical Note
+// #5902.  The vertical metrics in [Font.Vertical], if any, are carried over
+// unchanged from the default instance.
 func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 	// step 1: guards
 	if !f.IsVariable() {
@@ -135,6 +135,9 @@ func (f *Font) Instantiate(coords map[string]float64) (*Font, error) {
 		g := f.Gdef.BakeVariationDevices(resolve)
 		g.ItemVarStore = nil
 		out.Gdef = g
+	}
+	if f.Math != nil {
+		out.Math = f.Math.BakeVariationDevices(resolve)
 	}
 
 	// step 11: drop the variation tables

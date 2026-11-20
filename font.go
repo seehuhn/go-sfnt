@@ -28,6 +28,7 @@ import (
 	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
+	"seehuhn.de/go/sfnt/opentype/mathtable"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/stat"
 )
@@ -222,6 +223,10 @@ type Font struct {
 	Gdef *gdef.Table
 	Gsub *gtab.Info
 	Gpos *gtab.Info
+
+	// Math (optional) holds the data for typesetting mathematical formulas,
+	// from the "MATH" table.
+	Math *mathtable.Info
 
 	Fvar *fvar.Table
 	Avar *avar.Table

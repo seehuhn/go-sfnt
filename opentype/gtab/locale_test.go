@@ -32,6 +32,7 @@ func TestOtfToBCP(t *testing.T) {
 		{"cyrl", "SRB "},
 		{"cyrl", "RUS "},
 		{"hani", "ZHT "},
+		{"math", ""},
 	}
 	for _, test := range cases {
 		tag, err := otfToBCP47(test.script, test.lang)
@@ -58,6 +59,7 @@ func TestBcpToOtf(t *testing.T) {
 	}{
 		{language.MustParse("und-Zzzz"), "DFLT", ""},
 		{language.MustParse("und-Latn"), "latn", ""},
+		{language.MustParse("und-Zmth"), "math", ""},
 
 		{language.English, "latn", "ENG "},
 		{language.AmericanEnglish, "latn", "ENG "},
