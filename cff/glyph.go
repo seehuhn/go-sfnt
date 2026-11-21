@@ -100,10 +100,9 @@ func (g *Glyph) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
 }
 
 // Extent computes the Glyph extent in font design units, as the bounding box
-// of the outline.  Bézier control points are included, so the box always
-// contains the glyph.
+// of the outline, rounded outwards to integers.
 func (g *Glyph) Extent() funit.Rect16 {
-	bbox := g.Path().BBox()
+	bbox, _ := g.Path().TightBBox()
 	return funit.Rect16{
 		LLx: funit.Int16(math.Floor(bbox.LLx)),
 		LLy: funit.Int16(math.Floor(bbox.LLy)),

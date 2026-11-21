@@ -148,12 +148,14 @@ func convertGlyph(dst *Glyph, src *type1.Glyph) {
 	}
 
 	// CFF charstrings close sub-paths implicitly, so no command is written for
-	// path.CmdClose.  Closing a sub-path returns the current point to the start
-	// of the sub-path, so drawing commands which follow without an intervening
-	// move need an explicit move to that point.
+	// path.CmdClose.  Every CFF sub-path begins with a move, so a drawing
+	// command needs an explicit move to the current point where it starts a
+	// sub-path: at the start of the outline, where the current point is the
+	// origin, and after a close, which returns the current point to the start
+	// of the closed sub-path.
 	var start vec.Vec2
-	needMoveTo := false
-	for cmd, pts := range src.Path().ToCubic() {
+	needMoveTo := true
+	for cmd, pts := range src.Path() {
 		if needMoveTo && cmd != path.CmdMoveTo && cmd != path.CmdClose {
 			dst.MoveTo(start.X, start.Y)
 			needMoveTo = false

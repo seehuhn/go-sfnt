@@ -8,14 +8,15 @@ import (
 	"testing"
 
 	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/path"
 	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/funit"
 )
 
 func TestGlyphExtentCurve(t *testing.T) {
 	// A cubic curve from (0,0) to (300,0) whose control points sit at y=200:
-	// the extent must include the curve, which bulges well above the
-	// endpoints.  The endpoint-only computation would report URy=0.
+	// the curve bulges above its endpoints, to y=150 at t=1/2, but stays
+	// below its control points.
 	g := &Glyph{
 		Name: "curve",
 		Cmds: []GlyphOp{
@@ -25,7 +26,7 @@ func TestGlyphExtentCurve(t *testing.T) {
 	}
 
 	got := g.Extent()
-	want := funit.Rect16{LLx: 0, LLy: 0, URx: 300, URy: 200}
+	want := funit.Rect16{LLx: 0, LLy: 0, URx: 300, URy: 150}
 	if got != want {
 		t.Errorf("Extent() = %v, want %v", got, want)
 	}
@@ -35,6 +36,31 @@ func TestGlyphExtentCurve(t *testing.T) {
 	o := &Outlines{Glyphs: []*Glyph{g}}
 	if bbox := rectToFunit(o.GlyphBBox(matrix.Identity, 0)); bbox != got {
 		t.Errorf("Extent() = %v, but GlyphBBox(identity) rounds to %v", got, bbox)
+	}
+}
+
+// TestGlyphMoveOnly checks that a glyph whose outline consists of moves,
+// such as a space glyph which only moves the current point, draws nothing.
+func TestGlyphMoveOnly(t *testing.T) {
+	g := &Glyph{
+		Name: "space",
+		Cmds: []GlyphOp{
+			{Op: OpMoveTo, Args: []float64{100, 100}},
+			{Op: OpMoveTo, Args: []float64{200, -50}},
+		},
+	}
+
+	for cmd := range g.Path() {
+		if cmd != path.CmdMoveTo {
+			t.Errorf("path contains %v", cmd)
+		}
+	}
+	if got := g.Extent(); got != (funit.Rect16{}) {
+		t.Errorf("Extent() = %v, want zero rectangle", got)
+	}
+	o := &Outlines{Glyphs: []*Glyph{g}}
+	if got := o.GlyphBBox(matrix.Identity, 0); !got.IsZero() {
+		t.Errorf("GlyphBBox() = %v, want zero rectangle", got)
 	}
 }
 

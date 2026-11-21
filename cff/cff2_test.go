@@ -113,6 +113,22 @@ func TestPathMatchesCFF1(t *testing.T) {
 	}
 }
 
+// TestGlyphCFF2MoveOnly checks that a glyph whose outline consists of a
+// move draws nothing.
+func TestGlyphCFF2MoveOnly(t *testing.T) {
+	g := &GlyphCFF2{Cmds: []GlyphOpCFF2{{Op: OpMoveTo, Args: blendArgs(100, 100)}}}
+
+	for cmd := range g.Path() {
+		if cmd != path.CmdMoveTo {
+			t.Errorf("path contains %v", cmd)
+		}
+	}
+	o := &OutlinesCFF2{Glyphs: []*GlyphCFF2{g}}
+	if got := o.GlyphBBox(matrix.Identity, 0); !got.IsZero() {
+		t.Errorf("GlyphBBox() = %v, want zero rectangle", got)
+	}
+}
+
 // TestGlyphBBoxIgnoresDeltas checks the default-instance bbox depends only on
 // the Default values.
 func TestGlyphBBoxIgnoresDeltas(t *testing.T) {

@@ -128,7 +128,7 @@ func (o *OutlinesCFF2) Path(gid glyph.ID) path.Path {
 func (g *GlyphCFF2) Path() path.Path {
 	return func(yield func(path.Command, []vec.Vec2) bool) {
 		var buf [3]vec.Vec2
-		hasSubpath := false // track whether we have an open subpath
+		hasSubpath := false // a drawing command has opened a sub-path
 
 		for _, cmd := range g.Cmds {
 			switch cmd.Op {
@@ -144,7 +144,7 @@ func (g *GlyphCFF2) Path() path.Path {
 					if !yield(path.CmdMoveTo, buf[:1]) {
 						return
 					}
-					hasSubpath = true
+					hasSubpath = false
 				}
 			case OpLineTo:
 				if len(cmd.Args) >= 2 {
@@ -152,6 +152,7 @@ func (g *GlyphCFF2) Path() path.Path {
 					if !yield(path.CmdLineTo, buf[:1]) {
 						return
 					}
+					hasSubpath = true
 				}
 			case OpCurveTo:
 				if len(cmd.Args) >= 6 {
@@ -161,6 +162,7 @@ func (g *GlyphCFF2) Path() path.Path {
 					if !yield(path.CmdCubeTo, buf[:3]) {
 						return
 					}
+					hasSubpath = true
 				}
 			}
 		}
@@ -180,7 +182,8 @@ func (g *GlyphCFF2) Path() path.Path {
 //
 // For a glyph which draws nothing, the zero rectangle is returned.
 func (o *OutlinesCFF2) GlyphBBox(M matrix.Matrix, gid glyph.ID) rect.Rect {
-	return o.Path(gid).Transform([6]float64(M)).BBox()
+	bbox, _ := o.Path(gid).Transform([6]float64(M)).TightBBox()
+	return bbox
 }
 
 // GlyphBBoxPDF computes the bounding box of the default-instance glyph in PDF

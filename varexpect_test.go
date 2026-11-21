@@ -265,13 +265,14 @@ func checkVarExpectGlyphCFF(t *testing.T, outlines *cff.Outlines, gid glyph.ID, 
 		t.Errorf("advance width = %d, want %d", got, want.AdvanceWidth)
 	}
 
+	segments := withoutClosedMoves(want.Segments)
 	i := 0
 	for cmd, points := range outlines.Path(gid) {
-		if i >= len(want.Segments) {
+		if i >= len(segments) {
 			t.Errorf("segment %d is %s, want the outline to end here", i, varExpectOpName(cmd))
 			return
 		}
-		w := want.Segments[i]
+		w := segments[i]
 		if got := varExpectOpName(cmd); got != w.Op {
 			t.Errorf("segment %d = %s, want %s", i, got, w.Op)
 			return
@@ -290,9 +291,24 @@ func checkVarExpectGlyphCFF(t *testing.T, outlines *cff.Outlines, gid glyph.ID, 
 		}
 		i++
 	}
-	if i != len(want.Segments) {
-		t.Errorf("outline has %d segments, want %d", i, len(want.Segments))
+	if i != len(segments) {
+		t.Errorf("outline has %d segments, want %d", i, len(segments))
 	}
+}
+
+// withoutClosedMoves drops each closePath which directly follows a moveTo.
+// The fontTools pen closes every sub-path, even one which consists of a move
+// alone, whereas the Go outline leaves such a move open, since it starts no
+// segment and draws nothing.
+func withoutClosedMoves(segments []varExpectSegment) []varExpectSegment {
+	var res []varExpectSegment
+	for i, s := range segments {
+		if s.Op == "closePath" && i > 0 && segments[i-1].Op == "moveTo" {
+			continue
+		}
+		res = append(res, s)
+	}
+	return res
 }
 
 func checkVarExpectGlyph(t *testing.T, outlines *glyf.Outlines, gid glyph.ID, want varExpectGlyph) {
