@@ -188,11 +188,11 @@ func alloc[T any](b *membudget.Budget) (*T, error) {
 
 // readCoverage reads the coverage table at pos+off.  A missing or damaged
 // table is reported as nil.
-func (rd *reader) readCoverage(pos int64, off uint16) (coverage.Table, error) {
+func (rd *reader) readCoverage(pos int64, off uint16) (*coverage.Listing, error) {
 	if off == 0 {
 		return nil, nil
 	}
-	cov, err := coverage.Read(rd.p, pos+int64(off))
+	cov, err := coverage.ReadListing(rd.p, pos+int64(off))
 	if err != nil {
 		return nil, soft(err)
 	}
@@ -200,9 +200,13 @@ func (rd *reader) readCoverage(pos int64, off uint16) (coverage.Table, error) {
 }
 
 // fit returns the number of records, out of count records of the given size
-// starting at pos, which have a coverage entry and lie inside the data.
-func (rd *reader) fit(count, covLen int, pos int64, recSize int) int {
-	return max(min(count, covLen, int((rd.size-pos)/int64(recSize))), 0)
+// starting at pos, which the coverage table can refer to and which lie
+// inside the data.  The coverage table can be nil.
+func (rd *reader) fit(count int, cov *coverage.Listing, pos int64, recSize int) int {
+	if cov == nil {
+		return 0
+	}
+	return max(min(count, cov.DataLen(), int((rd.size-pos)/int64(recSize))), 0)
 }
 
 func (rd *reader) glyphInfo(info *Info, pos int64) error {
@@ -268,7 +272,7 @@ func (rd *reader) valueMap(pos int64) (map[glyph.ID]Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	n := rd.fit(count, len(cov), pos+4, 4)
+	n := rd.fit(count, cov, pos+4, 4)
 	if n == 0 {
 		return nil, nil
 	}
@@ -276,7 +280,7 @@ func (rd *reader) valueMap(pos int64) (map[glyph.ID]Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	for gid, idx := range cov {
+	for gid, idx := range cov.All() {
 		if idx >= n {
 			continue
 		}
@@ -311,7 +315,7 @@ func (rd *reader) kernInfo(pos int64) (map[glyph.ID]*KernInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	n := rd.fit(count, len(cov), pos+4, 8)
+	n := rd.fit(count, cov, pos+4, 8)
 	if n == 0 {
 		return nil, nil
 	}
@@ -319,7 +323,7 @@ func (rd *reader) kernInfo(pos int64) (map[glyph.ID]*KernInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	for gid, idx := range cov {
+	for gid, idx := range cov.All() {
 		if idx >= n {
 			continue
 		}
@@ -444,7 +448,7 @@ func (rd *reader) constructionMap(pos int64, covOff uint16, count int, arr int64
 	if err != nil {
 		return nil, err
 	}
-	n := rd.fit(count, len(cov), arr, 2)
+	n := rd.fit(count, cov, arr, 2)
 	if n == 0 {
 		return nil, nil
 	}
@@ -452,7 +456,7 @@ func (rd *reader) constructionMap(pos int64, covOff uint16, count int, arr int64
 	if err != nil {
 		return nil, err
 	}
-	for gid, idx := range cov {
+	for gid, idx := range cov.All() {
 		if idx >= n {
 			continue
 		}

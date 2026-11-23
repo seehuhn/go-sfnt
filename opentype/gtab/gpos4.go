@@ -41,24 +41,20 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	markArrayOffset := int64(buf[6])<<8 | int64(buf[7])
 	baseArrayOffset := int64(buf[8])<<8 | int64(buf[9])
 
-	markCov, err := coverage.Read(p, subtablePos+markCoverageOffset)
+	markListing, err := coverage.ReadListing(p, subtablePos+markCoverageOffset)
 	if err != nil {
 		return nil, err
 	}
-	baseCov, err := coverage.Read(p, subtablePos+baseCoverageOffset)
+	baseListing, err := coverage.ReadListing(p, subtablePos+baseCoverageOffset)
 	if err != nil {
 		return nil, err
 	}
 
-	markArray, err := markarray.Read(p, anchors, subtablePos+markArrayOffset, len(markCov))
+	markArray, err := markarray.Read(p, anchors, subtablePos+markArrayOffset, markListing.DataLen())
 	if err != nil {
 		return nil, err
 	}
-	if len(markCov) > len(markArray) {
-		markCov.Prune(len(markArray))
-	} else {
-		markArray = markArray[:len(markCov)]
-	}
+	markCov, markArray := coverage.Align(markListing, markArray)
 	for _, rec := range markArray {
 		if int(rec.Class) >= markClassCount {
 			return nil, &parser.InvalidFontError{
@@ -78,11 +74,7 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
-	if int(baseCount) > len(baseCov) {
-		baseCount = uint16(len(baseCov))
-	} else {
-		baseCov.Prune(int(baseCount))
-	}
+	baseCount = uint16(min(int(baseCount), baseListing.DataLen()))
 	numOffsets := uint(baseCount) * uint(markClassCount)
 	if numOffsets > (65536-6-2)/2 {
 		// Offsets are 16-bit from baseArrayPos, and there must still be
@@ -125,6 +117,7 @@ func readGpos4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		baseArray[i] = row
 		offsets = offsets[markClassCount:]
 	}
+	baseCov, baseArray := coverage.Align(baseListing, baseArray)
 
 	return &Gpos4_1{
 		MarkCov:   markCov,
@@ -208,6 +201,12 @@ func (l *Gpos4_1) countMarkClasses() int {
 // layout implements the [Subtable] interface.  The mark and base coverage
 // tables are stored once if they are identical.
 func (l *Gpos4_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gpos4_1", l.MarkCov, len(l.MarkArray)); err != nil {
+		return nil, err
+	}
+	if err := checkCoverage("Gpos4_1", l.BaseCov, len(l.BaseArray)); err != nil {
+		return nil, err
+	}
 	markClassCount := l.countMarkClasses()
 	marks, err := newMarkArray("Gpos4_1", l.MarkArray)
 	if err != nil {

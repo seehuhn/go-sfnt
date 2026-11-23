@@ -41,24 +41,20 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	mark1ArrayOffset := int64(buf[6])<<8 | int64(buf[7])
 	mark2ArrayOffset := int64(buf[8])<<8 | int64(buf[9])
 
-	mark1Cov, err := coverage.Read(p, subtablePos+mark1CoverageOffset)
+	mark1Listing, err := coverage.ReadListing(p, subtablePos+mark1CoverageOffset)
 	if err != nil {
 		return nil, err
 	}
-	mark2Cov, err := coverage.Read(p, subtablePos+mark2CoverageOffset)
+	mark2Listing, err := coverage.ReadListing(p, subtablePos+mark2CoverageOffset)
 	if err != nil {
 		return nil, err
 	}
 
-	mark1Array, err := markarray.Read(p, anchors, subtablePos+mark1ArrayOffset, len(mark1Cov))
+	mark1Array, err := markarray.Read(p, anchors, subtablePos+mark1ArrayOffset, mark1Listing.DataLen())
 	if err != nil {
 		return nil, err
 	}
-	if len(mark1Cov) > len(mark1Array) {
-		mark1Cov.Prune(len(mark1Array))
-	} else {
-		mark1Array = mark1Array[:len(mark1Cov)]
-	}
+	mark1Cov, mark1Array := coverage.Align(mark1Listing, mark1Array)
 	for _, rec := range mark1Array {
 		if int(rec.Class) >= markClassCount {
 			return nil, &parser.InvalidFontError{
@@ -78,11 +74,7 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
-	if int(mark2Count) > len(mark2Cov) {
-		mark2Count = uint16(len(mark2Cov))
-	} else {
-		mark2Cov.Prune(int(mark2Count))
-	}
+	mark2Count = uint16(min(int(mark2Count), mark2Listing.DataLen()))
 	numOffsets := uint(mark2Count) * uint(markClassCount)
 	if numOffsets > (65536-6-2)/2 {
 		// Offsets are 16-bit from mark2ArrayPos, and there must still be
@@ -125,6 +117,7 @@ func readGpos6_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		mark2Array[i] = row
 		offsets = offsets[markClassCount:]
 	}
+	mark2Cov, mark2Array := coverage.Align(mark2Listing, mark2Array)
 
 	return &Gpos6_1{
 		Mark1Cov:   mark1Cov,
@@ -206,6 +199,12 @@ func (l *Gpos6_1) countMarkClasses() int {
 // layout implements the [Subtable] interface.  The mark1 and mark2
 // coverage tables are stored once if they are identical.
 func (l *Gpos6_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gpos6_1", l.Mark1Cov, len(l.Mark1Array)); err != nil {
+		return nil, err
+	}
+	if err := checkCoverage("Gpos6_1", l.Mark2Cov, len(l.Mark2Array)); err != nil {
+		return nil, err
+	}
 	markClassCount := l.countMarkClasses()
 	marks1, err := newMarkArray("Gpos6_1", l.Mark1Array)
 	if err != nil {

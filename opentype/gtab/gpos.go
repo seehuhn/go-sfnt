@@ -30,6 +30,15 @@ func fitOffset16(name string, off int) (uint16, error) {
 	return uint16(off), nil
 }
 
+// checkCoverage returns an error if cov is invalid or does not cover exactly
+// n glyphs.
+func checkCoverage(name string, cov coverage.Table, n int) error {
+	if !cov.Valid() || len(cov) != n {
+		return fmt.Errorf("%s: invalid coverage table", name)
+	}
+	return nil
+}
+
 // readGposSubtable reads a GPOS subtable.
 // This function can be used as the SubtableReader argument to readLookupList().
 func readGposSubtable(p *parser.Parser, pos int64, meta *LookupMetaInfo) (Subtable, error) {
@@ -132,6 +141,9 @@ type gpos1_1Layout struct {
 
 // layout implements the [Subtable] interface.
 func (l *Gpos1_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gpos1_1", l.Cov, len(l.Cov)); err != nil {
+		return nil, err
+	}
 	format := l.Adjust.getFormat()
 	devStart := 6 + valueRecordEncodeLen(format)
 	pool := newDevicePool("Gpos1_1", devStart)
@@ -192,16 +204,11 @@ func readGpos1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			return nil, err
 		}
 	}
-	cov, err := coverage.Read(p, subtablePos+coverageOffset)
+	listing, err := coverage.ReadListing(p, subtablePos+coverageOffset)
 	if err != nil {
 		return nil, err
 	}
-
-	if len(valueRecords) > len(cov) {
-		valueRecords = valueRecords[:len(cov)]
-	} else if len(valueRecords) < len(cov) {
-		cov.Prune(len(valueRecords))
-	}
+	cov, valueRecords := coverage.Align(listing, valueRecords)
 
 	res := &Gpos1_2{
 		Cov:    cov,
@@ -245,6 +252,9 @@ type gpos1_2Layout struct {
 func (l *Gpos1_2) layout() (subtableLayout, error) {
 	if len(l.Adjust) > 0xFFFF {
 		return nil, errors.New("Gpos1_2: too many value records")
+	}
+	if err := checkCoverage("Gpos1_2", l.Cov, len(l.Adjust)); err != nil {
+		return nil, err
 	}
 	format := l.sharedFormat()
 	devStart := 8 + valueRecordEncodeLen(format)*len(l.Adjust)
@@ -358,15 +368,9 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	cov, err := coverage.Read(p, subtablePos+coverageOffset)
+	listing, err := coverage.ReadListing(p, subtablePos+coverageOffset)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(pairSetOffsets) > len(cov) {
-		pairSetOffsets = pairSetOffsets[:len(cov)]
-	} else if len(pairSetOffsets) < len(cov) {
-		cov.Prune(len(pairSetOffsets))
 	}
 
 	devices := readcache.New[*device.Table]()
@@ -420,7 +424,11 @@ func readGpos2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		Adjust:         map[glyph.Pair]*PairAdjust{},
 		PositionSecond: valueFormat2 != 0,
 	}
-	for first, i := range cov {
+	for first, i := range listing.All() {
+		if i >= len(pairSetOffsets) {
+			// the glyph has no pair set
+			continue
+		}
 		pairs, err := pairSets.Get(subtablePos+int64(pairSetOffsets[i]), readPairSet)
 		if err != nil {
 			return nil, err
@@ -1098,16 +1106,11 @@ func readGpos3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	cov, err := coverage.Read(p, subtablePos+coverageOffset)
+	listing, err := coverage.ReadListing(p, subtablePos+coverageOffset)
 	if err != nil {
 		return nil, err
 	}
-
-	if entryExitCount > len(cov) {
-		records = records[:len(cov)]
-	} else if entryExitCount < len(cov) {
-		cov.Prune(entryExitCount)
-	}
+	cov, records := coverage.Align(listing, records)
 
 	return &Gpos3_1{
 		Cov:     cov,
@@ -1129,6 +1132,9 @@ type gpos3_1Layout struct {
 // join points heavily, so the same anchor commonly appears on many glyphs;
 // identical anchors are stored once.
 func (l *Gpos3_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gpos3_1", l.Cov, len(l.Records)); err != nil {
+		return nil, err
+	}
 	base := 6 + 4*len(l.Records)
 	pool := newAnchorPool("Gpos3_1", base)
 	anchors := make([][2]int, len(l.Records))

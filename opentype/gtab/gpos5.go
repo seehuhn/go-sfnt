@@ -44,24 +44,20 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	markArrayOffset := int64(buf[6])<<8 | int64(buf[7])
 	ligArrayOffset := int64(buf[8])<<8 | int64(buf[9])
 
-	markCov, err := coverage.Read(p, subtablePos+markCoverageOffset)
+	markListing, err := coverage.ReadListing(p, subtablePos+markCoverageOffset)
 	if err != nil {
 		return nil, err
 	}
-	ligCov, err := coverage.Read(p, subtablePos+ligCoverageOffset)
+	ligListing, err := coverage.ReadListing(p, subtablePos+ligCoverageOffset)
 	if err != nil {
 		return nil, err
 	}
 
-	markArray, err := markarray.Read(p, anchors, subtablePos+markArrayOffset, len(markCov))
+	markArray, err := markarray.Read(p, anchors, subtablePos+markArrayOffset, markListing.DataLen())
 	if err != nil {
 		return nil, err
 	}
-	if len(markCov) > len(markArray) {
-		markCov.Prune(len(markArray))
-	} else {
-		markArray = markArray[:len(markCov)]
-	}
+	markCov, markArray := coverage.Align(markListing, markArray)
 	for _, rec := range markArray {
 		if int(rec.Class) >= markClassCount {
 			return nil, &parser.InvalidFontError{
@@ -82,11 +78,7 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 	if err != nil {
 		return nil, err
 	}
-	if int(ligCount) > len(ligCov) {
-		ligCount = uint16(len(ligCov))
-	} else {
-		ligCov.Prune(int(ligCount))
-	}
+	ligCount = uint16(min(int(ligCount), ligListing.DataLen()))
 	// Array of offsets to LigatureAttach tables.  Offsets are from beginning
 	// of LigatureArray table, ordered by ligatureCoverage index.
 	offsets, err := p.Budget.AllocSlice[uint16](int(ligCount))
@@ -99,8 +91,9 @@ func readGpos5_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 			return nil, err
 		}
 	}
+	ligCov, offsets := coverage.Align(ligListing, offsets)
 
-	ligArray, err := p.Budget.AllocSlice[[][]*anchor.Table](int(ligCount))
+	ligArray, err := p.Budget.AllocSlice[[][]*anchor.Table](len(offsets))
 	if err != nil {
 		return nil, err
 	}
@@ -321,6 +314,12 @@ func (a *ligArray) append(buf []byte) []byte {
 // coverage tables are stored once if they are identical, and so are
 // identical LigatureAttach tables.
 func (l *Gpos5_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gpos5_1", l.MarkCov, len(l.MarkArray)); err != nil {
+		return nil, err
+	}
+	if err := checkCoverage("Gpos5_1", l.LigCov, len(l.LigArray)); err != nil {
+		return nil, err
+	}
 	markClassCount := l.countMarkClasses()
 	marks, err := newMarkArray("Gpos5_1", l.MarkArray)
 	if err != nil {

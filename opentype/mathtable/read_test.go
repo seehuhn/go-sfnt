@@ -109,6 +109,59 @@ func TestReadRepairs(t *testing.T) {
 		checkStable(t, build(gi, nil))
 	})
 
+	// A coverage table which lists glyph 5 twice leaves glyph 7 with the
+	// third record.
+	dupCov := be(1, 3, 5, 5, 7)
+
+	t.Run("italics with duplicate glyph", func(t *testing.T) {
+		gi := be(8, 0, 0, 0)
+		gi = append(gi, be(16, 3)...)
+		gi = append(gi, be(1, 0, 2, 0, 3, 0)...)
+		gi = append(gi, dupCov...)
+		data := build(gi, nil)
+		info, err := readBytes(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.ItalicsCorrection[7].V; got != 3 {
+			t.Errorf("glyph 7: got italics correction %d, want 3", got)
+		}
+		checkStable(t, data)
+	})
+
+	t.Run("kerns with duplicate glyph", func(t *testing.T) {
+		ki := be(28, 3)
+		ki = append(ki, be(38, 0, 0, 0, 44, 0, 0, 0, 50, 0, 0, 0)...)
+		ki = append(ki, dupCov...)
+		ki = append(ki, be(0, 1, 0, 0, 2, 0, 0, 3, 0)...) // one kern value each
+		gi := be(0, 0, 0, 8)
+		gi = append(gi, ki...)
+		data := build(gi, nil)
+		info, err := readBytes(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Kerns[7].TopRight.Kerns[0].V; got != 3 {
+			t.Errorf("glyph 7: got kern %d, want 3", got)
+		}
+		checkStable(t, data)
+	})
+
+	t.Run("constructions with duplicate glyph", func(t *testing.T) {
+		v := be(0, 16, 0, 3, 0, 26, 34, 42)
+		v = append(v, dupCov...)
+		v = append(v, be(0, 1, 101, 9, 0, 1, 102, 9, 0, 1, 103, 9)...) // one variant each
+		data := build(nil, v)
+		info, err := readBytes(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Vertical[7].Variants[0].Glyph; got != 103 {
+			t.Errorf("glyph 7: got variant %d, want 103", got)
+		}
+		checkStable(t, data)
+	})
+
 	t.Run("unsorted kern heights", func(t *testing.T) {
 		ki := be(12, 1, 18, 0, 0, 0)
 		ki = append(ki, be(1, 1, 5)...)

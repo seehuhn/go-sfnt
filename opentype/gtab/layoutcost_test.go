@@ -233,6 +233,30 @@ func TestLayoutCostSharedLigature(t *testing.T) {
 	checkSharedLayoutCost(t, l, 6+2*sharedRefCount+4*sharedRefCount+4+2*m+6)
 }
 
+// TestLayoutSharedContextCoverage checks that many backtrack entries which
+// share one large coverage table can be laid out quickly.  A check of the
+// table for every entry takes tens of seconds here.
+func TestLayoutSharedContextCoverage(t *testing.T) {
+	const n = 20000
+	cov := make(coverage.Table, 0xFFFF)
+	for i := range 0xFFFF {
+		cov[glyph.ID(i)] = i
+	}
+	l := &Gsub8_1{
+		Input:              coverage.Table{1: 0},
+		Backtrack:          make([]coverage.Table, n),
+		SubstituteGlyphIDs: []glyph.ID{2},
+	}
+	for i := range l.Backtrack {
+		l.Backtrack[i] = cov
+	}
+	lay, err := l.layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lay.encode()
+}
+
 func TestLayoutCostSharedLigatureAnchor(t *testing.T) {
 	a := &anchor.Table{XDev: bigDevice()}
 	l := &Gpos5_1{

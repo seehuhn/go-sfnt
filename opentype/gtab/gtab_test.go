@@ -10,6 +10,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/text/language"
+	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/anchor"
+	"seehuhn.de/go/sfnt/opentype/coverage"
+	"seehuhn.de/go/sfnt/opentype/markarray"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -396,5 +400,339 @@ func BenchmarkReadGtab(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// duplicateGlyphCases lists subtables where a coverage table covers three
+// consecutive glyphs, starting with the glyph first, and where the data for
+// the first two of these glyphs is equal.  The subtable want is expected
+// when the coverage table of a file lists the first glyph twice, in place
+// of the first and the second glyph.
+var duplicateGlyphCases = []struct {
+	name     string
+	read     func(*parser.Parser, int64) (Subtable, error)
+	first    glyph.ID
+	in, want Subtable
+}{
+	{
+		name: "Gsub1_2", read: readGsub1_2, first: 5,
+		in: &Gsub1_2{
+			Cov:                coverage.Table{5: 0, 6: 1, 7: 2},
+			SubstituteGlyphIDs: []glyph.ID{20, 20, 22},
+		},
+		want: &Gsub1_2{
+			Cov:                coverage.Table{5: 0, 7: 1},
+			SubstituteGlyphIDs: []glyph.ID{20, 22},
+		},
+	},
+	{
+		name: "Gsub2_1", read: readGsub2_1, first: 5,
+		in: &Gsub2_1{
+			Cov:  coverage.Table{5: 0, 6: 1, 7: 2},
+			Repl: [][]glyph.ID{{20, 21}, {20, 21}, {22}},
+		},
+		want: &Gsub2_1{
+			Cov:  coverage.Table{5: 0, 7: 1},
+			Repl: [][]glyph.ID{{20, 21}, {22}},
+		},
+	},
+	{
+		name: "Gsub3_1", read: readGsub3_1, first: 5,
+		in: &Gsub3_1{
+			Cov:        coverage.Table{5: 0, 6: 1, 7: 2},
+			Alternates: [][]glyph.ID{{20, 21}, {20, 21}, {22}},
+		},
+		want: &Gsub3_1{
+			Cov:        coverage.Table{5: 0, 7: 1},
+			Alternates: [][]glyph.ID{{20, 21}, {22}},
+		},
+	},
+	{
+		name: "Gsub4_1", read: readGsub4_1, first: 5,
+		in: &Gsub4_1{
+			Cov: coverage.Table{5: 0, 6: 1, 7: 2},
+			Repl: [][]Ligature{
+				{{In: []glyph.ID{1}, Out: 20}},
+				{{In: []glyph.ID{1}, Out: 20}},
+				{{In: []glyph.ID{2}, Out: 22}},
+			},
+		},
+		want: &Gsub4_1{
+			Cov: coverage.Table{5: 0, 7: 1},
+			Repl: [][]Ligature{
+				{{In: []glyph.ID{1}, Out: 20}},
+				{{In: []glyph.ID{2}, Out: 22}},
+			},
+		},
+	},
+	{
+		name: "Gsub8_1", read: readGsub8_1, first: 5,
+		in: &Gsub8_1{
+			Input:              coverage.Table{5: 0, 6: 1, 7: 2},
+			Backtrack:          []coverage.Table{{1: 0}},
+			SubstituteGlyphIDs: []glyph.ID{20, 20, 22},
+		},
+		want: &Gsub8_1{
+			Input:              coverage.Table{5: 0, 7: 1},
+			Backtrack:          []coverage.Table{{1: 0}},
+			SubstituteGlyphIDs: []glyph.ID{20, 22},
+		},
+	},
+	{
+		name: "Gpos1_2", read: readGpos1_2, first: 5,
+		in: &Gpos1_2{
+			Cov:    coverage.Table{5: 0, 6: 1, 7: 2},
+			Adjust: []*GposValueRecord{{XAdvance: 10}, {XAdvance: 10}, {XAdvance: 30}},
+		},
+		want: &Gpos1_2{
+			Cov:    coverage.Table{5: 0, 7: 1},
+			Adjust: []*GposValueRecord{{XAdvance: 10}, {XAdvance: 30}},
+		},
+	},
+	{
+		name: "Gpos2_1", read: readGpos2_1, first: 5,
+		in: &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{
+			{Left: 5, Right: 1}: {First: &GposValueRecord{XAdvance: 10}},
+			{Left: 6, Right: 1}: {First: &GposValueRecord{XAdvance: 10}},
+			{Left: 7, Right: 1}: {First: &GposValueRecord{XAdvance: 30}},
+		}},
+		want: &Gpos2_1{Adjust: map[glyph.Pair]*PairAdjust{
+			{Left: 5, Right: 1}: {First: &GposValueRecord{XAdvance: 10}},
+			{Left: 7, Right: 1}: {First: &GposValueRecord{XAdvance: 30}},
+		}},
+	},
+	{
+		name: "Gpos3_1", read: readGpos3_1, first: 5,
+		in: &Gpos3_1{
+			Cov: coverage.Table{5: 0, 6: 1, 7: 2},
+			Records: []EntryExitRecord{
+				{Entry: &anchor.Table{X: 10}},
+				{Entry: &anchor.Table{X: 10}},
+				{Entry: &anchor.Table{X: 30}},
+			},
+		},
+		want: &Gpos3_1{
+			Cov: coverage.Table{5: 0, 7: 1},
+			Records: []EntryExitRecord{
+				{Entry: &anchor.Table{X: 10}},
+				{Entry: &anchor.Table{X: 30}},
+			},
+		},
+	},
+	{
+		name: "Gpos4_1 marks", read: readGpos4_1, first: 5,
+		in: &Gpos4_1{
+			MarkCov: coverage.Table{5: 0, 6: 1, 7: 2},
+			BaseCov: coverage.Table{15: 0},
+			MarkArray: []markarray.Record{
+				{X: 10},
+				{X: 10},
+				{X: 30},
+			},
+			BaseArray: [][]*anchor.Table{{{X: 1}}},
+		},
+		want: &Gpos4_1{
+			MarkCov: coverage.Table{5: 0, 7: 1},
+			BaseCov: coverage.Table{15: 0},
+			MarkArray: []markarray.Record{
+				{X: 10},
+				{X: 30},
+			},
+			BaseArray: [][]*anchor.Table{{{X: 1}}},
+		},
+	},
+	{
+		name: "Gpos4_1 bases", read: readGpos4_1, first: 15,
+		in: &Gpos4_1{
+			MarkCov:   coverage.Table{5: 0},
+			BaseCov:   coverage.Table{15: 0, 16: 1, 17: 2},
+			MarkArray: []markarray.Record{{X: 1}},
+			BaseArray: [][]*anchor.Table{{{X: 10}}, {{X: 10}}, {{X: 30}}},
+		},
+		want: &Gpos4_1{
+			MarkCov:   coverage.Table{5: 0},
+			BaseCov:   coverage.Table{15: 0, 17: 1},
+			MarkArray: []markarray.Record{{X: 1}},
+			BaseArray: [][]*anchor.Table{{{X: 10}}, {{X: 30}}},
+		},
+	},
+	{
+		name: "Gpos5_1 marks", read: readGpos5_1, first: 5,
+		in: &Gpos5_1{
+			MarkCov: coverage.Table{5: 0, 6: 1, 7: 2},
+			LigCov:  coverage.Table{15: 0},
+			MarkArray: []markarray.Record{
+				{X: 10},
+				{X: 10},
+				{X: 30},
+			},
+			LigArray: [][][]*anchor.Table{{{{X: 1}}}},
+		},
+		want: &Gpos5_1{
+			MarkCov: coverage.Table{5: 0, 7: 1},
+			LigCov:  coverage.Table{15: 0},
+			MarkArray: []markarray.Record{
+				{X: 10},
+				{X: 30},
+			},
+			LigArray: [][][]*anchor.Table{{{{X: 1}}}},
+		},
+	},
+	{
+		name: "Gpos5_1 ligatures", read: readGpos5_1, first: 15,
+		in: &Gpos5_1{
+			MarkCov:   coverage.Table{5: 0},
+			LigCov:    coverage.Table{15: 0, 16: 1, 17: 2},
+			MarkArray: []markarray.Record{{X: 1}},
+			LigArray:  [][][]*anchor.Table{{{{X: 10}}}, {{{X: 10}}}, {{{X: 30}}}},
+		},
+		want: &Gpos5_1{
+			MarkCov:   coverage.Table{5: 0},
+			LigCov:    coverage.Table{15: 0, 17: 1},
+			MarkArray: []markarray.Record{{X: 1}},
+			LigArray:  [][][]*anchor.Table{{{{X: 10}}}, {{{X: 30}}}},
+		},
+	},
+	{
+		name: "Gpos6_1 mark1", read: readGpos6_1, first: 5,
+		in: &Gpos6_1{
+			Mark1Cov: coverage.Table{5: 0, 6: 1, 7: 2},
+			Mark2Cov: coverage.Table{15: 0},
+			Mark1Array: []markarray.Record{
+				{X: 10},
+				{X: 10},
+				{X: 30},
+			},
+			Mark2Array: [][]*anchor.Table{{{X: 1}}},
+		},
+		want: &Gpos6_1{
+			Mark1Cov: coverage.Table{5: 0, 7: 1},
+			Mark2Cov: coverage.Table{15: 0},
+			Mark1Array: []markarray.Record{
+				{X: 10},
+				{X: 30},
+			},
+			Mark2Array: [][]*anchor.Table{{{X: 1}}},
+		},
+	},
+	{
+		name: "Gpos6_1 mark2", read: readGpos6_1, first: 15,
+		in: &Gpos6_1{
+			Mark1Cov:   coverage.Table{5: 0},
+			Mark2Cov:   coverage.Table{15: 0, 16: 1, 17: 2},
+			Mark1Array: []markarray.Record{{X: 1}},
+			Mark2Array: [][]*anchor.Table{{{X: 10}}, {{X: 10}}, {{X: 30}}},
+		},
+		want: &Gpos6_1{
+			Mark1Cov:   coverage.Table{5: 0},
+			Mark2Cov:   coverage.Table{15: 0, 17: 1},
+			Mark1Array: []markarray.Record{{X: 1}},
+			Mark2Array: [][]*anchor.Table{{{X: 10}}, {{X: 30}}},
+		},
+	},
+	{
+		name: "SeqContext1", read: readSeqContext1, first: 5,
+		in: &SeqContext1{
+			Cov: coverage.Table{5: 0, 6: 1, 7: 2},
+			Rules: [][]*SeqRule{
+				{{Input: []glyph.ID{1}}},
+				{{Input: []glyph.ID{1}}},
+				{{Input: []glyph.ID{2}}},
+			},
+		},
+		want: &SeqContext1{
+			Cov: coverage.Table{5: 0, 7: 1},
+			Rules: [][]*SeqRule{
+				{{Input: []glyph.ID{1}}},
+				{{Input: []glyph.ID{2}}},
+			},
+		},
+	},
+	{
+		name: "ChainedSeqContext1", read: readChainedSeqContext1, first: 5,
+		in: &ChainedSeqContext1{
+			Cov: coverage.Table{5: 0, 6: 1, 7: 2},
+			Rules: [][]*ChainedSeqRule{
+				{{Input: []glyph.ID{1}}},
+				{{Input: []glyph.ID{1}}},
+				{{Input: []glyph.ID{2}}},
+			},
+		},
+		want: &ChainedSeqContext1{
+			Cov: coverage.Table{5: 0, 7: 1},
+			Rules: [][]*ChainedSeqRule{
+				{{Input: []glyph.ID{1}}},
+				{{Input: []glyph.ID{2}}},
+			},
+		},
+	},
+}
+
+// duplicateGlyph returns the encoded subtable st, changed so that the
+// coverage table for the glyphs first, first+1 and first+2 lists the glyph
+// first twice, in place of the first two glyphs.
+func duplicateGlyph(tb testing.TB, st Subtable, first glyph.ID) []byte {
+	tb.Helper()
+	data := encodeSubtable(tb, st)
+	var cov []byte
+	for _, x := range []glyph.ID{1, 3, first, first + 1, first + 2} {
+		cov = append(cov, byte(x>>8), byte(x))
+	}
+	if bytes.Count(data, cov) != 1 {
+		tb.Fatal("coverage table not found")
+	}
+	pos := bytes.Index(data, cov)
+	data[pos+6], data[pos+7] = byte(first>>8), byte(first)
+	return data
+}
+
+// TestDuplicateCoverageGlyph checks that a coverage table which lists a
+// glyph twice leaves the other glyphs with their own data, for the subtables
+// which hold data for each covered glyph.
+func TestDuplicateCoverageGlyph(t *testing.T) {
+	for _, tc := range duplicateGlyphCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := readSubtable(t, tc.read, duplicateGlyph(t, tc.in, tc.first))
+			want := readSubtable(t, tc.read, encodeSubtable(t, tc.want))
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("wrong subtable (-want +got):\n%s", diff)
+			}
+
+			again := readSubtable(t, tc.read, encodeSubtable(t, got))
+			if diff := cmp.Diff(got, again); diff != "" {
+				t.Errorf("round trip failed (-first +second):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestOverlappingCoverageRanges checks that a format 2 coverage table whose
+// ranges overlap leaves each glyph with the data at the coverage index which
+// its range record gives.
+func TestOverlappingCoverageRanges(t *testing.T) {
+	data := []byte{
+		0, 2, // format
+		0, 18, // coverage offset
+		0, 6, // glyph count
+		0, 20, 0, 21, 0, 22, 0, 23, 0, 24, 0, 25, // substitutes
+		// coverage, format 2: glyphs 5-7 from index 0, glyphs 7-9 from index 3
+		0, 2, 0, 2,
+		0, 5, 0, 7, 0, 0,
+		0, 7, 0, 9, 0, 3,
+	}
+	got := readSubtable(t, readGsub1_2, data).(*Gsub1_2)
+	for gid, subst := range map[glyph.ID]glyph.ID{5: 20, 6: 21, 8: 24, 9: 25} {
+		idx, ok := got.Cov[gid]
+		if !ok {
+			t.Errorf("glyph %d is not covered", gid)
+		} else if got.SubstituteGlyphIDs[idx] != subst {
+			t.Errorf("glyph %d: got substitute %d, want %d",
+				gid, got.SubstituteGlyphIDs[idx], subst)
+		}
+	}
+
+	again := readSubtable(t, readGsub1_2, encodeSubtable(t, got))
+	if diff := cmp.Diff(got, again); diff != "" {
+		t.Errorf("round trip failed (-first +second):\n%s", diff)
 	}
 }

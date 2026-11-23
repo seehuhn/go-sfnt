@@ -284,15 +284,11 @@ func readSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	cov, err := coverage.Read(p, subtablePos+int64(coverageOffset))
+	listing, err := coverage.ReadListing(p, subtablePos+int64(coverageOffset))
 	if err != nil {
 		return nil, err
 	}
-	if len(cov) > len(seqRuleSetOffsets) {
-		cov.Prune(len(seqRuleSetOffsets))
-	} else {
-		seqRuleSetOffsets = seqRuleSetOffsets[:len(cov)]
-	}
+	cov, seqRuleSetOffsets := coverage.Align(listing, seqRuleSetOffsets)
 
 	rulesOuter, err := p.Budget.AllocSlice[[]*SeqRule](len(seqRuleSetOffsets))
 	if err != nil {
@@ -424,6 +420,9 @@ ruleLoop:
 
 // layout implements the [Subtable] interface.
 func (l *SeqContext1) layout() (subtableLayout, error) {
+	if err := checkCoverage("SeqContext1", l.Cov, len(l.Rules)); err != nil {
+		return nil, err
+	}
 	lay := newRuleSetLayout("SeqContext1", 1, 1, len(l.Rules))
 	err := lay.add(false, [][]byte{l.Cov.Encode()}, func() error {
 		return addRuleSets(lay, l.Rules, encodeSeqRule)
@@ -612,6 +611,9 @@ ruleLoop:
 
 // layout implements the [Subtable] interface.
 func (l *SeqContext2) layout() (subtableLayout, error) {
+	if err := checkCoverage("SeqContext2", l.Cov, len(l.Cov)); err != nil {
+		return nil, err
+	}
 	input, err := l.Input.Append(nil)
 	if err != nil {
 		return nil, err
@@ -794,16 +796,11 @@ func readChainedSeqContext1(p *parser.Parser, subtablePos int64) (Subtable, erro
 		return nil, err
 	}
 
-	cov, err := coverage.Read(p, subtablePos+int64(coverageOffset))
+	listing, err := coverage.ReadListing(p, subtablePos+int64(coverageOffset))
 	if err != nil {
 		return nil, err
 	}
-
-	if len(cov) > len(chainedSeqRuleSetOffsets) {
-		cov.Prune(len(chainedSeqRuleSetOffsets))
-	} else {
-		chainedSeqRuleSetOffsets = chainedSeqRuleSetOffsets[:len(cov)]
-	}
+	cov, chainedSeqRuleSetOffsets := coverage.Align(listing, chainedSeqRuleSetOffsets)
 
 	rules, err := p.Budget.AllocSlice[[]*ChainedSeqRule](len(chainedSeqRuleSetOffsets))
 	if err != nil {
@@ -976,6 +973,9 @@ ruleLoop:
 
 // layout implements the [Subtable] interface.
 func (l *ChainedSeqContext1) layout() (subtableLayout, error) {
+	if err := checkCoverage("ChainedSeqContext1", l.Cov, len(l.Rules)); err != nil {
+		return nil, err
+	}
 	lay := newRuleSetLayout("ChainedSeqContext1", 1, 1, len(l.Rules))
 	err := lay.add(true, [][]byte{l.Cov.Encode()}, func() error {
 		return addRuleSets(lay, l.Rules, encodeChainedSeqRule)
@@ -1229,6 +1229,9 @@ ruleLoop:
 
 // layout implements the [Subtable] interface.
 func (l *ChainedSeqContext2) layout() (subtableLayout, error) {
+	if err := checkCoverage("ChainedSeqContext2", l.Cov, len(l.Cov)); err != nil {
+		return nil, err
+	}
 	tables := [][]byte{l.Cov.Encode()}
 	for _, cd := range []classdef.Table{l.Backtrack, l.Input, l.Lookahead} {
 		enc, err := cd.Append(nil)

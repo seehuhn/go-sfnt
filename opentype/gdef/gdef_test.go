@@ -598,3 +598,111 @@ func TestLigCaretListUnwritable(t *testing.T) {
 		t.Error("unwritable ligature caret list was kept")
 	}
 }
+
+// be returns the big-endian encoding of a sequence of 16-bit values.
+func be(vals ...uint16) []byte {
+	res := make([]byte, 0, 2*len(vals))
+	for _, v := range vals {
+		res = append(res, byte(v>>8), byte(v))
+	}
+	return res
+}
+
+// TestAttachListDuplicateGlyph checks that a coverage table which lists a
+// glyph twice leaves the other glyphs with their own attachment points.
+func TestAttachListDuplicateGlyph(t *testing.T) {
+	covers := map[string][]byte{
+		"format 1": be(1, 3, 5, 5, 7),
+		"format 2": be(2, 3, 5, 5, 0, 5, 5, 1, 7, 7, 2),
+	}
+	for name, cov := range covers {
+		t.Run(name, func(t *testing.T) {
+			pointsPos := uint16(10 + len(cov))
+			list := be(10, 3, pointsPos, pointsPos+4, pointsPos+8)
+			list = append(list, cov...)
+			list = append(list, be(1, 1, 1, 2, 1, 3)...) // points {1}, {2}, {3}
+
+			table1 := readGdefBytes(t, gdefWithList(list, false))
+			al := table1.AttachList
+			idx, ok := al.Cov[7]
+			if !ok {
+				t.Fatal("glyph 7 is not covered")
+			}
+			if diff := cmp.Diff([]uint16{3}, al.Points[idx]); diff != "" {
+				t.Errorf("wrong points for glyph 7 (-want +got):\n%s", diff)
+			}
+
+			table2 := readGdefBytes(t, mustEncode(t, table1))
+			if diff := cmp.Diff(table1, table2); diff != "" {
+				t.Errorf("round trip failed (-first +second):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestLigCaretListDuplicateGlyph checks that a coverage table which lists a
+// glyph twice leaves the other glyphs with their own caret values.
+func TestLigCaretListDuplicateGlyph(t *testing.T) {
+	covers := map[string][]byte{
+		"format 1": be(1, 3, 5, 5, 7),
+		"format 2": be(2, 3, 5, 5, 0, 5, 5, 1, 7, 7, 2),
+	}
+	for name, cov := range covers {
+		t.Run(name, func(t *testing.T) {
+			ligPos := uint16(10 + len(cov))
+			list := be(10, 3, ligPos, ligPos+8, ligPos+16)
+			list = append(list, cov...)
+			for coord := range uint16(3) {
+				// one caret, as a format 1 caret value at offset 4
+				list = append(list, be(1, 4, 1, coord+1)...)
+			}
+
+			table1 := readGdefBytes(t, gdefWithList(list, true))
+			lcl := table1.LigCaretList
+			idx, ok := lcl.Cov[7]
+			if !ok {
+				t.Fatal("glyph 7 is not covered")
+			}
+			if diff := cmp.Diff([]CaretValue{{Coordinate: 3}}, lcl.Carets[idx]); diff != "" {
+				t.Errorf("wrong carets for glyph 7 (-want +got):\n%s", diff)
+			}
+
+			table2 := readGdefBytes(t, mustEncode(t, table1))
+			if diff := cmp.Diff(table1, table2); diff != "" {
+				t.Errorf("round trip failed (-first +second):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestListShapeError checks that Encode reports an error for an attachment
+// point list or a ligature caret list whose coverage table is invalid or does
+// not match the data.
+func TestListShapeError(t *testing.T) {
+	cases := []struct {
+		name  string
+		table *Table
+	}{
+		{"attach list too few points", &Table{AttachList: &AttachList{
+			Cov:    coverage.Table{5: 0, 7: 1},
+			Points: [][]uint16{{1}},
+		}}},
+		{"attach list invalid coverage", &Table{AttachList: &AttachList{
+			Cov:    coverage.Table{5: 1, 7: 0},
+			Points: [][]uint16{{1}, {2}},
+		}}},
+		{"caret list too many carets", &Table{LigCaretList: &LigCaretList{
+			Cov:    coverage.Table{5: 0},
+			Carets: [][]CaretValue{{{Coordinate: 1}}, {{Coordinate: 2}}},
+		}}},
+		{"caret list invalid coverage", &Table{LigCaretList: &LigCaretList{
+			Cov:    coverage.Table{5: 0, 7: 2},
+			Carets: [][]CaretValue{{{Coordinate: 1}}, {{Coordinate: 2}}},
+		}}},
+	}
+	for _, tc := range cases {
+		if _, err := tc.table.Encode(); err == nil {
+			t.Errorf("%s: no error", tc.name)
+		}
+	}
+}

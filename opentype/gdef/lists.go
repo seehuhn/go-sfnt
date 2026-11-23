@@ -51,15 +51,11 @@ func readAttachList(p *parser.Parser, pos int64) (*AttachList, error) {
 		}
 	}
 
-	cov, err := coverage.Read(p, pos+coverageOffset)
+	listing, err := coverage.ReadListing(p, pos+coverageOffset)
 	if err != nil {
 		return nil, err
 	}
-	if len(offsets) > len(cov) {
-		offsets = offsets[:len(cov)]
-	} else if len(offsets) < len(cov) {
-		cov.Prune(len(offsets))
-	}
+	cov, offsets := coverage.Align(listing, offsets)
 
 	// AttachPoint tables reached through several offsets are read once
 	cache := readcache.New[[]uint16]()
@@ -107,6 +103,15 @@ type attachListLayout struct {
 	pool     *offsetpool.Pool
 }
 
+// checkShape returns an error if the coverage table is invalid or does not
+// match the attachment point lists.
+func (al *AttachList) checkShape() error {
+	if !al.Cov.Valid() || len(al.Cov) != len(al.Points) {
+		return errors.New("invalid attachment point coverage")
+	}
+	return nil
+}
+
 // layout computes the positions of the AttachPoint tables.  Tables with
 // identical encodings share one copy.  An error is returned if a table
 // cannot be reached through its Offset16.
@@ -114,6 +119,9 @@ func (al *AttachList) layout() (*attachListLayout, error) {
 	coverageOffset := 4 + 2*len(al.Points)
 	if coverageOffset > 0xFFFF {
 		return nil, fmt.Errorf("attachment point coverage offset %d out of range", coverageOffset)
+	}
+	if err := al.checkShape(); err != nil {
+		return nil, err
 	}
 	covBytes := al.Cov.Encode()
 
@@ -209,15 +217,11 @@ func readLigCaretList(p *parser.Parser, pos int64) (*LigCaretList, error) {
 		}
 	}
 
-	cov, err := coverage.Read(p, pos+coverageOffset)
+	listing, err := coverage.ReadListing(p, pos+coverageOffset)
 	if err != nil {
 		return nil, err
 	}
-	if len(offsets) > len(cov) {
-		offsets = offsets[:len(cov)]
-	} else if len(offsets) < len(cov) {
-		cov.Prune(len(offsets))
-	}
+	cov, offsets := coverage.Align(listing, offsets)
 
 	// LigGlyph and CaretValue tables reached through several offsets are
 	// read once
@@ -279,6 +283,15 @@ type ligCaretListLayout struct {
 	pool     *offsetpool.Pool
 }
 
+// checkShape returns an error if the coverage table is invalid or does not
+// match the ligature caret lists.
+func (lcl *LigCaretList) checkShape() error {
+	if !lcl.Cov.Valid() || len(lcl.Cov) != len(lcl.Carets) {
+		return errors.New("invalid ligature caret coverage")
+	}
+	return nil
+}
+
 // layout computes the positions of the LigGlyph tables.  Tables with
 // identical encodings share one copy, and so do the CaretValue tables
 // within a LigGlyph table.  An error is returned if a table cannot be
@@ -287,6 +300,9 @@ func (lcl *LigCaretList) layout() (*ligCaretListLayout, error) {
 	coverageOffset := 4 + 2*len(lcl.Carets)
 	if coverageOffset > 0xFFFF {
 		return nil, fmt.Errorf("ligature caret coverage offset %d out of range", coverageOffset)
+	}
+	if err := lcl.checkShape(); err != nil {
+		return nil, err
 	}
 	covBytes := lcl.Cov.Encode()
 

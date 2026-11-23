@@ -6,8 +6,8 @@
 package coverage
 
 import (
-	"fmt"
 	"maps"
+	"math/bits"
 	"slices"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -32,19 +32,75 @@ func (table Table) Glyphs() []glyph.ID {
 	return keys
 }
 
-// Prune removes all glyphs from the table that have coverage index >= size.
-func (table Table) Prune(size int) {
-	var gg []glyph.ID
-	for gid, class := range table {
-		if class >= size {
-			gg = append(gg, gid)
+// Valid reports whether the coverage indices of the table are exactly
+// 0, 1, ..., len(table)-1, assigned in order of increasing glyph ID.
+func (table Table) Valid() bool {
+	// The covered glyphs are visited in increasing order via a bit set,
+	// which lives on the stack, so that the check allocates nothing.
+	var covered [1 << 16 / 64]uint64
+	for gid := range table {
+		covered[gid/64] |= 1 << (gid % 64)
+	}
+	rank := 0
+	for i, word := range covered {
+		for word != 0 {
+			gid := glyph.ID(i*64 + bits.TrailingZeros64(word))
+			if table[gid] != rank {
+				return false
+			}
+			rank++
+			word &= word - 1
 		}
 	}
-	for _, gid := range gg {
-		delete(table, gid)
-	}
+	return true
 }
 
+// Filter returns the part of a coverage table, and of the data indexed by
+// its coverage indices, for which keep returns true.  The function keep is
+// called once for each covered glyph, with the glyph and its data item.
+// The table cov
+// must be valid, as reported by [Table.Valid], and the slice data must have
+// one item for each covered glyph.
+//
+// The glyphs which are left get the coverage indices 0, 1, ... in order of
+// glyph ID, and the data items are moved to match.  The last result reports
+// whether any glyph was removed.  If not, cov and data themselves are
+// returned.  Otherwise the results are new values, and the arguments are not
+// modified.
+func Filter[T any](cov Table, data []T, keep func(gid glyph.ID, item T) bool) (Table, []T, bool) {
+	// indexed by coverage index, allocated when the first glyph is dropped
+	var drop []bool
+	numDropped := 0
+	for gid, idx := range cov {
+		if !keep(gid, data[idx]) {
+			if drop == nil {
+				drop = make([]bool, len(cov))
+			}
+			drop[idx] = true
+			numDropped++
+		}
+	}
+	if drop == nil {
+		return cov, data, false
+	}
+
+	glyphs := make([]glyph.ID, len(cov))
+	for gid, idx := range cov {
+		glyphs[idx] = gid
+	}
+	n := len(cov) - numDropped
+	newCov := make(Table, n)
+	newData := make([]T, 0, n)
+	for idx, gid := range glyphs {
+		if !drop[idx] {
+			newCov[gid] = len(newData)
+			newData = append(newData, data[idx])
+		}
+	}
+	return newCov, newData, true
+}
+
+// ToSet returns the set of glyphs covered by the table.
 func (table Table) ToSet() Set {
 	set := make(Set, len(table))
 	for gid := range table {
@@ -53,107 +109,25 @@ func (table Table) ToSet() Set {
 	return set
 }
 
-// Read reads a coverage table from the given parser.
+// Read reads a coverage table for which the font holds no data per covered
+// glyph.  The glyphs get the coverage indices 0, 1, ... in order of glyph
+// ID.  For a coverage table with data, use [ReadListing] and [Align]
+// instead.
 func Read(p *parser.Parser, pos int64) (Table, error) {
-	err := p.SeekPos(pos)
+	l, err := ReadListing(p, pos)
 	if err != nil {
 		return nil, err
 	}
-
-	format, err := p.ReadUint16()
-	if err != nil {
-		return nil, err
-	}
-
-	table := make(Table)
-
-	switch format {
-	case 1: // Coverage Format 1
-		glyphCount, err := p.ReadUint16()
-		if err != nil {
-			return nil, err
-		}
-		// 24 bytes per map entry covers hashtable + value overhead
-		if err := p.Budget.Charge(int(glyphCount) * 24); err != nil {
-			return nil, err
-		}
-		prev := -1
-		idx := 0
-		for i := 0; i < int(glyphCount); i++ {
-			gid, err := p.ReadUint16()
-			if err != nil {
-				return nil, err
-			}
-			if int(gid) < prev {
-				return nil, &parser.InvalidFontError{
-					SubSystem: "sfnt/opentype/coverage",
-					Reason:    "invalid coverage table (format 1)",
-				}
-			}
-			if int(gid) == prev {
-				// some fonts (e.g. Google's Roboto) list the same gid
-				// twice; keep the first coverage index and leave no gap
-				continue
-			}
-			table[glyph.ID(gid)] = idx
-			idx++
-			prev = int(gid)
-		}
-
-	case 2: // Coverage Format 2
-		rangeCount, err := p.ReadUint16()
-		if err != nil {
-			return nil, err
-		}
-		pos := 0
-		prev := -1
-		for i := 0; i < int(rangeCount); i++ {
-			buf, err := p.ReadBytes(6)
-			if err != nil {
-				return nil, err
-			}
-			startGlyphID := int(buf[0])<<8 | int(buf[1])
-			endGlyphID := int(buf[2])<<8 | int(buf[3])
-			startCoverageIndex := int(buf[4])<<8 | int(buf[5])
-			if startCoverageIndex != pos ||
-				startGlyphID <= prev ||
-				endGlyphID < startGlyphID {
-				return nil, &parser.InvalidFontError{
-					SubSystem: "sfnt/opentype/coverage",
-					Reason:    "invalid coverage table (format 2)",
-				}
-			}
-			// charge each range up front so a range spanning thousands
-			// of glyph ids cannot blow past the budget unnoticed
-			if err := p.Budget.Charge((endGlyphID - startGlyphID + 1) * 24); err != nil {
-				return nil, err
-			}
-			for gid := startGlyphID; gid <= endGlyphID; gid++ {
-				table[glyph.ID(gid)] = pos
-				pos++
-			}
-			prev = endGlyphID
-		}
-
-	default:
-		return nil, &parser.NotSupportedError{
-			SubSystem: "sfnt/opentype/coverage",
-			Feature:   fmt.Sprintf("coverage format %d", format),
-		}
-	}
-
-	return table, nil
+	return l.Table(), nil
 }
 
 func (table Table) encInfo() ([]glyph.ID, int, int) {
+	if !table.Valid() {
+		panic("invalid coverage table")
+	}
 	rev := make([]glyph.ID, len(table))
 	for gid, i := range table {
 		rev[i] = gid
-	}
-	for i := 1; i < len(rev); i++ {
-		if rev[i-1] >= rev[i] {
-			panic("invalid coverage table")
-		}
 	}
 
 	format1Length := 4 + 2*len(table)

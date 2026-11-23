@@ -145,16 +145,11 @@ func readGsub1_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	cov, err := coverage.Read(p, subtablePos+int64(coverageOffset))
+	listing, err := coverage.ReadListing(p, subtablePos+int64(coverageOffset))
 	if err != nil {
 		return nil, err
 	}
-
-	if len(cov) > len(substituteGlyphIDs) {
-		cov.Prune(len(substituteGlyphIDs))
-	} else {
-		substituteGlyphIDs = substituteGlyphIDs[:len(cov)]
-	}
+	cov, substituteGlyphIDs := coverage.Align(listing, substituteGlyphIDs)
 
 	res := &Gsub1_2{
 		Cov:                cov,
@@ -179,6 +174,9 @@ func (l *Gsub1_2) apply(ctx *Context, a, b int) int {
 // layout implements the [Subtable] interface.  The coverage table follows
 // the substitute glyph IDs.
 func (l *Gsub1_2) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gsub1_2", l.Cov, len(l.SubstituteGlyphIDs)); err != nil {
+		return nil, err
+	}
 	covOffset, err := fitOffset16("Gsub1_2", 6+2*len(l.SubstituteGlyphIDs))
 	if err != nil {
 		return nil, err
@@ -236,16 +234,11 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	cov, err := coverage.Read(p, subtablePos+int64(coverageOffset))
+	listing, err := coverage.ReadListing(p, subtablePos+int64(coverageOffset))
 	if err != nil {
 		return nil, err
 	}
-
-	if len(cov) > len(sequenceOffsets) {
-		cov.Prune(len(sequenceOffsets))
-	} else {
-		sequenceOffsets = sequenceOffsets[:len(cov)]
-	}
+	cov, sequenceOffsets := coverage.Align(listing, sequenceOffsets)
 
 	sequenceCount := len(sequenceOffsets)
 	repl, err := p.Budget.AllocSlice[[]glyph.ID](sequenceCount)
@@ -266,10 +259,9 @@ func readGsub2_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	// The spec requires GlyphCount > 0, but harfbuzz and macOS silently
-	// ignore the lookup when it is zero (so a following lookup may apply).
-	// Drop those entries so apply doesn't have to know about them and so
-	// the in-memory struct round-trips through encode().
+	// A sequence must have at least one glyph.  An empty sequence is
+	// dropped together with its glyph, so that a following subtable can
+	// apply to the glyph.
 	cov, repl = dropEmptyEntries(cov, repl)
 
 	res := &Gsub2_1{
@@ -364,10 +356,13 @@ func (lay *covSetLayout) encode() []byte {
 
 // layout implements the [Subtable] interface.
 func (l *Gsub2_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gsub2_1", l.Cov, len(l.Repl)); err != nil {
+		return nil, err
+	}
 	lay := newCovSetLayout("Gsub2_1", len(l.Repl))
 	for i, repl := range l.Repl {
 		if len(repl) == 0 {
-			panic("Gsub2_1: empty replacement sequence")
+			return nil, errors.New("Gsub2_1: empty replacement sequence")
 		}
 		if len(repl) > 0xFFFF {
 			return nil, errors.New("Gsub2_1: replacement sequence too long")
@@ -406,16 +401,11 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	cov, err := coverage.Read(p, subtablePos+int64(coverageOffset))
+	listing, err := coverage.ReadListing(p, subtablePos+int64(coverageOffset))
 	if err != nil {
 		return nil, err
 	}
-
-	if len(cov) > len(alternateSetOffsets) {
-		cov.Prune(len(alternateSetOffsets))
-	} else {
-		alternateSetOffsets = alternateSetOffsets[:len(cov)]
-	}
+	cov, alternateSetOffsets := coverage.Align(listing, alternateSetOffsets)
 
 	alternateSetCount := len(alternateSetOffsets)
 	alt, err := p.Budget.AllocSlice[[]glyph.ID](alternateSetCount)
@@ -436,9 +426,9 @@ func readGsub3_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		}
 	}
 
-	// The spec requires GlyphCount > 0, but harfbuzz and macOS silently
-	// ignore the lookup when an alternate set is empty (so a following
-	// lookup may apply). Drop such entries on read.
+	// An alternate set must have at least one glyph.  An empty set is
+	// dropped together with its glyph, so that a following subtable can
+	// apply to the glyph.
 	cov, alt = dropEmptyEntries(cov, alt)
 
 	res := &Gsub3_1{
@@ -464,10 +454,13 @@ func (l *Gsub3_1) apply(ctx *Context, a, b int) int {
 
 // layout implements the [Subtable] interface.
 func (l *Gsub3_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gsub3_1", l.Cov, len(l.Alternates)); err != nil {
+		return nil, err
+	}
 	lay := newCovSetLayout("Gsub3_1", len(l.Alternates))
 	for i, alt := range l.Alternates {
 		if len(alt) == 0 {
-			panic("Gsub3_1: empty alternate set")
+			return nil, errors.New("Gsub3_1: empty alternate set")
 		}
 		if len(alt) > 0xFFFF {
 			return nil, errors.New("Gsub3_1: too many alternates")
@@ -516,16 +509,11 @@ func readGsub4_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	cov, err := coverage.Read(p, subtablePos+int64(coverageOffset))
+	listing, err := coverage.ReadListing(p, subtablePos+int64(coverageOffset))
 	if err != nil {
 		return nil, err
 	}
-
-	if len(cov) > len(ligatureSetOffsets) {
-		cov.Prune(len(ligatureSetOffsets))
-	} else {
-		ligatureSetOffsets = ligatureSetOffsets[:len(cov)]
-	}
+	cov, ligatureSetOffsets := coverage.Align(listing, ligatureSetOffsets)
 
 	repl, err := p.Budget.AllocSlice[[]Ligature](len(ligatureSetOffsets))
 	if err != nil {
@@ -717,6 +705,9 @@ func encodeLigatureSet(ligs []Ligature) ([]byte, error) {
 
 // layout implements the [Subtable] interface.
 func (l *Gsub4_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gsub4_1", l.Cov, len(l.Repl)); err != nil {
+		return nil, err
+	}
 	lay := newCovSetLayout("Gsub4_1", len(l.Repl))
 	// ligature sets with the same ligatures are encoded once
 	var keys offsetpool.SeqKeys[ligatureKey]
@@ -770,41 +761,39 @@ func readGsub8_1(p *parser.Parser, subtablePos int64) (Subtable, error) {
 		return nil, err
 	}
 
-	input, err := coverage.Read(p, subtablePos+int64(coverageOffset))
+	// coverage tables reached through several offsets are read once
+	covCache := readcache.New[*coverage.Listing]()
+	readCov := func(pos int64) (*coverage.Listing, error) {
+		return coverage.ReadListing(p, pos)
+	}
+
+	listing, err := covCache.Get(subtablePos+int64(coverageOffset), readCov)
 	if err != nil {
 		return nil, err
 	}
+	input, substituteGlyphIDs := coverage.Align(listing, substituteGlyphIDs)
 
 	backtrack, err := p.Budget.AllocSlice[coverage.Table](len(backtrackCoverageOffsets))
 	if err != nil {
 		return nil, err
 	}
-	// the input coverage is pruned below, so it is not read via the cache
-	covCache := readcache.New[coverage.Table]()
-	readCov := func(pos int64) (coverage.Table, error) {
-		return coverage.Read(p, pos)
-	}
 	for i, offs := range backtrackCoverageOffsets {
-		backtrack[i], err = covCache.Get(subtablePos+int64(offs), readCov)
+		listing, err := covCache.Get(subtablePos+int64(offs), readCov)
 		if err != nil {
 			return nil, err
 		}
+		backtrack[i] = listing.Table()
 	}
 	lookahead, err := p.Budget.AllocSlice[coverage.Table](len(lookaheadCoverageOffsets))
 	if err != nil {
 		return nil, err
 	}
 	for i, offs := range lookaheadCoverageOffsets {
-		lookahead[i], err = covCache.Get(subtablePos+int64(offs), readCov)
+		listing, err := covCache.Get(subtablePos+int64(offs), readCov)
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	if len(input) > len(substituteGlyphIDs) {
-		input.Prune(len(substituteGlyphIDs))
-	} else {
-		substituteGlyphIDs = substituteGlyphIDs[:len(input)]
+		lookahead[i] = listing.Table()
 	}
 
 	res := &Gsub8_1{
@@ -869,6 +858,21 @@ type gsub8_1Layout struct {
 
 // layout implements the [Subtable] interface.
 func (l *Gsub8_1) layout() (subtableLayout, error) {
+	if err := checkCoverage("Gsub8_1", l.Input, len(l.SubstituteGlyphIDs)); err != nil {
+		return nil, err
+	}
+	// a coverage table shared by several entries is checked once
+	checked := make(map[any]bool)
+	for _, cov := range slices.Concat(l.Backtrack, l.Lookahead) {
+		key := offsetpool.MapKey(cov)
+		if checked[key] {
+			continue
+		}
+		checked[key] = true
+		if err := checkCoverage("Gsub8_1", cov, len(cov)); err != nil {
+			return nil, err
+		}
+	}
 	nb, na := len(l.Backtrack), len(l.Lookahead)
 	pool := offsetpool.NewDeferred("Gsub8_1", 10+2*(nb+na+len(l.SubstituteGlyphIDs)))
 	lay := &gsub8_1Layout{
@@ -919,37 +923,12 @@ func (lay *gsub8_1Layout) encode() []byte {
 	return append(buf, data...)
 }
 
-// dropEmptyEntries compacts items by removing empty inner slices and
-// returns a coverage table whose values index the compacted slice.
-// Glyphs that mapped to a dropped entry are deleted from the coverage,
-// remaining values are renumbered.
-//
-// Both inputs are mutated in place: cov is updated directly, and the
-// items slice's backing array is overwritten. The returned slice shares
-// the same backing array, so the input items value should not be used
-// after the call.
+// dropEmptyEntries removes the glyphs whose item is empty from a coverage
+// table and from the items indexed by its coverage indices.  The arguments
+// are not modified.
 func dropEmptyEntries(cov coverage.Table, items [][]glyph.ID) (coverage.Table, [][]glyph.ID) {
-	oldToNew := make([]int, len(items))
-	// out aliases the backing array of items. The loop reads items[i] before
-	// any append writes to that index, since len(out) <= i at all times.
-	out := items[:0]
-	for i, item := range items {
-		if len(item) == 0 {
-			oldToNew[i] = -1
-			continue
-		}
-		oldToNew[i] = len(out)
-		out = append(out, item)
-	}
-	if len(out) == len(items) {
-		return cov, items
-	}
-	for gid, idx := range cov {
-		if newIdx := oldToNew[idx]; newIdx < 0 {
-			delete(cov, gid)
-		} else {
-			cov[gid] = newIdx
-		}
-	}
-	return cov, out
+	cov, items, _ = coverage.Filter(cov, items, func(_ glyph.ID, item []glyph.ID) bool {
+		return len(item) > 0
+	})
+	return cov, items
 }

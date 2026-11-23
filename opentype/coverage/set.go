@@ -4,7 +4,6 @@
 package coverage
 
 import (
-	"fmt"
 	"maps"
 	"slices"
 
@@ -31,84 +30,15 @@ func (set Set) ToTable() Table {
 	return table
 }
 
-// ReadSet reads a coverage table from a parser.
-// This function allows for some duplicate glyphs to be included.  This is
-// forbidden by the spec, but occurs in some widely used fonts.
+// ReadSet reads a coverage table as the set of glyphs which the table
+// lists.
 func ReadSet(p *parser.Parser, pos int64) (Set, error) {
-	err := p.SeekPos(pos)
+	set := make(Set)
+	err := readEntries(p, pos, setEntrySize, func(gid glyph.ID, _ int) {
+		set[gid] = true
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	format, err := p.ReadUint16()
-	if err != nil {
-		return nil, err
-	}
-
-	table := make(Set)
-
-	switch format {
-	case 1: // Coverage Format 1
-		glyphCount, err := p.ReadUint16()
-		if err != nil {
-			return nil, err
-		}
-		// 16 bytes per entry approximates the amortised hashtable overhead
-		// for map[glyph.ID]bool, where each entry carries only a few bytes.
-		if err := p.Budget.Charge(int(glyphCount) * 16); err != nil {
-			return nil, err
-		}
-		for i := 0; i < int(glyphCount); i++ {
-			gid, err := p.ReadUint16()
-			if err != nil {
-				return nil, err
-			}
-			table[glyph.ID(gid)] = true
-		}
-
-	case 2: // Coverage Format 2
-		rangeCount, err := p.ReadUint16()
-		if err != nil {
-			return nil, err
-		}
-		pos := 0
-		prev := -1
-		for i := 0; i < int(rangeCount); i++ {
-			buf, err := p.ReadBytes(6)
-			if err != nil {
-				return nil, err
-			}
-			startGlyphID := int(buf[0])<<8 | int(buf[1])
-			endGlyphID := int(buf[2])<<8 | int(buf[3])
-			startCoverageIndex := int(buf[4])<<8 | int(buf[5])
-			if startCoverageIndex != pos ||
-				startGlyphID < prev ||
-				endGlyphID < startGlyphID {
-				// Some fonts list individual glyphs twice.  To cover most of
-				// these cases, we allow startGlyphID to be equal to prev.
-				return nil, &parser.InvalidFontError{
-					SubSystem: "sfnt/opentype/coverage",
-					Reason:    "invalid coverage table (format 2)",
-				}
-			}
-			// charge each range up front: 16 bytes per entry approximates
-			// the per-entry overhead of map[glyph.ID]bool
-			if err := p.Budget.Charge((endGlyphID - startGlyphID + 1) * 16); err != nil {
-				return nil, err
-			}
-			for gid := startGlyphID; gid <= endGlyphID; gid++ {
-				table[glyph.ID(gid)] = true
-				pos++
-			}
-			prev = endGlyphID
-		}
-
-	default:
-		return nil, &parser.NotSupportedError{
-			SubSystem: "sfnt/opentype/coverage",
-			Feature:   fmt.Sprintf("coverage format %d", format),
-		}
-	}
-
-	return table, nil
+	return set, nil
 }
