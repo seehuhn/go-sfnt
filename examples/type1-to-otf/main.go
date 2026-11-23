@@ -229,6 +229,7 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 	}
 
 	otfInfo := sfnt.Font{
+		FontName:           t1Info.FontInfo.FontName,
 		FamilyName:         t1Info.FontInfo.FamilyName,
 		Subfamily:          subfamily,
 		FullName:           t1Info.FontInfo.FullName,
@@ -246,6 +247,7 @@ func readType1(fname string, afm *afm.Metrics) (*sfnt.Font, error) {
 		Copyright:          t1Info.FontInfo.Copyright,
 		Trademark:          t1Info.FontInfo.Notice,
 		UnitsPerEm:         uint16(unitsPerEm),
+		FontMatrix:         t1Info.FontMatrix,
 		Ascent:             funit.Int16(math.Round(ascent)),
 		Descent:            funit.Int16(math.Round(descent)),
 		CapHeight:          funit.Int16(math.Round(capHeight)),

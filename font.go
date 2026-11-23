@@ -113,9 +113,16 @@ type Outlines interface {
 // TODO(voss): clarify the relation between IsOblique, IsItalic, and
 // ItalicAngle != 0.
 //
-// TODO(voss): document which fields are mandatory/optional.
+// [Font.Write] requires FontName, UnitsPerEm, Outlines with at least one
+// glyph, and a FontMatrix which is zero or follows the rules given for the
+// field; all other fields are optional, and zero values stand for absent
+// information or, where documented, for values derived on writing.
 type Font struct {
-	// FontName (optional) is the PostScript name of the font.
+	// FontName is the PostScript name of the font.  [Font.Write] requires a
+	// name, whereas [Font.WriteTrueTypePDF] and [Font.WriteOpenTypeCFFPDF]
+	// accept the empty string, which stands for an unnamed font.  Fonts read
+	// from a file always have a name: where the file gives none, one is
+	// derived from the other names of the font where possible.
 	//
 	// The rules for the name depend on the kind of glyph outlines the font
 	// uses:
@@ -170,6 +177,8 @@ type Font struct {
 	// cmap coverage.
 	UnicodeRange os2.UnicodeRange
 
+	// Version is the font revision.  [head.VersionFromString] parses
+	// a version string.
 	Version          head.Version
 	CreationTime     time.Time
 	ModificationTime time.Time
@@ -210,6 +219,30 @@ type Font struct {
 	UnderlinePosition  funit.Float64 // negative
 	UnderlineThickness funit.Float64
 
+	// FontMatrix maps glyph design units, as used by the outline
+	// data, to text space units.
+	//
+	// The rules for the matrix depend on the kind of glyph outlines the font
+	// uses:
+	//
+	//   - For a font with glyf outlines, the matrix must be the one which
+	//     scales by 1/UnitsPerEm in both directions,
+	//     matrix.Scale(1/float64(UnitsPerEm), 1/float64(UnitsPerEm)).  The
+	//     outlines are in UnitsPerEm units, and a font file has no place for
+	//     any other matrix.
+	//   - For a font with CFF or CFF2 outlines, the matrix must have an
+	//     inverse, and the factor which converts advance widths to text space
+	//     must not overflow.  Where the outlines carry per-glyph font
+	//     matrices, this applies to the matrix combined with each of them;
+	//     [cff.UsableFontMatrix] performs the test.  Usually the matrix is the
+	//     one which scales by 1/UnitsPerEm in both directions.  The exception
+	//     is a CID-keyed CFF font, which normally has the identity here, since
+	//     its per-FD font matrices carry the scale.
+	//
+	// On write, the zero matrix can be used as a shorthand for the matrix
+	// which scales by 1/UnitsPerEm in both directions, whatever the kind of
+	// outlines; a CID-keyed CFF font whose top matrix is the identity must
+	// give it explicitly.  Fonts read from a file never have the zero matrix.
 	FontMatrix matrix.Matrix
 
 	ItalicAngle float64 // degrees counterclockwise from vertical
@@ -401,10 +434,17 @@ func (f *Font) fontBBox(unitsPerEm float64) (bbox rect.Rect) {
 }
 
 // glyphBBox returns the bounding box of a single glyph, with the outline
-// scaled so that one em spans unitsPerEm units.  The scale is composed into
-// the font matrix rather than applied afterwards, so that outlines already
-// drawn on the target grid are reproduced exactly.
+// scaled so that one em spans unitsPerEm units.
+//
+// Outlines already drawn on the target grid are reproduced exactly.  Glyf
+// outlines are drawn on the UnitsPerEm grid, so only the ratio of the two
+// grids is applied.  For CFF and CFF2 outlines the scale is composed into the
+// font matrix rather than applied afterwards.
 func (f *Font) glyphBBox(unitsPerEm float64, gid glyph.ID) rect.Rect {
+	if f.IsGlyf() {
+		q := unitsPerEm / float64(f.UnitsPerEm)
+		return f.Outlines.GlyphBBox(matrix.Scale(q, q), gid)
+	}
 	M := f.Outlines.GlyphMatrix(f.FontMatrix, gid)
 	return f.Outlines.GlyphBBox(M.Mul(matrix.Scale(unitsPerEm, unitsPerEm)), gid)
 }

@@ -397,6 +397,9 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 	if info.FontName == "" && nameTable != nil {
 		info.FontName = info.repairFontName(nameTable.PostScriptName)
 	}
+	if info.FontName == "" {
+		info.FontName = info.deriveFontName()
+	}
 	if os2Info != nil {
 		info.Width = os2Info.WidthClass
 		info.Weight = os2Info.WeightClass
@@ -443,8 +446,9 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		if fontInfo != nil {
 			info.FontMatrix = fontInfo.FontMatrix
 		} else {
+			// the only font matrix which glyf outlines can be written with
 			q := 1 / float64(info.UnitsPerEm)
-			info.FontMatrix = [6]float64{q, 0, 0, q, 0, 0}
+			info.FontMatrix = matrix.Scale(q, q)
 		}
 	}
 

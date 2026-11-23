@@ -12,6 +12,7 @@ import (
 	"math"
 	"time"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/funit"
 
 	"seehuhn.de/go/sfnt/cff"
@@ -33,11 +34,39 @@ import (
 )
 
 // Write writes the binary form of the font to the given writer.
+//
+// The font must have a non-empty FontName, a valid UnitsPerEm and a
+// FontMatrix which follows the rule for the kind of glyph outlines used, or
+// is zero; see [Font.FontMatrix].
+//
+// The following values are derived from other fields:
+//   - The advance widths in the "hmtx" table are the glyph widths in
+//     UnitsPerEm units.  The widths of CFF and CFF2 glyphs are converted from
+//     glyph design units using FontMatrix.
+//   - The font bounding box in the "head" table, and the glyph extents in the
+//     "hhea" table, are those of the glyph outlines (the ink, not the line
+//     metrics).
+//   - If WinAscent and WinDescent are both zero, they are taken from the
+//     font bounding box.
+//   - If HheaAscent, HheaDescent and HheaLineGap are all zero, the
+//     typographic metrics Ascent, Descent and LineGap are used.
+//   - The average character width in the "OS/2" table is the mean advance
+//     width over all glyphs of positive width, including .notdef.
+//   - The fixed-pitch flag of the "post" table is [Font.IsFixedPitch].
+//   - The PostScript name record in the "name" table is FontName, where the
+//     record can hold it; see [Font.FontName].
 func (f *Font) Write(w io.Writer) (int64, error) {
+	f = f.expandFontMatrix()
 	if err := f.checkPSNames(); err != nil {
 		return 0, err
 	}
+	if f.FontName == "" {
+		return 0, errors.New("sfnt: missing font name")
+	}
 	if err := f.checkUnitsPerEm(); err != nil {
+		return 0, err
+	}
+	if err := f.checkFontMatrix(); err != nil {
 		return 0, err
 	}
 	if err := f.checkNumGlyphs(); err != nil {
@@ -221,6 +250,7 @@ func (f *Font) assignVariationNameIDs() (*fvar.Table, *stat.Table, map[name.ID]s
 // does not require them.
 //
 // If the font does not use TrueType outlines, the function returns an error.
+// The font needs a valid UnitsPerEm and a FontMatrix as for [Font.Write].
 //
 // The optional arguments, if given, must be a sequence of pairs of strings and
 // byte slices.  Each pair is interpreted as the name of a table and the
@@ -231,10 +261,14 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 	if !ok {
 		return 0, errors.New("sfnt: WriteTrueTypePDF requires TrueType outlines")
 	}
+	f = f.expandFontMatrix()
 	if err := f.CheckFontName(f.FontName); err != nil {
 		return 0, err
 	}
 	if err := f.checkUnitsPerEm(); err != nil {
+		return 0, err
+	}
+	if err := f.checkFontMatrix(); err != nil {
 		return 0, err
 	}
 	if err := f.checkNumGlyphs(); err != nil {
@@ -288,13 +322,21 @@ func (f *Font) WriteTrueTypePDF(w io.Writer, extraTables ...any) (int64, error) 
 // tables required for PDF embedding.
 //
 // CFF2 outlines cannot be embedded this way (PDF supports static CFF only) and
-// the function returns an error for them.
+// the function returns an error for them.  The font needs a valid UnitsPerEm
+// and a FontMatrix as for [Font.Write].
 func (f *Font) WriteOpenTypeCFFPDF(w io.Writer) error {
 	outlines, ok := f.Outlines.(*cff.Outlines)
 	if !ok {
 		return errors.New("sfnt: WriteOpenTypeCFFPDF requires CFF outlines")
 	}
+	f = f.expandFontMatrix()
 	if err := f.CheckFontName(f.FontName); err != nil {
+		return err
+	}
+	if err := f.checkUnitsPerEm(); err != nil {
+		return err
+	}
+	if err := f.checkFontMatrix(); err != nil {
 		return err
 	}
 
@@ -665,4 +707,34 @@ func nameID6(f *Font) string {
 		return ""
 	}
 	return psName
+}
+
+// expandFontMatrix returns f, or, if the font matrix of f is zero, a shallow
+// copy of f with the matrix which the zero matrix stands for on write.
+func (f *Font) expandFontMatrix() *Font {
+	if f.FontMatrix != matrix.Zero {
+		return f
+	}
+	g := *f
+	q := 1 / float64(f.UnitsPerEm)
+	g.FontMatrix = matrix.Scale(q, q)
+	return &g
+}
+
+// checkFontMatrix verifies that the font matrix of a font with glyf outlines
+// can be written.
+//
+// A font file with glyf outlines has no font matrix: the outlines are in units
+// of 1/UnitsPerEm, so this scale is the only matrix such a font can have.  The
+// matrices of CFF and CFF2 outlines are checked when the CFF or CFF2 table is
+// encoded, using the test a reader uses to repair them.
+func (f *Font) checkFontMatrix() error {
+	if !f.IsGlyf() {
+		return nil
+	}
+	q := 1 / float64(f.UnitsPerEm)
+	if f.FontMatrix != matrix.Scale(q, q) {
+		return errors.New("sfnt: font matrix does not scale by 1/UnitsPerEm")
+	}
+	return nil
 }

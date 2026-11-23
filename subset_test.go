@@ -140,6 +140,7 @@ func TestCIDPerFDMatrixRoundTrip(t *testing.T) {
 	o.GIDToCID = []cid.CID{0, 1, 2, 3}
 
 	src := &Font{
+		FontName:   "Test",
 		FamilyName: "Test",
 		UnitsPerEm: 1000,
 		FontMatrix: matrix.Identity,

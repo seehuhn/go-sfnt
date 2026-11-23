@@ -5,6 +5,7 @@ package sfnt_test
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -137,10 +138,12 @@ func FuzzFont(f *testing.F) {
 	g1.LineTo(50, 850)
 	gg := []*cff.Glyph{g0, g1}
 	fontInfo = &sfnt.Font{
+		FontName:           "Test",
 		FamilyName:         "Test",
 		Width:              os2.WidthNormal,
 		Weight:             os2.WeightNormal,
 		UnitsPerEm:         1234,
+		FontMatrix:         matrix.Scale(1.0/1234, 1.0/1234),
 		Ascent:             800,
 		Descent:            -200,
 		LineGap:            100,
@@ -380,14 +383,14 @@ func TestPostScriptNameRoundTrip(t *testing.T) {
 					t.Errorf("the two reads disagree: %q and %q", want, got)
 				}
 
-				want := psName
+				got := font1.FontName
 				if !tc.carries && !isASCII(psName) {
-					// the name cannot be carried, so it is dropped rather than
-					// cut down to the characters which fit
-					want = ""
-				}
-				if got := font1.FontName; got != want {
-					t.Errorf("PostScript name = %q, want %q", got, want)
+					// the name cannot be carried, so another name is used
+					if got == "" || got == psName {
+						t.Errorf("PostScript name = %q for %q", got, psName)
+					}
+				} else if got != psName {
+					t.Errorf("PostScript name = %q, want %q", got, psName)
 				}
 			})
 		}
@@ -666,15 +669,102 @@ func TestFontNameSkipsMalformedEntry6(t *testing.T) {
 	}
 }
 
+// A font file which gives no usable PostScript name is read with a name
+// derived from the other names, so that the font can be written again.
+func TestFontNameDerivedOnRead(t *testing.T) {
+	for _, font := range []*sfnt.Font{debug.MakeVarFont(), debug.MakeSimpleFont()} {
+		font.FamilyName = "Foo"
+		font.Subfamily = "Bold"
+		font1 := readBack(t, fontWithPostScriptName(t, font, ""))
+		if font1.FontName == "" {
+			t.Fatal("empty font name")
+		}
+		buf := &bytes.Buffer{}
+		if _, err := font1.Write(buf); err != nil {
+			t.Fatal(err)
+		}
+		if font2 := readBack(t, buf.Bytes()); font2.FontName != font1.FontName {
+			t.Errorf("the two reads disagree: %q and %q", font1.FontName, font2.FontName)
+		}
+	}
+}
+
+// A family name which holds no character a PostScript name can use
+// contributes nothing to the derived name, and a family and subfamily name
+// which are too long together still give a name.
+func TestFontNameDerivedFromUnusableFamily(t *testing.T) {
+	fonts := map[string]func() *sfnt.Font{
+		"glyf": debug.MakeVarFont,
+		"CFF":  debug.MakeSimpleFont,
+		"CFF2": debug.MakeVarCFF2Font,
+	}
+	for kind, makeFont := range fonts {
+		long := strings.Repeat("x", 100)
+		for i, family := range []string{"()", "\x01\x02", " ", "", long} {
+			t.Run(fmt.Sprintf("%s/%d", kind, i), func(t *testing.T) {
+				data := editTables(t, makeFont(), func(tables map[string][]byte) {
+					nameInfo, err := name.Decode(tables["name"])
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, tab := range nameInfo.Windows {
+						tab.Family = family
+						tab.Subfamily = "Bold" + family
+						tab.FullName = ""
+						tab.PostScriptName = ""
+					}
+					nameInfo.Mac = nil
+					tables["name"] = nameInfo.Encode(1)
+
+					if cffData, ok := tables["CFF "]; ok {
+						tables["CFF "] = cffWithoutNames(t, cffData)
+					}
+				})
+
+				font1 := readBack(t, data)
+				if font1.FontName == "" || strings.HasPrefix(font1.FontName, "-") {
+					t.Errorf("PostScript name = %q", font1.FontName)
+				}
+				buf := &bytes.Buffer{}
+				if _, err := font1.Write(buf); err != nil {
+					t.Fatal(err)
+				}
+				if font2 := readBack(t, buf.Bytes()); font2.FontName != font1.FontName {
+					t.Errorf("the two reads disagree: %q and %q", font1.FontName, font2.FontName)
+				}
+			})
+		}
+	}
+}
+
+// cffWithoutNames returns the CFF table data with the font, family and full
+// names removed.
+func cffWithoutNames(t *testing.T, data []byte) []byte {
+	t.Helper()
+
+	font, err := cff.Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	font.FontInfo.FontName = ""
+	font.FontInfo.FamilyName = ""
+	font.FontInfo.FullName = ""
+	buf := &bytes.Buffer{}
+	if err := font.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
 // Entry 6 of the "name" table may hold at most 63 characters.  A longer name
-// is dropped rather than truncated, since a truncated name stands for a
-// different font.
+// is not used, and it is not truncated either, since a truncated name stands
+// for a different font.
 func TestFontNameTooLongForNameTable(t *testing.T) {
 	long := strings.Repeat("x", 100)
 
 	glyf := readBack(t, fontWithPostScriptName(t, debug.MakeVarFont(), long))
-	if got := glyf.FontName; got != "" {
-		t.Errorf("glyf: PostScript name = %q, want %q", got, "")
+	if got := glyf.FontName; got == "" || got == long {
+		t.Errorf("glyf: PostScript name = %q", got)
 	}
 
 	// a CFF Name INDEX has room for it
@@ -722,7 +812,8 @@ type widthFile struct {
 	// the top-level font matrix
 	matrix matrix.Matrix
 
-	// the per-FD font matrices, one per glyph; nil for a name-keyed CFF font
+	// the per-FD font matrices of a CID-keyed CFF font, one per glyph; nil
+	// for a name-keyed CFF font (CFF only)
 	fds []matrix.Matrix
 
 	// the charstring advance widths, one per glyph (CFF only)
@@ -747,24 +838,16 @@ func (spec *widthFile) encode(t *testing.T) []byte {
 	if spec.cff2 {
 		n := len(spec.hmtx)
 		glyphs := make([]*cff.GlyphCFF2, n)
-		private := make([]*cff.PrivateCFF2, max(len(spec.fds), 1))
+		private := []*cff.PrivateCFF2{{}}
 		for i := range glyphs {
 			glyphs[i] = &cff.GlyphCFF2{}
-		}
-		for i := range private {
-			private[i] = &cff.PrivateCFF2{}
-		}
-		fdSelect := func(glyph.ID) int { return 0 }
-		if spec.fds != nil {
-			fdSelect = func(gid glyph.ID) int { return int(gid) }
 		}
 		font := &cff.FontCFF2{
 			FontMatrix: spec.matrix,
 			OutlinesCFF2: &cff.OutlinesCFF2{
-				Glyphs:       glyphs,
-				Private:      private,
-				FDSelect:     fdSelect,
-				FontMatrices: spec.fds,
+				Glyphs:   glyphs,
+				Private:  private,
+				FDSelect: func(glyph.ID) int { return 0 },
 			},
 		}
 		if err := font.Write(buf); err != nil {
@@ -925,19 +1008,9 @@ func TestWidthRoundTrip(t *testing.T) {
 			want: []float64{500, 0},
 		},
 		{
-			name: "shear overflows",
-			spec: widthFile{matrix: matrix.Matrix{0.001, 1e200, 1e200, 0.001, 0, 0}, widths: []float64{500, 600}},
-			want: []float64{500, 600},
-		},
-		{
 			name: "CID-keyed, FDs at different scales",
 			spec: widthFile{matrix: matrix.Identity, fds: []matrix.Matrix{scale(0.001), scale(0.0005)}, widths: []float64{500, 1001}},
 			want: []float64{500, 1001},
-		},
-		{
-			name: "CID-keyed, composition overflows",
-			spec: widthFile{matrix: scale(1e200), fds: []matrix.Matrix{scale(0.001), scale(1e200)}, widths: []float64{500, 600}},
-			want: []float64{0, 0},
 		},
 		{
 			name: "CFF2, matching matrix",
@@ -957,11 +1030,6 @@ func TestWidthRoundTrip(t *testing.T) {
 		{
 			name: "CFF2, tiny matrix",
 			spec: widthFile{cff2: true, matrix: scale(1e-200), hmtx: []funit.Uint16{0, 500}},
-			want: []float64{0, 0},
-		},
-		{
-			name: "CFF2, composition overflows",
-			spec: widthFile{cff2: true, matrix: scale(1e200), fds: []matrix.Matrix{scale(1e200), scale(1e200)}, hmtx: []funit.Uint16{0, 500}},
 			want: []float64{0, 0},
 		},
 	}

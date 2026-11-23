@@ -328,6 +328,21 @@ func fontWithMatrices(top matrix.Matrix, fds []matrix.Matrix) *Font {
 	return f
 }
 
+// writeReadMalformed writes f without checking its font matrices and reads it
+// back, for testing the repair of font files.
+func writeReadMalformed(t *testing.T, f *Font) *Font {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	if err := f.write(buf); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Read(bytes.NewReader(buf.Bytes()), membudget.New(int64(10*buf.Len())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
 // writeRead writes f and reads it back.
 func writeRead(t *testing.T, f *Font) *Font {
 	t.Helper()

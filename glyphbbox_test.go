@@ -112,21 +112,27 @@ func TestFontBBoxDesignUnits(t *testing.T) {
 // off an integer, and the outward rounding in clamp.Rect16 would then grow the
 // stored box by a whole unit.
 func TestFontBBoxIsExactOnDesignGrid(t *testing.T) {
-	want := funit.Rect16{LLx: -37, LLy: -1999, URx: 1801, URy: 1999}
+	// the outward rounding grows a box on the sides where the coordinate
+	// is positive at the lower-left or negative at the upper-right corner
+	boxes := []funit.Rect16{
+		{LLx: -37, LLy: -1999, URx: 1801, URy: 1999},
+		{LLx: 30, LLy: 7, URx: 1801, URy: 1999},
+		{LLx: -1801, LLy: -1999, URx: -30, URy: -7},
+	}
 
-	// 1200 and 1800 are the interesting cases: 1000/unitsPerEm is not
-	// representable, so a round trip through PDF glyph space is inexact
-	for _, unitsPerEm := range []uint16{1000, 1024, 1200, 1800, 2000, 2048} {
-		g := &glyf.Glyph{}
-		g.LLx, g.LLy, g.URx, g.URy = want.LLx, want.LLy, want.URx, want.URy
-		f := &Font{
-			UnitsPerEm: unitsPerEm,
-			FontMatrix: emGrid(float64(unitsPerEm)),
-			Outlines:   &glyf.Outlines{Glyphs: glyf.Glyphs{g}},
-		}
-		if got := clamp.Rect16(f.FontBBox()); got != want {
-			t.Errorf("unitsPerEm %d: font bbox = %v, want %v",
-				unitsPerEm, got, want)
+	for unitsPerEm := 16; unitsPerEm <= 16384; unitsPerEm++ {
+		for _, want := range boxes {
+			g := &glyf.Glyph{}
+			g.LLx, g.LLy, g.URx, g.URy = want.LLx, want.LLy, want.URx, want.URy
+			f := &Font{
+				UnitsPerEm: uint16(unitsPerEm),
+				FontMatrix: emGrid(float64(unitsPerEm)),
+				Outlines:   &glyf.Outlines{Glyphs: glyf.Glyphs{g}},
+			}
+			if got := clamp.Rect16(f.FontBBox()); got != want {
+				t.Fatalf("unitsPerEm %d: font bbox = %v, want %v",
+					unitsPerEm, got, want)
+			}
 		}
 	}
 }

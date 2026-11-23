@@ -73,6 +73,7 @@ func cidKeyedFont() *Font {
 // font matrix in place of a well-formed one.
 func cffFontWithMatrix(fm matrix.Matrix) *Font {
 	return &Font{
+		FontName:   "Test",
 		UnitsPerEm: 1000,
 		FontMatrix: fm,
 		Outlines: &cff.Outlines{
@@ -123,6 +124,7 @@ func cffFixture() *Font {
 	}
 	glyphs[0].Name = ".notdef"
 	return &Font{
+		FontName:   "Fixture",
 		FamilyName: "Fixture",
 		UnitsPerEm: 1000,
 		Ascent:     800,

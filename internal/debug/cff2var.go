@@ -165,6 +165,7 @@ func MakeVarCFF2Font() *sfnt.Font {
 	}
 
 	font := &sfnt.Font{
+		FontName:           "CFF2Var-Regular",
 		FamilyName:         "CFF2Var",
 		FullName:           "CFF2Var Regular",
 		CreationTime:       fixtureDate,

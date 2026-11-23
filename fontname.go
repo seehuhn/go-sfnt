@@ -180,3 +180,23 @@ func (f *Font) checkPSNames() error {
 	}
 	return nil
 }
+
+// deriveFontName returns a PostScript name for a font which gives none.  The
+// name is built in the conventional form "Family-Subfamily" where possible,
+// and otherwise from the full name or the family name alone.  The result is
+// never empty.
+func (f *Font) deriveFontName() string {
+	fam := f.repairFontName(f.FamilyName)
+	sub := f.repairFontName(f.Subfamily)
+	// the repaired parts are valid names, so only the length can fail
+	if fam != "" && sub != "" && len(fam)+1+len(sub) <= f.MaxFontNameLen() {
+		return fam + "-" + sub
+	}
+	if full := f.repairFontName(f.FullName); full != "" {
+		return full
+	}
+	if fam != "" {
+		return fam
+	}
+	return "Unnamed"
+}

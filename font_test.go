@@ -5,6 +5,7 @@ package sfnt
 
 import (
 	"bytes"
+	"io"
 	"math"
 	"strings"
 	"testing"
@@ -163,7 +164,7 @@ func TestCheckFontName(t *testing.T) {
 // "name" table holds entry 6 in a restricted ASCII form, so a font with
 // TrueType outlines cannot be given a name outside that at all.
 func TestPostScriptNameSurvivesWriteRead(t *testing.T) {
-	for _, name := range []string{"Foo-Regular", "ABCDEF+Foo-Regular", ""} {
+	for _, name := range []string{"Foo-Regular", "ABCDEF+Foo-Regular"} {
 		f := ttfFixture(t)
 		f.FontName = name
 
@@ -228,17 +229,104 @@ func TestStyleNamesOmitted(t *testing.T) {
 	}
 }
 
-// A font which does not name itself has no PostScript name.  Nothing is
-// derived from the family name, since a derived name stands for a different
-// font and the caller cannot tell the two apart.
-func TestPostScriptNameNotDerived(t *testing.T) {
-	f := ttfFixture(t)
-	f.FontName = ""
-	f.FamilyName = "Foo"
-	f.Subfamily = "Bold"
+// Writing a font without a PostScript name, or without a usable font
+// matrix, fails.
+func TestWriteRequiredFields(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		modify func(f *Font)
+	}{
+		{"no name", func(f *Font) { f.FontName = "" }},
+		{"singular matrix", func(f *Font) { f.FontMatrix = matrix.Matrix{1, 1, 1, 1, 0, 0} }},
+		// invertible, but the advance width scale overflows
+		{"advance scale overflows", func(f *Font) { f.FontMatrix = matrix.Matrix{1, 1e305, 1, 2e-6, 0, 0} }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fixtures := map[string]*Font{
+				"glyf": ttfFixture(t),
+				"CFF":  cffFixture(),
+			}
+			for kind, f := range fixtures {
+				c.modify(f)
+				if _, err := f.Write(io.Discard); err == nil {
+					t.Errorf("%s: invalid font accepted", kind)
+				}
+			}
+		})
+	}
+}
 
-	if got := writeReadTTF(t, f).FontName; got != "" {
-		t.Errorf("font name = %q, want %q", got, "")
+// On write, the zero font matrix stands for the matrix which scales by
+// 1/UnitsPerEm.
+func TestWriteZeroFontMatrix(t *testing.T) {
+	fixtures := map[string]*Font{
+		"glyf": ttfFixture(t),
+		"CFF":  cffFixture(),
+	}
+	for kind, f := range fixtures {
+		t.Run(kind, func(t *testing.T) {
+			q := 1 / float64(f.UnitsPerEm)
+			f.FontMatrix = matrix.Scale(q, q)
+			want := &bytes.Buffer{}
+			if _, err := f.Write(want); err != nil {
+				t.Fatal(err)
+			}
+			wantPDF := &bytes.Buffer{}
+			if err := writePDF(f, wantPDF); err != nil {
+				t.Fatal(err)
+			}
+
+			f.FontMatrix = matrix.Zero
+			got := &bytes.Buffer{}
+			if _, err := f.Write(got); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got.Bytes(), want.Bytes()) {
+				t.Error("zero matrix written differently from 1/UnitsPerEm")
+			}
+			gotPDF := &bytes.Buffer{}
+			if err := writePDF(f, gotPDF); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(gotPDF.Bytes(), wantPDF.Bytes()) {
+				t.Error("PDF: zero matrix written differently from 1/UnitsPerEm")
+			}
+		})
+	}
+}
+
+// writePDF writes f in the form used for embedding in PDF files.
+func writePDF(f *Font, w io.Writer) error {
+	if f.IsGlyf() {
+		_, err := f.WriteTrueTypePDF(w)
+		return err
+	}
+	return f.WriteOpenTypeCFFPDF(w)
+}
+
+// A font file with glyf outlines has no font matrix: the outlines are in
+// units of 1/UnitsPerEm.  Writing such a font with any other font matrix
+// fails.
+func TestWriteRejectsGlyfFontMatrix(t *testing.T) {
+	f := ttfFixture(t)
+	if _, err := f.Write(io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	q := 1 / float64(f.UnitsPerEm)
+	for _, m := range []matrix.Matrix{
+		matrix.Scale(q/2, q/2),
+		matrix.Scale(q, 2*q),
+		{q, 0, 0, q, 1, 0},
+		matrix.Identity,
+	} {
+		f.FontMatrix = m
+		if _, err := f.Write(io.Discard); err == nil {
+			t.Errorf("font matrix %v accepted", m)
+		}
+		if _, err := f.WriteTrueTypePDF(io.Discard); err == nil {
+			t.Errorf("PDF: font matrix %v accepted", m)
+		}
 	}
 }
 

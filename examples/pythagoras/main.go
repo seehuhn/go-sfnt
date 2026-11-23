@@ -46,6 +46,7 @@ func main() {
 	// Create the font structure
 	now := time.Now()
 	info := &sfnt.Font{
+		FontName:   "Pythagoras-Regular",
 		FamilyName: "Pythagoras",
 		Subfamily:  "Regular",
 		FullName:   "Pythagoras Regular",

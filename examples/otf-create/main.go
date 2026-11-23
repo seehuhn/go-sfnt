@@ -21,6 +21,7 @@ import (
 func main() {
 	now := time.Now()
 	info := &sfnt.Font{
+		FontName:   "Test-Regular",
 		FamilyName: "Test",
 		Subfamily:  "Regular",
 		FullName:   "Test Regular",

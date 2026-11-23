@@ -245,24 +245,31 @@ func advanceScale(fm matrix.Matrix) float64 {
 	return q
 }
 
-// usableFontMatrix reports whether fm, the effective font matrix of a glyph,
-// has finite entries and a finite advance scale.  Each entry a font file gives
-// is finite, but composing a per-FD matrix with the top-level matrix can
-// overflow, and so can the shear correction in [advanceScale].  A glyph whose
-// matrix fails the test has neither a usable outline nor a usable advance
-// width.
-func usableFontMatrix(fm matrix.Matrix) bool {
+// UsableFontMatrix reports whether fm, the effective font matrix of a glyph
+// as returned by [Outlines.GlyphMatrix] or [OutlinesCFF2.GlyphMatrix], has
+// finite entries, a finite advance scale and an inverse.  Each entry a font
+// file gives is finite, but composing a per-FD matrix with the top-level
+// matrix can overflow, and so can the shear correction applied to advance
+// widths.  A glyph whose matrix fails the test has neither a usable outline
+// nor a usable advance width.
+//
+// Fonts read by this package pass the test for every glyph.
+func UsableFontMatrix(fm matrix.Matrix) bool {
 	for _, x := range fm {
 		if math.IsInf(x, 0) || math.IsNaN(x) {
 			return false
 		}
 	}
 	q := advanceScale(fm)
-	return !math.IsInf(q, 0) && !math.IsNaN(q)
+	if math.IsInf(q, 0) || math.IsNaN(q) {
+		return false
+	}
+	_, ok := fm.Inv()
+	return ok
 }
 
 // repairFontMatrices replaces font matrices read from a file which leave a
-// glyph without a usable effective font matrix (see [usableFontMatrix]).  The
+// glyph without a usable effective font matrix (see [UsableFontMatrix]).  The
 // top-level matrix top is composed with each of the per-FD matrices fds, or
 // used on its own if there are none; a matrix which is replaced gets the value
 // a reader assumes when the matrix is absent, topDefault or fdDefault.
@@ -274,12 +281,30 @@ func repairFontMatrices(top *matrix.Matrix, fds []matrix.Matrix, topDefault, fdD
 	if len(fds) > 0 {
 		probe = fdDefault.Mul(*top)
 	}
-	if !usableFontMatrix(probe) {
+	if !UsableFontMatrix(probe) {
 		*top = topDefault
 	}
 	for i, fd := range fds {
-		if !usableFontMatrix(fd.Mul(*top)) {
+		if !UsableFontMatrix(fd.Mul(*top)) {
 			fds[i] = fdDefault
 		}
 	}
+}
+
+// checkFontMatrices returns an error if [repairFontMatrices] would replace
+// one of the given font matrices when the font is read back.
+func checkFontMatrices(top matrix.Matrix, fds []matrix.Matrix, fdDefault matrix.Matrix) error {
+	probe := top
+	if len(fds) > 0 {
+		probe = fdDefault.Mul(top)
+	}
+	if !UsableFontMatrix(probe) {
+		return invalidSince("unusable font matrix")
+	}
+	for _, fd := range fds {
+		if !UsableFontMatrix(fd.Mul(top)) {
+			return invalidSince("unusable per-FD font matrix")
+		}
+	}
+	return nil
 }

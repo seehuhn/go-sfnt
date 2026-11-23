@@ -267,6 +267,7 @@ func TestWriteRejectsUnitsPerEm(t *testing.T) {
 			t.Fatal(err)
 		}
 		f.UnitsPerEm = c.upm
+		f.FontMatrix = emGrid(float64(c.upm))
 
 		_, err = f.Write(io.Discard)
 		if (err == nil) != c.ok {

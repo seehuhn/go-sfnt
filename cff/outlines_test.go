@@ -4,12 +4,15 @@
 package cff
 
 import (
+	"bytes"
+	"io"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/geom/path"
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/postscript/cid"
 	"seehuhn.de/go/sfnt/glyph"
 )
@@ -166,26 +169,129 @@ func TestRepairFontMatrices(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := writeRead(t, fontWithMatrices(c.top, c.fds))
+			got := writeReadMalformed(t, fontWithMatrices(c.top, c.fds))
 			if got.FontInfo.FontMatrix != c.wantTop {
 				t.Errorf("top matrix: got %v, want %v", got.FontInfo.FontMatrix, c.wantTop)
 			}
 			if diff := cmp.Diff(c.wantFDs, got.FontMatrices); diff != "" {
 				t.Errorf("FD matrices (-want +got):\n%s", diff)
 			}
-			for gid := range got.Glyphs {
-				fm := got.GlyphMatrix(got.FontInfo.FontMatrix, glyph.ID(gid))
-				if !usableFontMatrix(fm) {
-					t.Errorf("glyph %d: unusable font matrix %v", gid, fm)
-				}
-			}
+			checkMatricesStable(t, got)
+		})
+	}
+}
 
-			again := writeRead(t, got)
-			if again.FontInfo.FontMatrix != got.FontInfo.FontMatrix {
-				t.Errorf("top matrix changed: %v, then %v", got.FontInfo.FontMatrix, again.FontInfo.FontMatrix)
+// TestReadSingularFontMatrix checks that a font whose font matrix is not
+// invertible is read with usable matrices, and that the font read survives a
+// write/read cycle.
+func TestReadSingularFontMatrix(t *testing.T) {
+	cases := map[string]matrix.Matrix{
+		"singular": {1, 1, 1, 1, 0, 0},
+		"zero":     {},
+	}
+	for name, top := range cases {
+		t.Run(name, func(t *testing.T) {
+			checkMatricesStable(t, writeReadMalformed(t, fontWithMatrices(top, nil)))
+		})
+	}
+}
+
+// checkMatricesStable checks that every glyph of a font read from a file has
+// a usable font matrix, and that the matrices survive a write/read cycle.
+func checkMatricesStable(t *testing.T, got *Font) {
+	t.Helper()
+	for gid := range got.Glyphs {
+		fm := got.GlyphMatrix(got.FontInfo.FontMatrix, glyph.ID(gid))
+		if !UsableFontMatrix(fm) {
+			t.Errorf("glyph %d: unusable font matrix %v", gid, fm)
+		}
+	}
+
+	again := writeRead(t, got)
+	if again.FontInfo.FontMatrix != got.FontInfo.FontMatrix {
+		t.Errorf("top matrix changed: %v, then %v", got.FontInfo.FontMatrix, again.FontInfo.FontMatrix)
+	}
+	if diff := cmp.Diff(got.FontMatrices, again.FontMatrices); diff != "" {
+		t.Errorf("FD matrices changed (-first +second):\n%s", diff)
+	}
+}
+
+// matrixCases lists top-level and per-FD font matrices, some usable and some
+// not, for testing the writers against the repair on read.
+var matrixCases = []struct {
+	name string
+	top  matrix.Matrix
+	fds  []matrix.Matrix
+}{
+	{"default", defaultFontMatrix, nil},
+	{"huge", matrix.Scale(1e200, 1e200), nil},
+	{"tiny", matrix.Scale(1e-200, 1e-200), nil},
+	{"singular", matrix.Matrix{1, 1, 1, 1, 0, 0}, nil},
+	{"zero", matrix.Zero, nil},
+	{"shear overflows", matrix.Matrix{1, 1e300, 1e300, 1, 0, 0}, nil},
+	{"CID", matrix.Identity, []matrix.Matrix{defaultFontMatrix, matrix.Scale(0.002, 0.002)}},
+	{"CID, usable composition", matrix.Scale(1e200, 1e200), []matrix.Matrix{matrix.Scale(1e-200, 1e-200), defaultFontMatrix}},
+	{"CID, composition overflows", matrix.Scale(1e200, 1e200), []matrix.Matrix{defaultFontMatrix, matrix.Scale(1e200, 1e200)}},
+	{"CID, singular FD", matrix.Identity, []matrix.Matrix{defaultFontMatrix, {1, 1, 1, 1, 0, 0}}},
+	{"CID, top at fault", matrix.Matrix{1, 1e300, 1e300, 1, 0, 0}, []matrix.Matrix{defaultFontMatrix, defaultFontMatrix}},
+	// each composition is usable, but the top matrix fails with the
+	// default per-FD matrix
+	{"CID, top fails alone", matrix.Matrix{1, 1e300, 1e300, 1, 0, 0}, []matrix.Matrix{matrix.Scale(1e-300, 1e-300), matrix.Scale(1e-300, 1e-300)}},
+}
+
+// TestWriteChecksFontMatrices checks that the CFF writer accepts exactly the
+// font matrices which a reader keeps unchanged.
+func TestWriteChecksFontMatrices(t *testing.T) {
+	for _, c := range matrixCases {
+		t.Run(c.name, func(t *testing.T) {
+			f := fontWithMatrices(c.top, c.fds)
+			err := f.Write(io.Discard)
+
+			got := writeReadMalformed(t, f)
+			kept := got.FontInfo.FontMatrix == c.top
+			if c.fds != nil {
+				kept = kept && cmp.Equal(got.FontMatrices, c.fds)
 			}
-			if diff := cmp.Diff(got.FontMatrices, again.FontMatrices); diff != "" {
-				t.Errorf("FD matrices changed (-first +second):\n%s", diff)
+			if kept != (err == nil) {
+				t.Errorf("matrices kept on read: %t, write error: %v", kept, err)
+			}
+		})
+	}
+}
+
+// TestWriteCFF2ChecksFontMatrices checks that the CFF2 writer accepts exactly
+// the font matrices which a reader keeps unchanged.
+func TestWriteCFF2ChecksFontMatrices(t *testing.T) {
+	for _, c := range matrixCases {
+		t.Run(c.name, func(t *testing.T) {
+			fds := c.fds
+			if fds == nil {
+				fds = []matrix.Matrix{matrix.Identity}
+			}
+			o := &OutlinesCFF2{
+				Glyphs:       make([]*GlyphCFF2, len(fds)),
+				Private:      make([]*PrivateCFF2, len(fds)),
+				FDSelect:     func(gid glyph.ID) int { return int(gid) },
+				FontMatrices: fds,
+			}
+			for i := range fds {
+				o.Glyphs[i] = &GlyphCFF2{}
+				o.Private[i] = &PrivateCFF2{}
+			}
+			f := &FontCFF2{FontMatrix: c.top, OutlinesCFF2: o}
+			err := f.Write(io.Discard)
+
+			buf := &bytes.Buffer{}
+			if err := f.write(buf); err != nil {
+				t.Fatal(err)
+			}
+			got, err2 := ReadCFF2(bytes.NewReader(buf.Bytes()), membudget.New(1<<20))
+			if err2 != nil {
+				t.Fatal(err2)
+			}
+			kept := got.FontMatrix == c.top && cmp.Equal(got.FontMatrices, fds)
+			if kept != (err == nil) {
+				t.Errorf("matrices kept on read: %t, write error: %v", kept, err)
 			}
 		})
 	}

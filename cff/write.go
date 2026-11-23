@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 
+	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/glyph"
 )
@@ -25,7 +26,25 @@ const maxGlyphs = 65535
 const maxCharStringLen = 65535
 
 // Write writes the binary form of a CFF font.
+//
+// For a simple font, the top-level font matrix must pass [UsableFontMatrix].
+// For a CID-keyed font, the top-level matrix composed with each of the per-FD
+// matrices must pass the test, and so must the top-level matrix composed with
+// the matrix a Font DICT without a FontMatrix entry has.
 func (f *Font) Write(w io.Writer) error {
+	var fds []matrix.Matrix
+	if f.IsCIDKeyed() {
+		fds = f.FontMatrices[:len(f.Private)]
+	}
+	if err := checkFontMatrices(f.FontInfo.FontMatrix, fds, defaultFontMatrix); err != nil {
+		return err
+	}
+	return f.write(w)
+}
+
+// write writes the font like [Font.Write], but without checking the font
+// matrices.  Tests use this to create files which need repair on read.
+func (f *Font) write(w io.Writer) error {
 	if err := type1.CheckFontName(f.FontInfo.FontName); err != nil {
 		return err
 	}

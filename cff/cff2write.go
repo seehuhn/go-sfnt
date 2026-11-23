@@ -14,7 +14,24 @@ import (
 )
 
 // Write writes the binary form of a CFF2 font.
+//
+// The top-level font matrix, on its own and composed with each of the per-FD
+// matrices, must pass [UsableFontMatrix].
 func (f *FontCFF2) Write(w io.Writer) error {
+	o := f.OutlinesCFF2
+	fds := make([]matrix.Matrix, len(o.Private))
+	for i := range fds {
+		fds[i] = o.FDMatrix(i, matrix.Identity)
+	}
+	if err := checkFontMatrices(f.FontMatrix, fds, matrix.Identity); err != nil {
+		return err
+	}
+	return f.write(w)
+}
+
+// write writes the font like [FontCFF2.Write], but without checking the font
+// matrices.  Tests use this to create files which need repair on read.
+func (f *FontCFF2) write(w io.Writer) error {
 	o := f.OutlinesCFF2
 	numGlyphs := len(o.Glyphs)
 	if numGlyphs == 0 {
