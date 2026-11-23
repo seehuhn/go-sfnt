@@ -5,6 +5,7 @@ package gtab
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -20,7 +21,6 @@ func TestScriptListFeatureIndexSentinel(t *testing.T) {
 	// feature 0.
 	info := ScriptListInfo{}
 	info[language.English] = &Features{
-		Required: 0xFFFF,
 		Optional: []FeatureIndex{1, 0xFFFF, 3},
 	}
 	data := encodeList(t, info)
@@ -44,33 +44,29 @@ func TestScriptListFeatureIndexSentinel(t *testing.T) {
 func FuzzScriptList(f *testing.F) {
 	info := ScriptListInfo{}
 	info[language.MustParse("und-Zzzz")] = &Features{
-		Required: 0xFFFF,
 		Optional: []FeatureIndex{0},
 	}
 	f.Add(encodeList(f, info))
 	info = ScriptListInfo{}
 	info[language.English] = &Features{
-		Required: 0xFFFF,
 		Optional: []FeatureIndex{1, 2, 3, 4},
 	}
 	info[language.MustParse("und-Latn")] = &Features{
-		Required: 7,
+		Required: new(FeatureIndex(7)),
 		Optional: []FeatureIndex{5, 6},
 	}
 	f.Add(encodeList(f, info))
 	info = ScriptListInfo{}
 	info[language.MustParse("und-Arab")] = &Features{
-		Required: FeatureIndex(0),
+		Required: new(FeatureIndex(0)),
 		Optional: []FeatureIndex{1, 2},
 	}
 	f.Add(encodeList(f, info))
 	info = ScriptListInfo{}
 	info[language.Arabic] = &Features{
-		Required: FeatureIndex(0xFFFF),
 		Optional: []FeatureIndex{1, 3, 5},
 	}
 	info[language.Azerbaijani] = &Features{
-		Required: FeatureIndex(0xFFFF),
 		Optional: []FeatureIndex{2, 4, 6},
 	}
 	f.Add(encodeList(f, info))
@@ -108,11 +104,11 @@ func bigFeatures(n int) *Features {
 	for i := range opt {
 		opt[i] = FeatureIndex(i)
 	}
-	return &Features{Required: 0xFFFF, Optional: opt}
+	return &Features{Optional: opt}
 }
 
 func TestScriptListOffsetRange(t *testing.T) {
-	small := &Features{Required: 0xFFFF, Optional: []FeatureIndex{1}}
+	small := &Features{Optional: []FeatureIndex{1}}
 
 	// In each case, the small table only fits if the large one is stored
 	// last.
@@ -247,8 +243,8 @@ func TestScriptListSharedTables(t *testing.T) {
 // TestScriptListSharingIdenticalOnly checks that only identical Script and
 // LangSys tables share storage.
 func TestScriptListSharingIdenticalOnly(t *testing.T) {
-	a := &Features{Required: 0xFFFF, Optional: []FeatureIndex{1, 2, 3}}
-	b := &Features{Required: 0xFFFF, Optional: []FeatureIndex{1, 2, 4}}
+	a := &Features{Optional: []FeatureIndex{1, 2, 3}}
+	b := &Features{Optional: []FeatureIndex{1, 2, 4}}
 	tag := func(s string) language.Tag { return language.MustParse(s) }
 
 	size := func(info ScriptListInfo) int {
@@ -418,7 +414,6 @@ func TestScriptListMath(t *testing.T) {
 	}
 	want := ScriptListInfo{
 		language.MustParse("und-Zmth-x-math"): &Features{
-			Required: 0xFFFF,
 			Optional: []FeatureIndex{7},
 		},
 	}
@@ -437,5 +432,241 @@ func TestScriptListMath(t *testing.T) {
 	}
 	if !bytes.Contains(enc, []byte("math")) {
 		t.Error("encoded script list lacks the math script tag")
+	}
+}
+
+// TestScriptListTagForm checks that a tag without private-use subtags is
+// read back in the explicit form.
+func TestScriptListTagForm(t *testing.T) {
+	info := ScriptListInfo{language.MustParse("und-Latn"): {}}
+	got := readScriptListData(t, encodeList(t, info))
+	if _, ok := got[language.MustParse("und-Latn-x-latn")]; !ok || len(got) != 1 {
+		t.Errorf("unexpected tags in %v", got)
+	}
+}
+
+// readScriptListData reads an encoded script list, and fails the test if
+// the list cannot be read.
+func readScriptListData(t *testing.T, data []byte) ScriptListInfo {
+	t.Helper()
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	info, err := readScriptList(p, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
+}
+
+// TestScriptListAllScripts checks that every script in the script table
+// survives a round trip through a script list.
+func TestScriptListAllScripts(t *testing.T) {
+	info := ScriptListInfo{}
+	for script := range scriptBcp47 {
+		tag, err := otfToBCP47(script, "")
+		if err != nil {
+			t.Errorf("script %q: %v", script, err)
+			continue
+		}
+		info[tag] = &Features{Optional: []FeatureIndex{FeatureIndex(len(info))}}
+	}
+	if len(info) != len(scriptBcp47) {
+		t.Errorf("got %d tags for %d scripts", len(info), len(scriptBcp47))
+	}
+
+	got := readScriptListData(t, encodeList(t, info))
+	if diff := cmp.Diff(info, got); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+// TestScriptListPaddedScript checks that a script whose OpenType tag is
+// padded with spaces can be written and read back.
+func TestScriptListPaddedScript(t *testing.T) {
+	features := &Features{Optional: []FeatureIndex{1}}
+	info := ScriptListInfo{language.MustParse("und-Laoo"): features}
+	data := encodeList(t, info)
+	if !bytes.Contains(data, []byte("lao ")) {
+		t.Error("encoded script list lacks the lao script tag")
+	}
+
+	got := readScriptListData(t, data)
+	want := ScriptListInfo{language.MustParse("und-Laoo-x-lao"): features}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+	if again := encodeList(t, got); !bytes.Equal(data, again) {
+		t.Error("re-encoding the decoded list gives different bytes")
+	}
+}
+
+// scriptListData returns an encoded script list with one script.  The
+// script has a default language system and, if lang is not empty, a second
+// language system for lang.
+func scriptListData(script, lang string) []byte {
+	data := []byte{0, 1} // scriptCount
+	data = append(data, script...)
+	data = append(data, 0, 8) // offset of the Script table
+	if lang == "" {
+		data = append(data, 0, 4, 0, 0) // default LangSys at offset 4, no others
+	} else {
+		data = append(data, 0, 10, 0, 1) // default LangSys at offset 10, one other
+		data = append(data, lang...)
+		data = append(data, 0, 18)
+	}
+	data = append(data, 0, 0, 0xFF, 0xFF, 0, 1, 0, 7) // LangSys: one feature, index 7
+	if lang != "" {
+		data = append(data, 0, 0, 0xFF, 0xFF, 0, 1, 0, 8)
+	}
+	return data
+}
+
+// TestScriptListUnregisteredTags checks that script and language system
+// tags which are missing from the tag tables are kept on read and written
+// back.
+func TestScriptListUnregisteredTags(t *testing.T) {
+	cases := []struct {
+		name, script, lang string
+	}{
+		{"script", "qqqq", ""},
+		{"padded script", "qq  ", ""},
+		{"language", "latn", "QQQ "},
+		{"script and language", "qqqq", "QQQQ"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			info := readScriptListData(t, scriptListData(c.script, c.lang))
+			want := 1
+			if c.lang != "" {
+				want = 2
+			}
+			if len(info) != want {
+				t.Fatalf("got %d language systems, want %d", len(info), want)
+			}
+
+			enc := encodeList(t, info)
+			for _, tag := range []string{c.script, c.lang} {
+				if !bytes.Contains(enc, []byte(tag)) {
+					t.Errorf("encoded script list lacks the tag %q", tag)
+				}
+			}
+			if diff := cmp.Diff(info, readScriptListData(t, enc)); diff != "" {
+				t.Errorf("round trip failed (-first +second):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestScriptListMalformedTags checks that a script list with tags which
+// cannot be spelled in a BCP 47 tag can be read, and that the result
+// survives a write/read cycle.
+func TestScriptListMalformedTags(t *testing.T) {
+	cases := []struct {
+		name, script, lang string
+	}{
+		{"punctuation in script", "la-n", ""},
+		{"upper-case script", "LATN", ""},
+		{"lower-case default script", "dflt", ""},
+		{"blank script", "    ", ""},
+		{"inner space in script", "l tn", ""},
+		{"punctuation in language", "latn", "EN-G"},
+		{"lower-case language", "latn", "eng "},
+		{"blank language", "latn", "    "},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			info := readScriptListData(t, scriptListData(c.script, c.lang))
+			enc := encodeList(t, info)
+			if diff := cmp.Diff(info, readScriptListData(t, enc)); diff != "" {
+				t.Errorf("round trip failed (-first +second):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestScriptListSharedTablesBudget checks that a script list is rejected if
+// its shared tables expand to far more language systems than the size of
+// the input allows.  Every script record refers to the same Script table,
+// which has many language systems.
+func TestScriptListSharedTablesBudget(t *testing.T) {
+	const nScripts = 600
+	const nLangs = 600
+
+	scriptPos := 2 + 6*nScripts
+	langSysPos := 4 + 6*nLangs // relative to the Script table
+	data := []byte{byte(nScripts >> 8), byte(nScripts & 0xFF)}
+	for i := range nScripts {
+		data = fmt.Appendf(data, "q%03d", i)
+		data = append(data, byte(scriptPos>>8), byte(scriptPos&0xFF))
+	}
+	data = append(data, 0, 0, byte(nLangs>>8), byte(nLangs&0xFF))
+	for i := range nLangs {
+		data = fmt.Appendf(data, "Q%03d", i)
+		data = append(data, byte(langSysPos>>8), byte(langSysPos&0xFF))
+	}
+	data = append(data, 0, 0, 0xFF, 0xFF, 0, 0)
+
+	p := parser.New(bytes.NewReader(data), parser.NewBudget(int64(len(data))))
+	if _, err := readScriptList(p, 0); err == nil {
+		t.Error("script list beyond the budget was read")
+	}
+}
+
+// TestEncodeScriptListTags checks that Encode accepts valid script-list
+// tags, and rejects tags without an OpenType form and tags which name the
+// same language system.
+func TestEncodeScriptListTags(t *testing.T) {
+	tags := func(tags ...string) ScriptListInfo {
+		info := ScriptListInfo{}
+		for i, tag := range tags {
+			info[language.MustParse(tag)] = &Features{Optional: []FeatureIndex{FeatureIndex(i)}}
+		}
+		return info
+	}
+	features := FeatureListInfo{{Tag: "aaaa"}, {Tag: "bbbb"}, {Tag: "cccc"}, {Tag: "dddd"}}
+
+	valid := map[string]ScriptListInfo{
+		"plain tags":            tags("und-Latn", "en-Latn", "de-Latn", "und-Cyrl"),
+		"explicit tags":         tags("und-Latn-x-latn", "en-Latn-x-latn-eng", "und-Deva-x-deva", "und-Deva-x-dev2"),
+		"mixed tags":            tags("und-Latn", "en-Latn-x-latn-eng", "ru-Cyrl", "und-Laoo-x-lao"),
+		"same language":         tags("en-Latn-x-latn-eng", "en-Cyrl-x-cyrl-eng"),
+		"default and language":  tags("und-Zzzz", "en-Zzzz-x-dflt-eng"),
+		"single default system": tags("und-Latn"),
+	}
+	for name, scripts := range valid {
+		t.Run(name, func(t *testing.T) {
+			info := &Info{ScriptList: scripts, FeatureList: features}
+			if _, err := info.Encode(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+
+	duplicate := map[string]ScriptListInfo{
+		"language":        tags("en-Latn", "en-Latn-x-latn-eng"),
+		"default":         tags("und-Latn", "und-Latn-x-latn"),
+		"regions":         tags("en-US", "en-GB"),
+		"padded language": tags("und-Latn-x-latn-ho", "hoc-Latn"),
+	}
+	invalid := map[string]ScriptListInfo{
+		"long script":      tags("und-x-abcdefgh"),
+		"long language":    tags("und-Latn-x-latn-abcdefgh"),
+		"too many subtags": tags("und-Latn-x-latn-eng-abc"),
+	}
+	for name, scripts := range invalid {
+		t.Run("invalid "+name, func(t *testing.T) {
+			info := &Info{ScriptList: scripts, FeatureList: features}
+			if _, err := info.Encode(); err == nil {
+				t.Error("expected an error")
+			}
+		})
+	}
+
+	for name, scripts := range duplicate {
+		t.Run("duplicate "+name, func(t *testing.T) {
+			info := &Info{ScriptList: scripts, FeatureList: features}
+			if _, err := info.Encode(); err == nil {
+				t.Error("expected an error")
+			}
+		})
 	}
 }

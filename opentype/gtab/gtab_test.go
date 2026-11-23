@@ -6,6 +6,7 @@ package gtab
 import (
 	"bytes"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -21,7 +22,7 @@ func TestGetLookups(t *testing.T) {
 	gtabInfo := Info{
 		ScriptList: map[language.Tag]*Features{
 			language.MustParse("und-Latn"): {
-				Required: 0,
+				Required: new(FeatureIndex(0)),
 				Optional: []FeatureIndex{
 					1, 2, 3,
 				},
@@ -65,15 +66,14 @@ func FuzzGtab(f *testing.F) {
 
 	info.ScriptList = ScriptListInfo{
 		language.MustParse("und-Zzzz"): {
-			Required: 0xFFFF,
 			Optional: []FeatureIndex{1, 2, 3, 4},
 		},
 		language.MustParse("und-Latn"): {
-			Required: 0,
+			Required: new(FeatureIndex(0)),
 			Optional: []FeatureIndex{2, 4, 5},
 		},
 		language.German: {
-			Required: 6,
+			Required: new(FeatureIndex(6)),
 		},
 	}
 	info.FeatureList = FeatureListInfo{
@@ -253,10 +253,11 @@ func doFuzz(t *testing.T, lookupType, lookupFormat uint16,
 func TestInfoEncodeHeaderOffsets(t *testing.T) {
 	smallFeats := FeatureListInfo{{Tag: "liga", Lookups: []LookupIndex{0}}}
 	smallScripts := ScriptListInfo{
-		language.MustParse("und-Latn-x-latn"): {Required: 0xFFFF, Optional: []FeatureIndex{0}},
+		language.MustParse("und-Latn-x-latn"): {Optional: []FeatureIndex{0}},
 	}
 	bigScripts := func(n int) ScriptListInfo {
-		return ScriptListInfo{language.MustParse("und-Latn-x-latn"): bigFeatures(n)}
+		// the font has a single feature
+		return ScriptListInfo{language.MustParse("und-Latn-x-latn"): {Optional: make([]FeatureIndex, n)}}
 	}
 	bigFeats := func(n int) FeatureListInfo {
 		return FeatureListInfo{{Tag: "liga", Lookups: make([]LookupIndex, n)}}
@@ -286,7 +287,7 @@ func TestInfoEncodeHeaderOffsets(t *testing.T) {
 					info := &Info{
 						ScriptList:  c.scripts,
 						FeatureList: c.features,
-						LookupList:  LookupList{},
+						LookupList:  LookupList{{Meta: &LookupMetaInfo{LookupType: 1}, Subtables: []Subtable{}}},
 						Variations:  variations,
 					}
 					data := encodeInfo(t, info)
@@ -305,7 +306,7 @@ func TestInfoEncodeHeaderOffsets(t *testing.T) {
 				info := &Info{
 					ScriptList:  bigScripts(40000),
 					FeatureList: bigFeats(40000),
-					LookupList:  LookupList{},
+					LookupList:  LookupList{{Meta: &LookupMetaInfo{LookupType: 1}, Subtables: []Subtable{}}},
 					Variations:  variations,
 				}
 				if _, err := info.Encode(); err == nil {
@@ -380,8 +381,8 @@ func TestReadGtabListsTooLarge(t *testing.T) {
 func BenchmarkReadGtab(b *testing.B) {
 	info := &Info{
 		ScriptList: ScriptListInfo{
-			language.MustParse("und-Latn-x-latn-dflt"): {Required: 0xFFFF, Optional: []FeatureIndex{0, 1, 2}},
-			language.MustParse("und-Grek-x-grek-dflt"): {Required: 0xFFFF, Optional: []FeatureIndex{1, 2}},
+			language.MustParse("und-Latn-x-latn"): {Optional: []FeatureIndex{0, 1, 2}},
+			language.MustParse("und-Grek-x-grek"): {Optional: []FeatureIndex{1, 2}},
 		},
 		LookupList: largeLookupList(20, 4, 500),
 	}
@@ -400,6 +401,104 @@ func BenchmarkReadGtab(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// scriptFeaturesTestInfo returns a table with two features, where ff is the
+// default language system of the latn script.
+func scriptFeaturesTestInfo(ff *Features) *Info {
+	return &Info{
+		ScriptList: ScriptListInfo{language.MustParse("und-Latn-x-latn"): ff},
+		FeatureList: FeatureListInfo{
+			{Tag: "kern", Lookups: []LookupIndex{0}},
+			{Tag: "liga", Lookups: []LookupIndex{0}},
+		},
+		LookupList: LookupList{
+			{Meta: &LookupMetaInfo{LookupType: 1}, Subtables: []Subtable{dummySubtable{0}}},
+		},
+	}
+}
+
+// readTestInfo reads an encoded table with dummy subtables, and fails the
+// test if the table cannot be read.
+func readTestInfo(t *testing.T, data []byte) *Info {
+	t.Helper()
+	info, err := readGtab(bytes.NewReader(data), parser.NewBudget(int64(len(data))), 0, readDummySubtable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
+}
+
+// TestRequiredFeatureRoundTrip checks that the required feature of a
+// language system, or its absence, survives a write/read cycle.
+func TestRequiredFeatureRoundTrip(t *testing.T) {
+	tag := language.MustParse("und-Latn-x-latn")
+	cases := map[string]*Features{
+		"none":     {Optional: []FeatureIndex{0, 1}},
+		"required": {Required: new(FeatureIndex(1)), Optional: []FeatureIndex{0}},
+		"zero":     {Required: new(FeatureIndex(0))},
+	}
+	for name, ff := range cases {
+		t.Run(name, func(t *testing.T) {
+			info := readTestInfo(t, encodeInfo(t, scriptFeaturesTestInfo(ff)))
+			got := info.ScriptList[tag]
+			if got == nil {
+				t.Fatal("language system missing")
+			}
+			if diff := cmp.Diff(ff.Required, got.Required); diff != "" {
+				t.Errorf("required feature changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestFeatureIndexOutOfRange checks that Encode rejects feature indices
+// which are out of range for the feature list.
+func TestFeatureIndexOutOfRange(t *testing.T) {
+	bad := []*Features{
+		{Required: new(FeatureIndex(2))},
+		{Required: new(FeatureIndex(0xFFFF))},
+		{Optional: []FeatureIndex{0, 2}},
+	}
+	for _, ff := range bad {
+		if _, err := scriptFeaturesTestInfo(ff).Encode(); err == nil {
+			t.Errorf("%v: no error", ff)
+		}
+	}
+}
+
+// TestReadFeatureIndexOutOfRange checks that a table with an out-of-range
+// required or optional feature index can be read, and that the result
+// survives a write/read cycle.
+func TestReadFeatureIndexOutOfRange(t *testing.T) {
+	cases := []struct {
+		name    string
+		ff      *Features
+		langSys []byte // the encoded LangSys table
+		pos     int    // the position of the feature index in langSys
+	}{
+		{"required", &Features{}, []byte{0, 0, 0xFF, 0xFF, 0, 0}, 2},
+		{"optional", &Features{Optional: []FeatureIndex{0, 1}}, []byte{0, 0, 0xFF, 0xFF, 0, 2, 0, 0, 0, 1}, 8},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			good := encodeInfo(t, scriptFeaturesTestInfo(c.ff))
+			scriptListOff := int(good[4])<<8 | int(good[5])
+			lang := bytes.Index(good[scriptListOff:], c.langSys)
+			if lang < 0 {
+				t.Fatal("LangSys table not found")
+			}
+			bad := slices.Clone(good)
+			pos := scriptListOff + lang + c.pos
+			bad[pos], bad[pos+1] = 0, 7 // only features 0 and 1 exist
+
+			info1 := readTestInfo(t, bad)
+			info2 := readTestInfo(t, encodeInfo(t, info1))
+			if diff := cmp.Diff(info1, info2); diff != "" {
+				t.Errorf("read-write-read not stable (-first +second):\n%s", diff)
+			}
+		})
 	}
 }
 

@@ -22,7 +22,7 @@ func baseVariationInfo() *Info {
 	return &Info{
 		ScriptList: ScriptListInfo{
 			language.MustParse("und-Latn"): {
-				Required: 0,
+				Required: new(FeatureIndex(0)),
 				Optional: []FeatureIndex{1, 2},
 			},
 		},

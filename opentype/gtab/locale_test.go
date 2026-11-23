@@ -51,6 +51,33 @@ func TestOtfToBCP(t *testing.T) {
 	}
 }
 
+// TestOtfTagsRoundTrip checks that every OpenType script and language tag in
+// the tag tables can be recovered from its BCP 47 tag.
+func TestOtfTagsRoundTrip(t *testing.T) {
+	check := func(script otfScript, lang otfLang) {
+		t.Helper()
+		tag, err := otfToBCP47(script, lang)
+		if err != nil {
+			t.Errorf("%q, %q: %v", script, lang, err)
+			return
+		}
+		gotScript, gotLang, err := bcp47ToOtf(tag)
+		if err != nil {
+			t.Errorf("%q, %q: %v", script, lang, err)
+			return
+		}
+		if gotScript != script || gotLang != lang {
+			t.Errorf("got %q, %q; want %q, %q", gotScript, gotLang, script, lang)
+		}
+	}
+	for script := range scriptBcp47 {
+		check(script, "")
+	}
+	for lang := range langBcp47 {
+		check("latn", lang)
+	}
+}
+
 func TestBcpToOtf(t *testing.T) {
 	cases := []struct {
 		tag    language.Tag

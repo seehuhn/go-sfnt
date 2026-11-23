@@ -79,7 +79,6 @@ func encodeAndReadGtabLookups(t *testing.T, info *gtab.Info, tp gtab.Type) gtab.
 	wrapped := &gtab.Info{
 		ScriptList: gtab.ScriptListInfo{
 			language.MustParse("und"): &gtab.Features{
-				Required: 0xFFFF,
 				Optional: []gtab.FeatureIndex{0},
 			},
 		},

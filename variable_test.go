@@ -173,7 +173,7 @@ func makeVariableFont(t testing.TB) *sfnt.Font {
 	// GSUB with one FeatureVariations record.
 	f.Gsub = &gtab.Info{
 		ScriptList: gtab.ScriptListInfo{
-			language.MustParse("und-Latn"): {Required: 0xFFFF, Optional: []gtab.FeatureIndex{0}},
+			language.MustParse("und-Latn"): {Optional: []gtab.FeatureIndex{0}},
 		},
 		FeatureList: gtab.FeatureListInfo{
 			{Tag: "rvrn", Lookups: []gtab.LookupIndex{}},

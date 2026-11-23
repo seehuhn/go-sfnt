@@ -6,10 +6,12 @@ package gtab
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"slices"
 	"sort"
 
 	"golang.org/x/text/language"
+	"seehuhn.de/go/membudget"
 	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
 	"seehuhn.de/go/sfnt/opentype/internal/readcache"
 	"seehuhn.de/go/sfnt/parser"
@@ -20,19 +22,36 @@ import (
 //
 // Tags read from a font name the OpenType script and language system in
 // their private-use subtags, for example "und-Deva-x-dev2" or
-// "en-Latn-x-latn-eng", and are written back unchanged.  A tag without
-// these subtags is written with the OpenType tags implied by its language
-// and script; where a script has both an original and a "v.2" tag, the
-// "v.2" tag is used, since it selects the current shaping model.  Use the
-// explicit form to request the original tag.  The language and the script of
-// every tag must have an OpenType tag.
+// "en-Latn-x-latn-eng", and are written back unchanged.  The subtags omit
+// the trailing spaces of the OpenType tags.  An OpenType tag without BCP 47
+// equivalent is read with the script "Zzzz" or the language "und" in front
+// of the private-use subtags.  A language system whose OpenType tags
+// cannot be written as private-use subtags, for example because of their
+// case or punctuation, is dropped on read.
+//
+// A tag without these subtags is written with the OpenType tags implied by
+// its language and script; where a script has both an original and a "v.2"
+// tag, the "v.2" tag is used, since it selects the current shaping model.
+// Use the explicit form to request the original tag.  The language and the
+// script of every tag must have an OpenType tag, and no two tags may name
+// the same OpenType script and language system.
+//
+// Tags which do not use these subtags are read back in the explicit form, so
+// a map using the tag "und-Latn" is read back with the tag "und-Latn-x-latn",
+// and the two maps compare unequal.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#scriptList
 type ScriptListInfo map[language.Tag]*Features
 
-// Features describes the mandatory and optional features for a script/language.
+// Features describes the features of one language system.
 type Features struct {
-	Required FeatureIndex // 0xFFFF, if no required feature
+	// Required is the index of the feature which is always applied, or nil
+	// if the language system has no required feature.  Indices refer to
+	// [Info.FeatureList].
+	Required *FeatureIndex
+
+	// Optional lists the indices of the features which are applied when
+	// requested.  Indices refer to [Info.FeatureList].
 	Optional []FeatureIndex
 }
 
@@ -96,10 +115,16 @@ func readScriptList(p *parser.Parser, pos int64) (ScriptListInfo, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Script tables can be shared, so the number of language systems
+		// is not bounded by the length of the script list.
+		err = p.Budget.ChargeN(len(body.records), membudget.MapEntryOverhead)
+		if err != nil {
+			return nil, err
+		}
 		for _, rec := range body.records {
 			tag, err := otfToBCP47(entry.script, rec.lang)
 			if err != nil {
-				// TODO(voss): what to do here?
+				// a language system which no tag can name reads as absent
 				continue
 			}
 			info[tag] = rec.features
@@ -235,10 +260,11 @@ func readLangSysTable(p *parser.Parser, pos int64) (*Features, error) {
 		featureIndices = append(featureIndices, FeatureIndex(idx))
 	}
 
-	return &Features{
-		Required: requiredFeatureIndex,
-		Optional: featureIndices,
-	}, nil
+	ff := &Features{Optional: featureIndices}
+	if requiredFeatureIndex != 0xFFFF {
+		ff.Required = &requiredFeatureIndex
+	}
+	return ff, nil
 }
 
 // scriptListLayout holds the positions of the tables of a script list.
@@ -414,38 +440,94 @@ type langSysRef struct {
 }
 
 // langSysRefs returns the language systems for the given language tags,
-// which all belong to the same script, sorted by OpenType language.  Ties
-// between tags which give the same language are broken by the tag, so that
-// the result does not depend on the order of tags.
+// which all belong to the same script and name different language systems,
+// sorted by OpenType language.
 func (info ScriptListInfo) langSysRefs(tags []language.Tag) []langSysRef {
-	type entry struct {
-		langSysRef
-		tag string
-	}
-	entries := make([]entry, len(tags))
+	refs := make([]langSysRef, len(tags))
 	for i, tag := range tags {
 		_, lang, _ := bcp47ToOtf(tag)
 		if lang != "" && len(lang) != 4 {
 			panic("invalid language " + string(lang))
 		}
-		entries[i] = entry{langSysRef{lang, info[tag]}, tag.String()}
+		refs[i] = langSysRef{lang, info[tag]}
 	}
-	slices.SortFunc(entries, func(a, b entry) int {
-		if c := cmp.Compare(a.lang, b.lang); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.tag, b.tag)
+	slices.SortFunc(refs, func(a, b langSysRef) int {
+		return cmp.Compare(a.lang, b.lang)
 	})
-	refs := make([]langSysRef, len(entries))
-	for i, e := range entries {
-		refs[i] = e.langSysRef
-	}
 	return refs
 }
 
+// dropInvalidFeatures removes the feature indices which are not valid for a
+// feature list with numFeatures entries.
+func (info ScriptListInfo) dropInvalidFeatures(numFeatures int) {
+	done := map[*Features]bool{}
+	for _, ff := range info {
+		if done[ff] {
+			continue
+		}
+		done[ff] = true
+		if ff.Required != nil && int(*ff.Required) >= numFeatures {
+			ff.Required = nil
+		}
+		ff.Optional = slices.DeleteFunc(ff.Optional, func(idx FeatureIndex) bool {
+			return int(idx) >= numFeatures
+		})
+	}
+}
+
+// checkFeatures returns an error if a feature index is not valid for a
+// feature list with numFeatures entries.
+func (info ScriptListInfo) checkFeatures(numFeatures int) error {
+	checked := map[*Features]bool{}
+	for _, ff := range info {
+		if checked[ff] {
+			continue
+		}
+		checked[ff] = true
+		if ff.Required != nil && int(*ff.Required) >= numFeatures {
+			return errors.New("script: required feature index out of range")
+		}
+		for _, idx := range ff.Optional {
+			if int(idx) >= numFeatures {
+				return errors.New("script: feature index out of range")
+			}
+		}
+	}
+	return nil
+}
+
+// checkTags returns an error if a language tag cannot be encoded as an
+// OpenType script and language system, or if two tags name the same
+// language system.
+func (info ScriptListInfo) checkTags() error {
+	type langSys struct {
+		script otfScript
+		lang   otfLang
+	}
+	seen := make(map[langSys]language.Tag, len(info))
+	for tag := range info {
+		script, lang, err := bcp47ToOtf(tag)
+		if err != nil {
+			return err
+		}
+		if len(script) != 4 || lang != "" && len(lang) != 4 {
+			return fmt.Errorf("language tag %q: invalid OpenType tag", tag)
+		}
+		key := langSys{script, lang}
+		if other, ok := seen[key]; ok {
+			a, b := other.String(), tag.String()
+			if a > b {
+				a, b = b, a
+			}
+			return fmt.Errorf("tags %q and %q name the same language system", a, b)
+		}
+		seen[key] = tag
+	}
+	return nil
+}
+
 // encodeScriptTable encodes the Script table for the given language
-// systems, as returned by [ScriptListInfo.langSysRefs].  If several
-// language systems are the default, the last one is used.  The LangSys
+// systems, as returned by [ScriptListInfo.langSysRefs].  The LangSys
 // tables are stored in the order of the language systems if possible, and
 // otherwise in order of increasing size.
 func encodeScriptTable(refs []langSysRef) ([]byte, error) {
@@ -511,8 +593,12 @@ func encodeScriptTable(refs []langSysRef) ([]byte, error) {
 func encodeLangSys(ff *Features) []byte {
 	buf := make([]byte, 6, 6+2*len(ff.Optional))
 	// the first two bytes are lookupOrderOffset
-	buf[2] = byte(ff.Required >> 8)
-	buf[3] = byte(ff.Required)
+	required := FeatureIndex(0xFFFF)
+	if ff.Required != nil {
+		required = *ff.Required
+	}
+	buf[2] = byte(required >> 8)
+	buf[3] = byte(required)
 	buf[4] = byte(len(ff.Optional) >> 8)
 	buf[5] = byte(len(ff.Optional))
 	for _, idx := range ff.Optional {

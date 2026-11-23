@@ -238,7 +238,7 @@ func largeGpos(lookups, subtables, classes int) *gtab.Info {
 
 	return &gtab.Info{
 		ScriptList: gtab.ScriptListInfo{
-			language.MustParse("und-Latn"): {Required: 0xFFFF, Optional: idx},
+			language.MustParse("und-Latn"): {Optional: idx},
 		},
 		FeatureList: features,
 		LookupList:  ll,

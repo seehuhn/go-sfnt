@@ -32,7 +32,7 @@ func danglingIndex() *device.Table {
 func gposWithDevice(dev *device.Table) *gtab.Info {
 	return &gtab.Info{
 		ScriptList: gtab.ScriptListInfo{
-			language.MustParse("und-Latn"): {Required: 0xFFFF, Optional: []gtab.FeatureIndex{0}},
+			language.MustParse("und-Latn"): {Optional: []gtab.FeatureIndex{0}},
 		},
 		FeatureList: gtab.FeatureListInfo{{Tag: "kern", Lookups: []gtab.LookupIndex{0}}},
 		LookupList: gtab.LookupList{{

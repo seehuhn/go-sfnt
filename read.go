@@ -639,7 +639,7 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 				}
 				info.Gpos = &gtab.Info{
 					ScriptList: map[language.Tag]*gtab.Features{
-						language.MustParse("und-Zzzz"): {Required: 0, Optional: []gtab.FeatureIndex{}},
+						language.MustParse("und-Zzzz-x-dflt"): {Required: new(gtab.FeatureIndex(0)), Optional: []gtab.FeatureIndex{}},
 					},
 					FeatureList: []*gtab.Feature{
 						{Tag: "kern", Lookups: []gtab.LookupIndex{0}},

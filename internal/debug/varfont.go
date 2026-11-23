@@ -274,7 +274,7 @@ func MakeVarFont() *sfnt.Font {
 	// device entry into the GDEF store.
 	f.Gpos = &gtab.Info{
 		ScriptList: gtab.ScriptListInfo{
-			language.MustParse("und-Latn"): {Required: 0xFFFF, Optional: []gtab.FeatureIndex{0}},
+			language.MustParse("und-Latn"): {Optional: []gtab.FeatureIndex{0}},
 		},
 		FeatureList: gtab.FeatureListInfo{
 			{Tag: "kern", Lookups: []gtab.LookupIndex{0}},
@@ -305,7 +305,7 @@ func MakeVarFont() *sfnt.Font {
 	// so the substitution is observable only inside the condition region.
 	f.Gsub = &gtab.Info{
 		ScriptList: gtab.ScriptListInfo{
-			language.MustParse("und-Latn"): {Required: 0xFFFF, Optional: []gtab.FeatureIndex{0}},
+			language.MustParse("und-Latn"): {Optional: []gtab.FeatureIndex{0}},
 		},
 		FeatureList: gtab.FeatureListInfo{
 			{Tag: "rvrn", Lookups: []gtab.LookupIndex{}},

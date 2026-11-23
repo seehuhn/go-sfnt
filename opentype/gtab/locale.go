@@ -11,33 +11,49 @@ import (
 	"golang.org/x/text/language"
 )
 
+// otfToBCP47 returns the BCP 47 tag for an OpenType script and language
+// system.  The language is empty for the default language system.
+//
+// The private-use subtags of the tag spell the OpenType tags, without their
+// trailing spaces.  A script or language which is missing from the tag
+// tables is given as "Zzzz" or "und" in the rest of the tag.  An error is
+// returned if the private-use subtags cannot spell the OpenType tags.
 func otfToBCP47(script otfScript, lang otfLang) (language.Tag, error) {
 	bcpScript, ok := scriptBcp47[script]
 	if !ok {
-		return language.MustParse("und-Zzzz"), fmt.Errorf("unknown script %q", script)
+		bcpScript = "Zzzz"
 	}
 	bcpLang, ok := langBcp47[lang]
 	if !ok {
-		if lang == "" {
-			bcpLang = "und"
-		} else {
-			return language.MustParse("und-Zzzz"), fmt.Errorf("unknown language %q", lang)
-		}
+		bcpLang = "und"
 	}
-	tag := bcpLang
+	spec := bcpLang
 	if !strings.Contains(bcpLang, "-") {
-		tag += "-" + bcpScript
+		spec += "-" + bcpScript
 	}
-
-	tag += "-x-" + string(script)
-	for len(lang) > 0 && lang[len(lang)-1] == ' ' {
-		lang = lang[:len(lang)-1]
-	}
+	spec += "-x-" + strings.TrimRight(string(script), " ")
 	if lang != "" {
-		tag += "-" + string(lang)
+		spec += "-" + strings.TrimRight(string(lang), " ")
 	}
 
-	return language.Parse(tag)
+	tag, err := language.Parse(spec)
+	if err != nil {
+		return language.Und, err
+	}
+	// Private-use subtags hold letters and digits only and do not keep
+	// their case, so not every OpenType tag survives.
+	if s, l, err := bcp47ToOtf(tag); err != nil || s != script || l != lang {
+		return language.Und, fmt.Errorf("OpenType tags %q, %q have no BCP 47 form", script, lang)
+	}
+	return tag, nil
+}
+
+// padTag pads an OpenType tag with spaces to its full length of four bytes.
+func padTag(tag string) string {
+	for len(tag) < 4 {
+		tag += " "
+	}
+	return tag
 }
 
 func bcp47ToOtf(tag language.Tag) (otfScript, otfLang, error) {
@@ -54,11 +70,9 @@ func bcp47ToOtf(tag language.Tag) (otfScript, otfLang, error) {
 		if script == "dflt" {
 			script = "DFLT"
 		}
+		script = padTag(script)
 		if len(m) > 2 {
-			lang = strings.ToUpper(m[2])
-			for len(lang) < 4 {
-				lang += " "
-			}
+			lang = padTag(strings.ToUpper(m[2]))
 		}
 	} else if tag == language.Chinese {
 		script = "hani"
@@ -107,6 +121,9 @@ func newScriptEntry(tag language.Tag) scriptEntry {
 			e.rank = 1
 		}
 		e.script = scriptBcp47[script]
+		if e.script == "" {
+			e.script = "Zzzz"
+		}
 		e.v2 = isV2Script(script)
 	}
 	return e

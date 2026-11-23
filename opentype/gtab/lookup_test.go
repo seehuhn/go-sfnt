@@ -607,10 +607,10 @@ func lookupOf(st Subtable) *LookupTable {
 func TestFindLookupsPrefersV2(t *testing.T) {
 	info := &Info{
 		ScriptList: ScriptListInfo{
-			language.MustParse("und-Beng-x-beng"): {Required: 0},
-			language.MustParse("und-Beng-x-bng2"): {Required: 1},
-			language.MustParse("und-Deva-x-deva"): {Required: 2},
-			language.MustParse("und-Deva-x-dev2"): {Required: 3},
+			language.MustParse("und-Beng-x-beng"): {Required: new(FeatureIndex(0))},
+			language.MustParse("und-Beng-x-bng2"): {Required: new(FeatureIndex(1))},
+			language.MustParse("und-Deva-x-deva"): {Required: new(FeatureIndex(2))},
+			language.MustParse("und-Deva-x-dev2"): {Required: new(FeatureIndex(3))},
 		},
 		FeatureList: FeatureListInfo{
 			{Tag: "aaaa", Lookups: []LookupIndex{0}},
@@ -642,10 +642,10 @@ func TestFindLookupsPrefersV2(t *testing.T) {
 func TestFindLookupsDeterministic(t *testing.T) {
 	info := &Info{
 		ScriptList: ScriptListInfo{
-			language.MustParse("und-Zzzz-x-dflt"):    {Required: 0},
-			language.MustParse("und-Latn-x-latn"):    {Required: 1},
-			language.MustParse("ru-Cyrl-x-cyrl-rus"): {Required: 2},
-			language.MustParse("el-Grek-x-grek-ell"): {Required: 3},
+			language.MustParse("und-Zzzz-x-dflt"):    {Required: new(FeatureIndex(0))},
+			language.MustParse("und-Latn-x-latn"):    {Required: new(FeatureIndex(1))},
+			language.MustParse("ru-Cyrl-x-cyrl-rus"): {Required: new(FeatureIndex(2))},
+			language.MustParse("el-Grek-x-grek-ell"): {Required: new(FeatureIndex(3))},
 		},
 		FeatureList: FeatureListInfo{
 			{Tag: "aaaa", Lookups: []LookupIndex{0}},
@@ -671,9 +671,9 @@ func TestFindLookupsFallback(t *testing.T) {
 	// original
 	info := &Info{
 		ScriptList: ScriptListInfo{
-			language.MustParse("und-Latn-x-latn"): {Required: 1},
-			language.MustParse("und-Deva-x-deva"): {Required: 2},
-			language.MustParse("und-Deva-x-dev2"): {Required: 3},
+			language.MustParse("und-Latn-x-latn"): {Required: new(FeatureIndex(1))},
+			language.MustParse("und-Deva-x-deva"): {Required: new(FeatureIndex(2))},
+			language.MustParse("und-Deva-x-dev2"): {Required: new(FeatureIndex(3))},
 		},
 		FeatureList: FeatureListInfo{
 			{Tag: "aaaa", Lookups: []LookupIndex{0}},
@@ -689,6 +689,37 @@ func TestFindLookupsFallback(t *testing.T) {
 	delete(info.ScriptList, language.MustParse("und-Latn-x-latn"))
 	if got := info.FindLookups(language.Thai, nil); len(got) != 1 || got[0] != 3 {
 		t.Errorf("FindLookups(Thai) without DFLT and latn = %v, want [3]", got)
+	}
+}
+
+// TestFindLookupsUnregisteredScript checks that a script which is missing
+// from the tag tables is selected by its explicit tag, and that it comes
+// after the other scripts when a fallback is needed.
+func TestFindLookupsUnregisteredScript(t *testing.T) {
+	info := &Info{
+		ScriptList: ScriptListInfo{
+			language.MustParse("und-Zzzz-x-qqqq"): {Required: new(FeatureIndex(0))},
+			language.MustParse("und-Thai-x-thai"): {Required: new(FeatureIndex(1))},
+		},
+		FeatureList: FeatureListInfo{
+			{Tag: "aaaa", Lookups: []LookupIndex{0}},
+			{Tag: "bbbb", Lookups: []LookupIndex{1}},
+		},
+		LookupList: make(LookupList, 2),
+	}
+	cases := []struct {
+		lang language.Tag
+		want LookupIndex
+	}{
+		{language.MustParse("und-Zzzz-x-qqqq"), 0},
+		{language.MustParse("und-x-qqqq-eng"), 0}, // no such language system: script default
+		{language.Thai, 1},
+		{language.Russian, 1}, // no script matches
+	}
+	for _, tc := range cases {
+		if got := info.FindLookups(tc.lang, nil); len(got) != 1 || got[0] != tc.want {
+			t.Errorf("FindLookups(%v) = %v, want [%d]", tc.lang, got, tc.want)
+		}
 	}
 }
 

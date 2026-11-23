@@ -156,6 +156,7 @@ func readGtab(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type, sr subt
 	if err != nil {
 		return nil, err
 	}
+	info.ScriptList.dropInvalidFeatures(len(info.FeatureList))
 	info.LookupList, err = readLookupList(p, int64(header.LookupListOffset), sr)
 	if err != nil {
 		return nil, err
@@ -223,8 +224,18 @@ func (info *Info) headerFits() bool {
 // Encode returns the binary representation of a "GSUB" or "GPOS" table.
 // An error is returned if the table does not fit its 16-bit offsets or
 // counts, for example because a subtable is too large; splitting large
-// lookups into several subtables can avoid this.
+// lookups into several subtables can avoid this.  An error is also returned
+// if a script-list tag has no OpenType form, if two tags name the same
+// language system, or if a feature index is out of range for the
+// FeatureList.
 func (info *Info) Encode() ([]byte, error) {
+	if err := info.ScriptList.checkFeatures(len(info.FeatureList)); err != nil {
+		return nil, err
+	}
+	if err := info.ScriptList.checkTags(); err != nil {
+		return nil, err
+	}
+
 	var lists [3][]byte
 	var err error
 	if lists[0], err = info.ScriptList.encode(); err != nil {

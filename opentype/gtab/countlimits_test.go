@@ -208,7 +208,7 @@ func TestFeatureTooManyCharacters(t *testing.T) {
 
 func TestLangSysTooManyFeatures(t *testing.T) {
 	info := ScriptListInfo{
-		language.MustParse("und-Latn"): {Required: 0xFFFF, Optional: make([]FeatureIndex, tooMany)},
+		language.MustParse("und-Latn"): {Optional: make([]FeatureIndex, tooMany)},
 	}
 	if _, err := info.encode(); err == nil {
 		t.Error("encode succeeded")

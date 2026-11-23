@@ -17,8 +17,6 @@ import (
 // FeatureIndex enumerates features.
 // It is used as an index into the FeatureListInfo.
 // Valid values are in the range from 0 to 0xFFFE.
-// The special value 0xFFFF is used to indicate the absence of required
-// features in the `Features` struct.
 type FeatureIndex uint16
 
 // FeatureListInfo contains the contents of an OpenType "Feature List" table.

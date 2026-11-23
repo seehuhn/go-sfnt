@@ -735,17 +735,13 @@ func (info *Info) FindLookups(lang language.Tag, includeFeature map[string]bool)
 	}
 
 	includeLookup := make(map[LookupIndex]bool)
-	numFeatures := FeatureIndex(len(info.FeatureList))
-	if features.Required < numFeatures {
-		feature := info.FeatureList[features.Required]
+	if features.Required != nil {
+		feature := info.FeatureList[*features.Required]
 		for _, l := range feature.Lookups {
 			includeLookup[l] = true
 		}
 	}
 	for _, f := range features.Optional {
-		if f >= numFeatures {
-			continue
-		}
 		feature := info.FeatureList[f]
 		if !includeFeature[feature.Tag] {
 			continue
