@@ -5,6 +5,7 @@ package cff
 
 import (
 	"errors"
+	"io"
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/membudget"
@@ -52,11 +53,8 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 	if err != nil {
 		return nil, err
 	}
-	// blend is illegal at the top level: any blend operator fails the read.
-	topDict, err := decodeDictCFF2(topDictBlob, rejectBlend)
-	if err != nil {
-		return nil, err
-	}
+	// blend is not allowed in the top DICT, and blended operators are dropped
+	topDict := decodeDictCFF2(topDictBlob, rejectBlend)
 
 	// section 2: global subr INDEX, immediately after the top DICT data
 	gsubrs, err := readIndex32(p)
@@ -86,13 +84,7 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 	// variation data subtable selected by a vsindex.  Without a variation
 	// store, any blend is malformed, so every lookup fails.
 	regionCount := func(vsindex int) (int, error) {
-		if varStore == nil {
-			return 0, errNoVarStore
-		}
-		if vsindex < 0 || vsindex >= len(varStore.Data) {
-			return 0, errBadVSIndex
-		}
-		return len(varStore.Data[vsindex].RegionIndexes), nil
+		return regionCountCFF2(varStore, vsindex)
 	}
 
 	// section 4: FDArray of Font DICTs (required per spec; synthesised when
@@ -111,10 +103,8 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 			return nil, invalidSince("cff2: too many Font DICTs")
 		}
 		for _, fdBlob := range fdArray {
-			fontDict, err := decodeDictCFF2(fdBlob, regionCount)
-			if err != nil {
-				return nil, err
-			}
+			// blend is not allowed in a Font DICT either
+			fontDict := decodeDictCFF2(fdBlob, rejectBlend)
 			priv, subrs, err := readPrivateCFF2(p, fontDict, regionCount)
 			if err != nil {
 				return nil, err
@@ -175,6 +165,15 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 		}
 	}
 
+	// The charstrings are decoded with the vsindex as given, so that a blend
+	// which relies on an invalid vsindex fails the read.  An invalid vsindex
+	// which no blend uses is then dropped.
+	for _, priv := range privates {
+		if _, err := regionCount(priv.VSIndex); err != nil {
+			priv.VSIndex = 0
+		}
+	}
+
 	glyphs, err := p.Budget.AllocSlice[*GlyphCFF2](nGlyphs)
 	if err != nil {
 		return nil, err
@@ -184,6 +183,9 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 		g, err := decoders[fdIdx].decodeCharStringCFF2(code)
 		if err != nil {
 			return nil, err
+		}
+		if _, err := regionCount(g.VSIndex); err != nil {
+			g.VSIndex = privates[fdIdx].VSIndex
 		}
 		glyphs[gid] = g
 	}
@@ -206,7 +208,7 @@ func ReadCFF2(r parser.ReadSeekSizer, budget *membudget.Budget) (*FontCFF2, erro
 // readIndex32At seeks to pos and reads a CFF2 INDEX (uint32 count) from there.
 func readIndex32At(p *parser.Parser, pos int64, name string) (cffIndex, error) {
 	if pos < 4 || pos >= p.Size() {
-		return nil, errors.New("cff2: missing " + name + " INDEX")
+		return nil, invalidSince("cff2: missing " + name + " INDEX")
 	}
 	if err := p.SeekPos(pos); err != nil {
 		return nil, err
@@ -215,11 +217,15 @@ func readIndex32At(p *parser.Parser, pos int64, name string) (cffIndex, error) {
 }
 
 // readPrivateCFF2 reads a CFF2 Private DICT referenced by the (size, offset)
-// pair of fontDict, together with its local Subrs INDEX.
+// pair of fontDict, together with its local Subrs INDEX.  Since the Private
+// DICT holds only hinting data, the vsindex and the Subrs offset, a missing
+// or invalid reference gives the default Private DICT without local
+// subroutines.  A Subrs offset outside the file, or a malformed Subrs INDEX,
+// gives no local subroutines; a charstring which calls one then fails.
 func readPrivateCFF2(p *parser.Parser, fontDict cffDict, regionCount func(int) (int, error)) (*PrivateCFF2, cffIndex, error) {
 	pdSize, pdOffs, ok := fontDict.getPair(opPrivate)
 	if !ok || pdOffs < 4 || pdSize < 0 || int64(pdSize) > p.Size()-int64(pdOffs) {
-		return nil, nil, invalidSince("cff2: invalid Private DICT")
+		return newPrivateCFF2(), nil, nil
 	}
 
 	if err := p.SeekPos(int64(pdOffs)); err != nil {
@@ -230,10 +236,7 @@ func readPrivateCFF2(p *parser.Parser, fontDict cffDict, regionCount func(int) (
 		return nil, nil, err
 	}
 
-	pd, err := decodeDictCFF2(blob, regionCount)
-	if err != nil {
-		return nil, nil, err
-	}
+	pd := decodeDictCFF2(blob, regionCount)
 
 	priv := newPrivateCFF2()
 	priv.BlueValues = toBlends(pd.getBlendArray(opBlueValues))
@@ -267,7 +270,12 @@ func readPrivateCFF2(p *parser.Parser, fontDict cffDict, regionCount func(int) (
 	var subrs cffIndex
 	if subrsOffs := pd.getInt(opSubrs, 0); subrsOffs > 0 {
 		subrs, err = readIndex32At(p, int64(pdOffs)+int64(subrsOffs), "Subrs")
-		if err != nil {
+		var invalid *parser.InvalidFontError
+		switch {
+		case errors.As(err, &invalid), errors.Is(err, io.ErrUnexpectedEOF):
+			// a damaged INDEX gives no local subroutines
+			subrs = nil
+		case err != nil:
 			return nil, nil, err
 		}
 	}
@@ -315,13 +323,26 @@ func toBlends(rbs []resolvedBlend) []Blend {
 }
 
 // rejectBlend is a regionCount callback that always fails.  It is used for the
-// CFF2 top DICT, where the blend operator is not permitted: the callback is
-// consulted only when a blend operator is encountered.
+// CFF2 top DICT and Font DICTs, where the blend operator is not permitted:
+// the callback is consulted only when a blend operator is encountered.
 func rejectBlend(int) (int, error) {
-	return 0, errTopBlend
+	return 0, errMisplacedBlend
 }
 
 var (
-	errNoVarStore = invalidSince("cff2: blend without variation store")
-	errTopBlend   = invalidSince("cff2: blend in top DICT")
+	errNoVarStore     = invalidSince("cff2: blend without variation store")
+	errMisplacedBlend = invalidSince("cff2: blend outside Private DICT")
 )
+
+// regionCountCFF2 returns the number of variation regions of the item
+// variation data subtable of vs selected by vsindex.  It returns an error if
+// vs is nil or has no such subtable.
+func regionCountCFF2(vs *variation.ItemVariationStore, vsindex int) (int, error) {
+	if vs == nil {
+		return 0, errNoVarStore
+	}
+	if vsindex < 0 || vsindex >= len(vs.Data) {
+		return 0, errBadVSIndex
+	}
+	return len(vs.Data[vsindex].RegionIndexes), nil
+}

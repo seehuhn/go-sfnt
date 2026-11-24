@@ -5,7 +5,9 @@ package cff
 
 import (
 	"bytes"
+	"io"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -287,6 +289,172 @@ func TestWriteCFF2FDSelectFormats(t *testing.T) {
 		fdselect:    fdSelect,
 		charStrings: charStrings,
 	}))
+}
+
+// TestBlendArrayRoundTrip checks that arrays mixing constant and varying
+// elements survive encoding and decoding of the Private DICT.
+func TestBlendArrayRoundTrip(t *testing.T) {
+	// seven zones with one varying entry each, and many regions, so that
+	// the array does not fit into a single blend operator
+	var manyRegions []Blend
+	for i := range 7 {
+		deltas := make([]float64, 40)
+		deltas[i] = float64(i + 1)
+		manyRegions = append(manyRegions,
+			Blend{Default: float64(100 * i)},
+			Blend{Default: float64(100*i + 10), Deltas: deltas})
+	}
+
+	// fourteen zones which all vary like the first one, over so many
+	// regions that the array only fits the operand stack with plain
+	// operands after the first zone
+	var identical []Blend
+	for i := range 14 {
+		deltas := make([]float64, 500)
+		for j := range deltas {
+			deltas[j] = 1
+		}
+		identical = append(identical, Blend{Default: float64(10*i - 10), Deltas: deltas})
+	}
+
+	cases := []struct {
+		name   string
+		k      int
+		blues  []Blend
+		stemsH []Blend
+	}{
+		{
+			name: "mixed",
+			k:    1,
+			blues: []Blend{
+				{Default: -10, Deltas: []float64{1}},
+				{Default: 0},
+				{Default: 440, Deltas: []float64{-19}},
+				{Default: 450, Deltas: []float64{-20}},
+			},
+			stemsH: []Blend{
+				{Default: 50},
+				{Default: 60, Deltas: []float64{5}},
+				{Default: 70},
+			},
+		},
+		{
+			name:   "constant",
+			k:      1,
+			blues:  []Blend{{Default: -10}, {Default: 0}, {Default: 440}, {Default: 450}},
+			stemsH: []Blend{{Default: 50}, {Default: 60}},
+		},
+		{
+			name:  "many regions",
+			k:     40,
+			blues: manyRegions,
+		},
+		{
+			name:  "identical deltas",
+			k:     500,
+			blues: identical,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := newPrivateCFF2()
+			p.BlueValues = c.blues
+			p.StemSnapH = c.stemsH
+			d, err := makePrivateDictCFF2(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			blob, err := d.encodeCFF2()
+			if err != nil {
+				t.Fatal(err)
+			}
+			d2 := decodeDictCFF2(blob, constK(c.k))
+			if diff := cmp.Diff(c.blues, toBlends(d2.getBlendArray(opBlueValues))); diff != "" {
+				t.Errorf("BlueValues round trip failed (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(c.stemsH, toBlends(d2.getBlendArray(opStemSnapH))); diff != "" {
+				t.Errorf("StemSnapH round trip failed (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestWriteCFF2BadVariation checks that the writer refuses a vsindex which
+// selects no item variation data subtable, and blends whose number of deltas
+// does not match the selected subtable.
+func TestWriteCFF2BadVariation(t *testing.T) {
+	variable := buildCFF2(&cff2Spec{
+		vstore: twoRegionStore(),
+		charStrings: cffIndex{
+			cs(0, 0, t2rmoveto),
+			cs(100, 200, 10, 20, 30, 40, 2, t2blend, t2rmoveto),
+		},
+	})
+	plain := buildCFF2(&cff2Spec{
+		charStrings: cffIndex{cs(0, 0, t2rmoveto, 100, 0, t2rlineto)},
+	})
+
+	cases := []struct {
+		name   string
+		data   []byte
+		modify func(f *FontCFF2)
+	}{
+		{"private vsindex", variable, func(f *FontCFF2) { f.Private[0].VSIndex = 1 }},
+		{"glyph vsindex", variable, func(f *FontCFF2) { f.Glyphs[1].VSIndex = 1 }},
+		{"glyph deltas", variable, func(f *FontCFF2) {
+			f.Glyphs[1].Cmds[0].Args[0].Deltas = []float64{1}
+		}},
+		{"private deltas", variable, func(f *FontCFF2) {
+			f.Private[0].StdVW = Blend{Default: 80, Deltas: []float64{1, 2, 3}}
+		}},
+		{"array deltas", variable, func(f *FontCFF2) {
+			f.Private[0].BlueValues = []Blend{
+				{Default: -10, Deltas: []float64{1, 2}},
+				{Default: 0, Deltas: []float64{1}},
+			}
+		}},
+		{"vsindex without store", plain, func(f *FontCFF2) { f.Private[0].VSIndex = 1 }},
+		{"deltas without store", plain, func(f *FontCFF2) {
+			f.Private[0].StdVW = Blend{Default: 80, Deltas: []float64{1}}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			font, err := readCFF2Bytes(t, c.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.modify(font)
+			if err := font.Write(io.Discard); err == nil {
+				t.Error("expected error")
+			}
+		})
+	}
+}
+
+// TestBlendArraySingleBlend checks that a varying array which fits into one
+// blend operator is written as a single blend operator, without plain
+// operands.
+func TestBlendArraySingleBlend(t *testing.T) {
+	p := newPrivateCFF2()
+	p.BlueValues = []Blend{
+		{Default: -10, Deltas: []float64{1, 2}},
+		{Default: 0, Deltas: []float64{1, 2}},
+		{Default: 440},
+		{Default: 450, Deltas: []float64{-20, 0}},
+	}
+	d, err := makePrivateDictCFF2(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := d.encodeCFF2()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, blends := scanDictCFF2(t, blob, 2)
+	if want := []int{len(p.BlueValues)}; !slices.Equal(blends, want) {
+		t.Errorf("blended values per blend operator = %v, want %v", blends, want)
+	}
 }
 
 func FuzzCFF2(f *testing.F) {

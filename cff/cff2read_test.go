@@ -5,6 +5,7 @@ package cff
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -23,6 +24,7 @@ type fdSpec struct {
 	privateBody []byte      // pre-encoded Private DICT operators (no Subrs op)
 	subrs       cffIndex    // local subrs; nil means none
 	fontMatrix  *[6]float64 // per-FD matrix; nil means absent
+	fontExtra   []byte      // pre-encoded operators prepended to the Font DICT
 }
 
 // cff2Spec describes a CFF2 font to assemble.
@@ -34,6 +36,7 @@ type cff2Spec struct {
 	fdselect        []byte // raw FDSelect table bytes; nil means none
 	charStrings     cffIndex
 	omitCharStrings bool
+	topExtra        []byte // pre-encoded operators appended to the top DICT
 }
 
 // dictOff encodes v as a fixed-width 5-byte DICT integer (op 29), so that a
@@ -76,6 +79,7 @@ func buildTopDict(spec *cff2Spec, cs, vs, fda, fds int) []byte {
 		b.Write(dictOff(fds))
 		b.Write([]byte{12, 37})
 	}
+	b.Write(spec.topExtra)
 	return b.Bytes()
 }
 
@@ -89,10 +93,11 @@ func buildPrivateDict(body []byte, hasSubrs bool, subrsOff int) []byte {
 	return b.Bytes()
 }
 
-func buildFontDict(fm *[6]float64, privSize, privOff int) []byte {
+func buildFontDict(fd *fdSpec, privSize, privOff int) []byte {
 	var b bytes.Buffer
-	if fm != nil {
-		for _, v := range fm {
+	b.Write(fd.fontExtra)
+	if fd.fontMatrix != nil {
+		for _, v := range fd.fontMatrix {
 			encodeDictNumber(&b, v)
 		}
 		b.Write([]byte{12, 7})
@@ -157,7 +162,7 @@ func buildCFF2(spec *cff2Spec) []byte {
 		// FDArray INDEX
 		fdBlobs := make(cffIndex, n)
 		for i := range n {
-			fdBlobs[i] = buildFontDict(spec.fds[i].fontMatrix, privLen[i], privOff[i])
+			fdBlobs[i] = buildFontDict(&spec.fds[i], privLen[i], privOff[i])
 		}
 		fdArrayOff = off()
 		trailer.Write(mustEncode32(fdBlobs))
@@ -299,7 +304,6 @@ func TestReadCFF2Blended(t *testing.T) {
 // per-FD private dicts and local subroutines.
 func TestReadCFF2TwoFDs(t *testing.T) {
 	// each FD's local subr 0 draws one line; callsubr 0 -> biased -107
-	callSubr0 := []byte{byte(-107 + 139)}
 	fdSelect3 := []byte{
 		3,    // format
 		0, 2, // nRanges
@@ -321,8 +325,8 @@ func TestReadCFF2TwoFDs(t *testing.T) {
 		},
 		fdselect: fdSelect3,
 		charStrings: cffIndex{
-			append(cs(0, 0, t2rmoveto), append(callSubr0, byte(t2callsubr))...),
-			append(cs(10, 10, t2rmoveto), append(callSubr0, byte(t2callsubr))...),
+			cs(0, 0, t2rmoveto, -107, t2callsubr),
+			cs(10, 10, t2rmoveto, -107, t2callsubr),
 		},
 	}
 	font, err := readCFF2Bytes(t, buildCFF2(spec))
@@ -419,6 +423,80 @@ func TestReadCFF2PrivateVSIndex(t *testing.T) {
 	}
 }
 
+// TestReadCFF2DamagedPrivate checks that a Private DICT operator which cannot
+// be decoded is dropped, and that the rest of the DICT, including the local
+// subroutines, is kept.
+func TestReadCFF2DamagedPrivate(t *testing.T) {
+	var body bytes.Buffer
+	// BlueValues from a blend of an already blended value
+	body.Write(cs(1, 2, 3, 1, byte(opBlend), 4, 5, 1, byte(opBlend)))
+	body.WriteByte(byte(opBlueValues))
+	body.Write(dictNum(80))
+	body.WriteByte(byte(opStdVW))
+
+	spec := &cff2Spec{
+		vstore: twoRegionStore(),
+		fds: []fdSpec{{
+			privateBody: body.Bytes(),
+			subrs:       cffIndex{cs(50, 0, t2rlineto)},
+		}},
+		charStrings: cffIndex{
+			cs(0, 0, t2rmoveto, -107, t2callsubr),
+		},
+	}
+	data := buildCFF2(spec)
+	font, err := readCFF2Bytes(t, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if font.Private[0].BlueValues != nil {
+		t.Errorf("BlueValues = %v, want nil", font.Private[0].BlueValues)
+	}
+	if got := font.Private[0].StdVW; !blendEqualCFF2(got, Blend{Default: 80}) {
+		t.Errorf("StdVW = %v, want 80", got)
+	}
+	want := []GlyphOpCFF2{
+		{Op: OpMoveTo, Args: []Blend{{Default: 0}, {Default: 0}}},
+		{Op: OpLineTo, Args: []Blend{{Default: 50}, {Default: 0}}},
+	}
+	if diff := cmp.Diff(want, font.Glyphs[0].Cmds); diff != "" {
+		t.Errorf("glyph mismatch (-want +got):\n%s", diff)
+	}
+	roundTripCFF2(t, data)
+}
+
+// TestReadCFF2InvalidPrivateRef checks that a Font DICT whose Private DICT
+// lies outside the file reads with the default Private DICT.
+func TestReadCFF2InvalidPrivateRef(t *testing.T) {
+	spec := &cff2Spec{
+		fds:         []fdSpec{{privateBody: append(dictNum(80), byte(opStdVW))}},
+		charStrings: cffIndex{cs(0, 0, t2rmoveto, 100, 0, t2rlineto)},
+	}
+	data := buildCFF2(spec)
+
+	// the (size, offset) pair of the Private operator in the Font DICT,
+	// written as two 5-byte integers
+	var found []int
+	for i := 0; i+10 < len(data); i++ {
+		if data[i] == 29 && data[i+5] == 29 && data[i+10] == byte(opPrivate) {
+			found = append(found, i+6)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("found %d Private operators, want 1", len(found))
+	}
+	copy(data[found[0]:found[0]+4], []byte{0x7f, 0xff, 0xff, 0xff})
+
+	font, err := readCFF2Bytes(t, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(newPrivateCFF2(), font.Private[0]); diff != "" {
+		t.Errorf("Private mismatch (-want +got):\n%s", diff)
+	}
+	roundTripCFF2(t, data)
+}
+
 func TestReadCFF2Malformed(t *testing.T) {
 	// major != 2
 	t.Run("wrong major", func(t *testing.T) {
@@ -448,17 +526,6 @@ func TestReadCFF2Malformed(t *testing.T) {
 			},
 		}
 		if _, err := readCFF2Bytes(t, buildCFF2(spec)); err == nil {
-			t.Error("expected error")
-		}
-	})
-
-	// blend operator in the top DICT: illegal per spec, and rejected before
-	// any other top DICT operator is inspected (rejectBlend fires as soon as
-	// applyDictBlend consults it, regardless of the rest of the DICT).
-	t.Run("blend in top DICT", func(t *testing.T) {
-		top := append(dictNum(1), byte(opBlend))
-		data := append([]byte{2, 0, 5, byte(len(top) >> 8), byte(len(top))}, top...)
-		if _, err := readCFF2Bytes(t, data); err == nil {
 			t.Error("expected error")
 		}
 	})
@@ -578,6 +645,156 @@ func TestReadCFF2LargeTopDict(t *testing.T) {
 	if _, err := readCFF2Bytes(t, largeTopDict()); err == nil {
 		t.Error("expected error for oversized top DICT")
 	}
+}
+
+// TestReadCFF2MisplacedBlend checks that a blended operator in the top DICT
+// or a Font DICT, where blend is not allowed, is dropped.
+func TestReadCFF2MisplacedBlend(t *testing.T) {
+	// blendedMatrix encodes a FontMatrix operator whose first entry is
+	// blended, with k=2
+	blendedMatrix := func(scale float64) []byte {
+		var b bytes.Buffer
+		for _, v := range []any{scale, scale / 2, scale / 2, int32(1)} {
+			encodeDictNumber(&b, v)
+		}
+		b.WriteByte(byte(opBlend))
+		for _, v := range []any{int32(0), int32(0), scale, int32(0), int32(0)} {
+			encodeDictNumber(&b, v)
+		}
+		b.Write([]byte{12, 7})
+		return b.Bytes()
+	}
+	glyphs := cffIndex{cs(0, 0, t2rmoveto, 100, 0, t2rlineto)}
+
+	t.Run("top DICT", func(t *testing.T) {
+		data := buildCFF2(&cff2Spec{
+			vstore:      twoRegionStore(),
+			charStrings: glyphs,
+			topExtra:    blendedMatrix(0.002),
+		})
+		font, err := readCFF2Bytes(t, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if font.FontMatrix != defaultFontMatrix {
+			t.Errorf("FontMatrix = %v, want %v", font.FontMatrix, defaultFontMatrix)
+		}
+		roundTripCFF2(t, data)
+	})
+
+	t.Run("Font DICT", func(t *testing.T) {
+		data := buildCFF2(&cff2Spec{
+			vstore: twoRegionStore(),
+			fds: []fdSpec{{
+				privateBody: append(dictNum(80), byte(opStdVW)),
+				fontExtra:   blendedMatrix(2),
+			}},
+			charStrings: glyphs,
+		})
+		font, err := readCFF2Bytes(t, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if font.FontMatrices[0] != matrix.Identity {
+			t.Errorf("FontMatrices[0] = %v, want %v", font.FontMatrices[0], matrix.Identity)
+		}
+		if got := font.Private[0].StdVW; !blendEqualCFF2(got, Blend{Default: 80}) {
+			t.Errorf("StdVW = %v, want 80", got)
+		}
+		roundTripCFF2(t, data)
+	})
+}
+
+// TestReadCFF2InvalidVSIndex checks that a vsindex which selects no item
+// variation data subtable, and which no blend uses, is dropped.
+func TestReadCFF2InvalidVSIndex(t *testing.T) {
+	t.Run("private", func(t *testing.T) {
+		spec := &cff2Spec{
+			vstore: twoRegionStore(),
+			fds: []fdSpec{{
+				privateBody: append(append(dictNum(5), byte(opVSIndex)), append(dictNum(80), byte(opStdVW))...),
+			}},
+			charStrings: cffIndex{cs(0, 0, t2rmoveto, 100, 0, t2rlineto)},
+		}
+		data := buildCFF2(spec)
+		font, err := readCFF2Bytes(t, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := font.Private[0].VSIndex; got != 0 {
+			t.Errorf("Private VSIndex = %d, want 0", got)
+		}
+		if got := font.Glyphs[0].VSIndex; got != 0 {
+			t.Errorf("glyph VSIndex = %d, want 0", got)
+		}
+		roundTripCFF2(t, data)
+	})
+
+	for _, idx := range []int{7, -1} {
+		t.Run(fmt.Sprintf("glyph %d", idx), func(t *testing.T) {
+			spec := &cff2Spec{
+				vstore:      twoRegionStore(),
+				charStrings: cffIndex{cs(idx, t2vsindex, 0, 0, t2rmoveto, 100, 0, t2rlineto)},
+			}
+			data := buildCFF2(spec)
+			font, err := readCFF2Bytes(t, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := font.Glyphs[0].VSIndex; got != 0 {
+				t.Errorf("glyph VSIndex = %d, want 0", got)
+			}
+			roundTripCFF2(t, data)
+		})
+	}
+
+	// a charstring blend which relies on the invalid Font DICT vsindex
+	t.Run("used by blend", func(t *testing.T) {
+		spec := &cff2Spec{
+			vstore: twoRegionStore(),
+			fds: []fdSpec{{
+				privateBody: append(dictNum(5), byte(opVSIndex)),
+			}},
+			charStrings: cffIndex{cs(100, 200, 10, 20, 30, 40, 2, t2blend, t2rmoveto)},
+		}
+		if _, err := readCFF2Bytes(t, buildCFF2(spec)); err == nil {
+			t.Error("expected error")
+		}
+	})
+}
+
+// TestReadCFF2SubrsOutsideFile checks that a Subrs offset which points
+// outside the file gives no local subroutines.
+func TestReadCFF2SubrsOutsideFile(t *testing.T) {
+	spec := &cff2Spec{
+		fds: []fdSpec{{
+			privateBody: append(dictOff(0x7fffff00), byte(opSubrs)),
+		}},
+		charStrings: cffIndex{cs(0, 0, t2rmoveto, 100, 0, t2rlineto)},
+	}
+	data := buildCFF2(spec)
+	if _, err := readCFF2Bytes(t, data); err != nil {
+		t.Fatal(err)
+	}
+	roundTripCFF2(t, data)
+}
+
+// TestReadCFF2DamagedSubrs checks that a malformed Subrs INDEX gives no
+// local subroutines.
+func TestReadCFF2DamagedSubrs(t *testing.T) {
+	// The Subrs offset points just past the Subrs operator, where the
+	// trailing bytes, which end the DICT data, give an impossible INDEX
+	// count.
+	body := append(dictOff(6), byte(opSubrs), 0xff, 0xff, 0xff, 0xff)
+	spec := &cff2Spec{
+		fds:         []fdSpec{{privateBody: body}},
+		charStrings: cffIndex{cs(0, 0, t2rmoveto, 100, 0, t2rlineto)},
+	}
+	data := buildCFF2(spec)
+	if _, err := readCFF2Bytes(t, data); err != nil {
+		t.Fatal(err)
+	}
+	roundTripCFF2(t, data)
 }
 
 func FuzzReadCFF2(f *testing.F) {

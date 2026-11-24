@@ -347,8 +347,8 @@ func TestDecodeCFF2Errors(t *testing.T) {
 			code: cs(100, 10, 20, 1, t2blend, 200, 11, 12, 13, 14, 2, t2blend),
 		},
 		{
-			name: "bad vsindex operand negative",
-			code: cs(-1, t2vsindex),
+			name: "blend after negative vsindex",
+			code: cs(-1, t2vsindex, 0, 10, 1, t2blend, t2rmoveto),
 		},
 	}
 

@@ -75,11 +75,11 @@ func TestDictCFF2RoundTrip(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			blob := tc.dict.encodeCFF2()
-			out, err := decodeDictCFF2(blob, constK(tc.k))
+			blob, err := tc.dict.encodeCFF2()
 			if err != nil {
 				t.Fatal(err)
 			}
+			out := decodeDictCFF2(blob, constK(tc.k))
 			if !reflect.DeepEqual(out, tc.dict) {
 				t.Errorf("round trip failed:\n got %#v\nwant %#v", out, tc.dict)
 			}
@@ -87,59 +87,119 @@ func TestDictCFF2RoundTrip(t *testing.T) {
 	}
 }
 
+// TestDictCFF2Malformed checks that an operator whose operands cannot be
+// decoded is dropped, while the rest of the DICT is kept.
 func TestDictCFF2Malformed(t *testing.T) {
-	t.Run("underflow-empty", func(t *testing.T) {
-		buf := []byte{byte(opBlend)}
-		if _, err := decodeDictCFF2(buf, constK(2)); err == nil {
-			t.Error("expected error")
-		}
-	})
-	t.Run("underflow-operands", func(t *testing.T) {
-		// n=2, k=2 needs 6 operands but only 3 present
-		buf := &bytes.Buffer{}
-		encodeDictNumber(buf, int32(1))
-		encodeDictNumber(buf, int32(2))
-		encodeDictNumber(buf, int32(3))
-		encodeDictNumber(buf, int32(2))
-		buf.WriteByte(byte(opBlend))
-		if _, err := decodeDictCFF2(buf.Bytes(), constK(2)); err == nil {
-			t.Error("expected error")
-		}
-	})
-	t.Run("negative-region-count", func(t *testing.T) {
-		buf := &bytes.Buffer{}
-		encodeDictNumber(buf, int32(1))
-		encodeDictNumber(buf, int32(1))
-		buf.WriteByte(byte(opBlend))
-		if _, err := decodeDictCFF2(buf.Bytes(), constK(-1)); err == nil {
-			t.Error("expected error")
-		}
-	})
-	t.Run("region-count-error", func(t *testing.T) {
-		buf := &bytes.Buffer{}
-		encodeDictNumber(buf, int32(1))
-		encodeDictNumber(buf, int32(1))
-		buf.WriteByte(byte(opBlend))
-		bad := func(int) (int, error) { return 0, errCorruptDict }
-		if _, err := decodeDictCFF2(buf.Bytes(), bad); err == nil {
-			t.Error("expected error")
-		}
-	})
-	t.Run("nested-blend", func(t *testing.T) {
-		// a blended value must not be re-blended as another blend's operand
-		buf := &bytes.Buffer{}
-		for _, x := range []int32{1, 2, 3, 1} { // first blend n=1,k=2
+	numbers := func(buf *bytes.Buffer, xs ...int32) {
+		for _, x := range xs {
 			encodeDictNumber(buf, x)
 		}
-		buf.WriteByte(byte(opBlend))
-		for _, x := range []int32{4, 5, 1} { // second blend reuses the result as base
-			encodeDictNumber(buf, x)
-		}
-		buf.WriteByte(byte(opBlend))
-		if _, err := decodeDictCFF2(buf.Bytes(), constK(2)); err == nil {
-			t.Error("expected error")
-		}
-	})
+	}
+	cases := []struct {
+		name        string
+		k           int
+		regionCount func(int) (int, error)
+		operands    func(buf *bytes.Buffer)
+	}{
+		{
+			name:     "underflow-empty",
+			k:        2,
+			operands: func(buf *bytes.Buffer) { buf.WriteByte(byte(opBlend)) },
+		},
+		{
+			// n=2, k=2 needs 6 operands but only 3 are present
+			name: "underflow-operands",
+			k:    2,
+			operands: func(buf *bytes.Buffer) {
+				numbers(buf, 1, 2, 3, 2)
+				buf.WriteByte(byte(opBlend))
+			},
+		},
+		{
+			name: "negative-region-count",
+			k:    -1,
+			operands: func(buf *bytes.Buffer) {
+				numbers(buf, 1, 1)
+				buf.WriteByte(byte(opBlend))
+			},
+		},
+		{
+			name:        "region-count-error",
+			regionCount: func(int) (int, error) { return 0, errCorruptDict },
+			operands: func(buf *bytes.Buffer) {
+				numbers(buf, 1, 1)
+				buf.WriteByte(byte(opBlend))
+			},
+		},
+		{
+			// a blended value used as the operand of another blend
+			name: "nested-blend",
+			k:    2,
+			operands: func(buf *bytes.Buffer) {
+				numbers(buf, 1, 2, 3, 1)
+				buf.WriteByte(byte(opBlend))
+				numbers(buf, 4, 5, 1)
+				buf.WriteByte(byte(opBlend))
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rc := c.regionCount
+			if rc == nil {
+				rc = constK(c.k)
+			}
+			buf := &bytes.Buffer{}
+			numbers(buf, 50)
+			buf.WriteByte(byte(opStdHW))
+			c.operands(buf)
+			buf.WriteByte(byte(opStdVW))
+			numbers(buf, 7)
+			buf.WriteByte(byte(opSubrs))
+
+			got := decodeDictCFF2(buf.Bytes(), rc)
+			want := cffDict{
+				opStdHW: []any{int32(50)},
+				opSubrs: []any{int32(7)},
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("got %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+// TestDictCFF2Truncated checks that decoding stops at bytes which are not a
+// number or an operator, and keeps the operators decoded before them.
+func TestDictCFF2Truncated(t *testing.T) {
+	stdVW := byte(opStdVW)
+	cases := []struct {
+		name string
+		tail []byte // bytes after the operand of StdVW
+	}{
+		{"short 28", []byte{28, 0}},
+		{"short 29", []byte{29, 0, 0, 0}},
+		{"bad real", []byte{30, 0x1d, stdVW}},
+		{"short 247", []byte{247}},
+		{"short 251", []byte{251}},
+		{"lone 12", []byte{12}},
+		{"byte 255", []byte{255, stdVW}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			encodeDictNumber(buf, int32(50))
+			buf.WriteByte(byte(opStdHW))
+			encodeDictNumber(buf, int32(70))
+			buf.Write(c.tail)
+
+			got := decodeDictCFF2(buf.Bytes(), constK(0))
+			want := cffDict{opStdHW: []any{int32(50)}}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("got %#v, want %#v", got, want)
+			}
+		})
+	}
 }
 
 func TestDictCFF2BlendCap(t *testing.T) {
@@ -155,10 +215,10 @@ func TestDictCFF2BlendCap(t *testing.T) {
 		return buf.Bytes()
 	}
 
-	if _, err := decodeDictCFF2(build(512), constK(0)); err != nil {
-		t.Errorf("n=512 should be accepted: %v", err)
+	if _, ok := decodeDictCFF2(build(512), constK(0))[opBlueValues]; !ok {
+		t.Error("n=512 should be accepted")
 	}
-	if _, err := decodeDictCFF2(build(513), constK(0)); err == nil {
+	if _, ok := decodeDictCFF2(build(513), constK(0))[opBlueValues]; ok {
 		t.Error("n=513 should exceed the cap")
 	}
 }
@@ -197,28 +257,225 @@ func TestDictCFF2Accessors(t *testing.T) {
 	}
 }
 
+// TestBlendArrayPlainAfterBlended checks that a plain operand of an array
+// is a difference without deltas, so that its element keeps the deltas of
+// the element before it.
+func TestBlendArrayPlainAfterBlended(t *testing.T) {
+	buf := &bytes.Buffer{}
+	for _, v := range []int32{-10, 1, 1} {
+		encodeDictNumber(buf, v)
+	}
+	buf.WriteByte(byte(opBlend))
+	for _, v := range []int32{10, 440, 10, -20, -1, 2} {
+		encodeDictNumber(buf, v)
+	}
+	buf.WriteByte(byte(opBlend))
+	buf.WriteByte(byte(opBlueValues))
+
+	d := decodeDictCFF2(buf.Bytes(), constK(1))
+	got := toBlends(d.getBlendArray(opBlueValues))
+	want := []Blend{
+		{Default: -10, Deltas: []float64{1}},
+		{Default: 0, Deltas: []float64{1}},
+		{Default: 440, Deltas: []float64{-19}},
+		{Default: 450, Deltas: []float64{-20}},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("wrong array (-want +got):\n%s", diff)
+	}
+}
+
+// TestBlendArrayZeroDeltas checks that an element whose deltas sum to zero
+// reads as a constant.
+func TestBlendArrayZeroDeltas(t *testing.T) {
+	d := cffDict{
+		opBlueValues: []any{
+			dictBlendValue{Default: int32(-10), Deltas: []any{int32(1)}},
+			dictBlendValue{Default: int32(10), Deltas: []any{int32(-1)}},
+		},
+	}
+	got := toBlends(d.getBlendArray(opBlueValues))
+	want := []Blend{
+		{Default: -10, Deltas: []float64{1}},
+		{Default: 0},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("wrong array (-want +got):\n%s", diff)
+	}
+}
+
+// TestDictCFF2ReservedOperator checks that a reserved operator is ignored
+// together with its operands, and that decoding continues after it.
+func TestDictCFF2ReservedOperator(t *testing.T) {
+	for _, op := range []byte{25, 26, 27, 31} {
+		buf := &bytes.Buffer{}
+		encodeDictNumber(buf, int32(50))
+		buf.WriteByte(byte(opStdHW))
+		encodeDictNumber(buf, int32(70))
+		buf.WriteByte(op)
+		encodeDictNumber(buf, int32(80))
+		buf.WriteByte(byte(opStdVW))
+
+		got := decodeDictCFF2(buf.Bytes(), constK(0))
+		want := cffDict{
+			opStdHW: []any{int32(50)},
+			opStdVW: []any{int32(80)},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("operator %d: got %#v, want %#v", op, got, want)
+		}
+	}
+}
+
+// TestDictCFF2VSIndexAfterBlend checks that a vsindex operator after a blend
+// is ignored, so that all blends use the same vsindex.
+func TestDictCFF2VSIndexAfterBlend(t *testing.T) {
+	regionCount := func(vsindex int) (int, error) { return vsindex + 1, nil }
+
+	buf := &bytes.Buffer{}
+	for _, v := range []int32{10, 1, 1} {
+		encodeDictNumber(buf, v)
+	}
+	buf.WriteByte(byte(opBlend))
+	buf.WriteByte(byte(opStdHW))
+	encodeDictNumber(buf, int32(1))
+	buf.WriteByte(byte(opVSIndex))
+	for _, v := range []int32{20, 3, 1} {
+		encodeDictNumber(buf, v)
+	}
+	buf.WriteByte(byte(opBlend))
+	buf.WriteByte(byte(opStdVW))
+
+	got := decodeDictCFF2(buf.Bytes(), regionCount)
+	want := cffDict{
+		opStdHW: []any{dictBlendValue{Default: int32(10), Deltas: []any{int32(1)}}},
+		opStdVW: []any{dictBlendValue{Default: int32(20), Deltas: []any{int32(3)}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %#v, want %#v", got, want)
+	}
+}
+
+// TestEncodeCFF2StackLimit checks that the operands of a key are split over
+// several blend operators such that the operand stack never holds more than
+// 513 values, and that an error is returned where this is impossible.
+func TestEncodeCFF2StackLimit(t *testing.T) {
+	blended := func(n, k int) []any {
+		res := make([]any, n)
+		for i := range res {
+			deltas := make([]any, k)
+			for j := range deltas {
+				deltas[j] = int32(i + j)
+			}
+			res[i] = dictBlendValue{Default: int32(i), Deltas: deltas}
+		}
+		return res
+	}
+
+	for _, k := range []int{1, 40, 72, 255} {
+		d := cffDict{opBlueValues: blended(14, k)}
+		blob, err := d.encodeCFF2()
+		if err != nil {
+			t.Errorf("k=%d: %v", k, err)
+			continue
+		}
+		if depth, _ := scanDictCFF2(t, blob, k); depth > maxStackCFF2 {
+			t.Errorf("k=%d: stack depth %d exceeds %d", k, depth, maxStackCFF2)
+		}
+		if got := decodeDictCFF2(blob, constK(k)); !reflect.DeepEqual(got, d) {
+			t.Errorf("k=%d: round trip failed", k)
+		}
+	}
+
+	for _, c := range []struct{ n, k int }{{1, 512}, {14, 510}} {
+		d := cffDict{opBlueValues: blended(c.n, c.k)}
+		if _, err := d.encodeCFF2(); err == nil {
+			t.Errorf("n=%d, k=%d: expected error", c.n, c.k)
+		}
+	}
+
+	// plain operands only
+	plain := func(n int) []any {
+		res := make([]any, n)
+		for i := range res {
+			res[i] = int32(i)
+		}
+		return res
+	}
+	if _, err := (cffDict{opBlueValues: plain(maxStackCFF2)}).encodeCFF2(); err != nil {
+		t.Errorf("%d plain operands: %v", maxStackCFF2, err)
+	}
+	if _, err := (cffDict{opBlueValues: plain(maxStackCFF2 + 1)}).encodeCFF2(); err == nil {
+		t.Errorf("%d plain operands: expected error", maxStackCFF2+1)
+	}
+}
+
+// scanDictCFF2 simulates the operand stack while decoding the CFF2 DICT data
+// buf, whose blends use k regions.  It returns the largest number of values
+// on the stack, and the number of blended values n of each blend operator in
+// order.  The data must contain only integer operands.
+func scanDictCFF2(t *testing.T, buf []byte, k int) (peak int, blends []int) {
+	t.Helper()
+	depth := 0
+	var last int32
+	push := func(v int32, n int) {
+		last = v
+		depth++
+		peak = max(peak, depth)
+		buf = buf[n:]
+	}
+	for len(buf) > 0 {
+		b0 := buf[0]
+		switch {
+		case b0 == byte(opBlend):
+			n := int(last)
+			blends = append(blends, n)
+			depth += n - (n*(k+1) + 1)
+			buf = buf[1:]
+		case b0 == 12:
+			depth = 0
+			buf = buf[2:]
+		case b0 <= 24:
+			depth = 0
+			buf = buf[1:]
+		case b0 == 28:
+			push(int32(int16(uint16(buf[1])<<8|uint16(buf[2]))), 3)
+		case b0 == 29:
+			push(int32(uint32(buf[1])<<24|uint32(buf[2])<<16|uint32(buf[3])<<8|uint32(buf[4])), 5)
+		case b0 >= 32 && b0 <= 246:
+			push(int32(b0)-139, 1)
+		case b0 >= 247 && b0 <= 250:
+			push((int32(b0)-247)*256+int32(buf[1])+108, 2)
+		case b0 >= 251 && b0 <= 254:
+			push(-(int32(b0)-251)*256-int32(buf[1])-108, 2)
+		default:
+			t.Fatalf("unexpected byte %d", b0)
+		}
+	}
+	return peak, blends
+}
+
 func FuzzDictCFF2(f *testing.F) {
 	seeds := []cffDict{
 		{opCharStrings: []any{int32(100)}},
 		{opVSIndex: []any{int32(0)}, opStdHW: []any{dictBlendValue{Default: int32(10), Deltas: []any{int32(1), int32(2)}}}},
 	}
 	for _, d := range seeds {
-		f.Add(d.encodeCFF2())
+		blob, err := d.encodeCFF2()
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(blob)
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		rc := constK(2)
-		d1, err := decodeDictCFF2(data, rc)
-		if err != nil {
-			return
-		}
-
-		data2 := d1.encodeCFF2()
-
-		d2, err := decodeDictCFF2(data2, rc)
+		d1 := decodeDictCFF2(data, rc)
+		data2, err := d1.encodeCFF2()
 		if err != nil {
 			t.Fatal(err)
 		}
+		d2 := decodeDictCFF2(data2, rc)
 
 		if len(d1) != len(d2) {
 			t.Fatalf("wrong length: %d != %d", len(d1), len(d2))

@@ -873,99 +873,127 @@ type resolvedBlend struct {
 // n*(k+1)+1 <= cff2BlendCap.
 const cff2BlendCap = 513
 
-// decodeDictCFF2 decodes a CFF2 top or private DICT.  Unlike a CFF1 DICT, a
-// CFF2 DICT contains no string (SID) operands and may use the blend
+// decodeDictCFF2 decodes a CFF2 top, font or private DICT.  Unlike a CFF1
+// DICT, a CFF2 DICT contains no string (SID) operands and may use the blend
 // operator to make operands variable.  regionCount reports the number of
 // variation regions k for a given vsindex; it is called with the DICT's
 // current vsindex, which is 0 unless a vsindex operator has set it.
-func decodeDictCFF2(buf []byte, regionCount func(vsindex int) (int, error)) (cffDict, error) {
+//
+// Malformed data is repaired by omission.  An operator whose operands cannot
+// be decoded, for example because a blend fails or because its operands
+// exceed the operand stack limit of 513 values, is left out of the result,
+// and so is a vsindex operator without a valid operand.  A vsindex operator
+// after a blend is ignored, so that every blend of the DICT uses the same
+// vsindex.  Reserved operators are ignored together with their operands, as
+// the specification requires for unrecognised operators.  Decoding stops at
+// a byte sequence which is not a number or an operator, and the operators
+// decoded up to there are kept.
+func decodeDictCFF2(buf []byte, regionCount func(vsindex int) (int, error)) cffDict {
 	res := cffDict{}
 	var stack []any
+	bad := false // the operands of the next operator could not be decoded
 	vsindex := 0
+	blendSeen := false
 
+	store := func(op dictOp) {
+		if !bad {
+			res[op] = stack
+		}
+		stack = nil
+		bad = false
+	}
+	push := func(v any) {
+		if len(stack) >= maxStackCFF2 {
+			bad = true
+			return
+		}
+		stack = append(stack, v)
+	}
+
+decode:
 	for len(buf) > 0 {
 		b0 := buf[0]
 		switch {
 		case b0 == 12:
 			if len(buf) < 2 {
-				return nil, errCorruptDict
+				break decode
 			}
-			op := dictOp(b0)<<8 | dictOp(buf[1])
-			res[op] = stack
-			stack = nil
+			store(dictOp(b0)<<8 | dictOp(buf[1]))
 			buf = buf[2:]
 		case b0 == 22: // vsindex
-			if len(stack) == 0 {
-				return nil, errCorruptDict
+			if !bad && !blendSeen && len(stack) > 0 {
+				if v, ok := stack[len(stack)-1].(int32); ok {
+					vsindex = int(v)
+					res[opVSIndex] = []any{v}
+				}
 			}
-			v, ok := stack[len(stack)-1].(int32)
-			if !ok {
-				return nil, errCorruptDict
-			}
-			vsindex = int(v)
-			res[opVSIndex] = []any{int32(vsindex)}
 			stack = nil
+			bad = false
 			buf = buf[1:]
 		case b0 == 23: // blend
-			var err error
-			stack, err = applyDictBlend(stack, vsindex, regionCount)
-			if err != nil {
-				return nil, err
+			blendSeen = true
+			if !bad {
+				var err error
+				stack, err = applyDictBlend(stack, vsindex, regionCount)
+				if err != nil {
+					stack = nil
+					bad = true
+				}
 			}
 			buf = buf[1:]
 		case b0 <= 24: // single-byte operators (includes vstore, op 24)
-			res[dictOp(b0)] = stack
-			stack = nil
+			store(dictOp(b0))
 			buf = buf[1:]
-		case b0 <= 27: // reserved
-			return nil, errCorruptDict
+		case b0 <= 27: // reserved operators
+			stack = nil
+			bad = false
+			buf = buf[1:]
 		case b0 == 28:
 			if len(buf) < 3 {
-				return nil, errCorruptDict
+				break decode
 			}
-			stack = append(stack, int32(int16(uint16(buf[1])<<8|uint16(buf[2]))))
+			push(int32(int16(uint16(buf[1])<<8 | uint16(buf[2]))))
 			buf = buf[3:]
 		case b0 == 29:
 			if len(buf) < 5 {
-				return nil, errCorruptDict
+				break decode
 			}
-			stack = append(stack,
-				int32(uint32(buf[1])<<24|uint32(buf[2])<<16|uint32(buf[3])<<8|uint32(buf[4])))
+			push(int32(uint32(buf[1])<<24 | uint32(buf[2])<<16 | uint32(buf[3])<<8 | uint32(buf[4])))
 			buf = buf[5:]
 		case b0 == 30:
 			tmp, x, err := decodeFloat(buf[1:])
 			if err != nil {
-				return nil, err
+				break decode
 			}
-			stack = append(stack, x)
+			push(x)
 			buf = tmp
-		case b0 == 31: // reserved
-			return nil, errCorruptDict
+		case b0 == 31: // not a number encoding, so an unknown operator
+			stack = nil
+			bad = false
+			buf = buf[1:]
 		case b0 <= 246:
-			stack = append(stack, int32(b0)-139)
+			push(int32(b0) - 139)
 			buf = buf[1:]
 		case b0 <= 250:
 			if len(buf) < 2 {
-				return nil, errCorruptDict
+				break decode
 			}
-			stack = append(stack, int32(b0)*256+int32(buf[1])+(108-247*256))
+			push(int32(b0)*256 + int32(buf[1]) + (108 - 247*256))
 			buf = buf[2:]
 		case b0 <= 254:
 			if len(buf) < 2 {
-				return nil, errCorruptDict
+				break decode
 			}
-			stack = append(stack, -int32(b0)*256-int32(buf[1])-(108-251*256))
+			push(-int32(b0)*256 - int32(buf[1]) - (108 - 251*256))
 			buf = buf[2:]
-		default: // 255 reserved
-			return nil, errCorruptDict
+		default:
+			// 255 introduces a 16.16 number in charstrings but is not
+			// allowed in DICT data, so the length of its token is unknown
+			break decode
 		}
 	}
 
-	if len(stack) > 0 {
-		return nil, errCorruptDict
-	}
-
-	return res, nil
+	return res
 }
 
 // applyDictBlend consumes the blend operands from the top of stack and
@@ -1030,11 +1058,13 @@ func applyDictBlend(stack []any, vsindex int, regionCount func(int) (int, error)
 	return stack, nil
 }
 
-// encodeCFF2 encodes a CFF2 top or private DICT.  A vsindex operator, if
-// present, is emitted first so that it precedes any blend.  A blend
+// encodeCFF2 encodes a CFF2 top, font or private DICT.  A vsindex operator,
+// if present, is emitted first so that it precedes any blend.  A blend
 // operator is emitted for each run of consecutive blended operands (values
 // carrying deltas); operands without deltas are emitted as plain numbers.
-func (d cffDict) encodeCFF2() []byte {
+// An error is returned if the operands of a key cannot be encoded within the
+// CFF2 operand stack limit.
+func (d cffDict) encodeCFF2() ([]byte, error) {
 	res := &bytes.Buffer{}
 
 	if vs, ok := d[opVSIndex]; ok {
@@ -1048,31 +1078,45 @@ func (d cffDict) encodeCFF2() []byte {
 		if op == opVSIndex {
 			continue
 		}
-		encodeCFF2Operands(res, d[op])
+		if err := encodeCFF2Operands(res, d[op]); err != nil {
+			return nil, err
+		}
 		if op > 255 {
 			res.WriteByte(12)
 		}
 		res.WriteByte(byte(op))
 	}
-	return res.Bytes()
+	return res.Bytes(), nil
 }
 
 // encodeCFF2Operands writes the operands of a single CFF2 DICT key, emitting
-// blend operators for runs of blended values.
-func encodeCFF2Operands(res *bytes.Buffer, operands []any) {
+// blend operators for runs of blended values.  A run is split over several
+// blend operators where the operand stack could not hold it at once.
+func encodeCFF2Operands(res *bytes.Buffer, operands []any) error {
+	depth := 0 // values on the operand stack
 	i := 0
 	for i < len(operands) {
 		bv, ok := operands[i].(dictBlendValue)
 		if !ok || len(bv.Deltas) == 0 {
+			if depth >= maxStackCFF2 {
+				return errDictStackCFF2
+			}
 			encodeDictNumber(res, plainOperand(operands[i]))
+			depth++
 			i++
 			continue
 		}
 
-		// run of consecutive blended values sharing the same delta count
+		// run of consecutive blended values sharing the same delta count,
+		// limited so that the n*(k+1)+1 blend operands fit on the stack
+		// above the values already there
 		k := len(bv.Deltas)
+		maxRun := (maxStackCFF2 - 1 - depth) / (k + 1)
+		if maxRun < 1 {
+			return errDictStackCFF2
+		}
 		j := i
-		for j < len(operands) {
+		for j < len(operands) && j-i < maxRun {
 			b, ok := operands[j].(dictBlendValue)
 			if !ok || len(b.Deltas) != k {
 				break
@@ -1090,9 +1134,13 @@ func encodeCFF2Operands(res *bytes.Buffer, operands []any) {
 		}
 		encodeDictNumber(res, int32(len(run)))
 		res.WriteByte(byte(opBlend))
+		depth += len(run)
 		i = j
 	}
+	return nil
 }
+
+var errDictStackCFF2 = invalidSince("cff2: DICT operands exceed the stack limit")
 
 // plainOperand returns the numeric value of a plain operand, or the default
 // of a blended operand that carries no deltas.
@@ -1142,30 +1190,34 @@ func (d cffDict) getBlend(op dictOp) (resolvedBlend, bool) {
 // getBlendArray returns the delta-encoded array operands of op resolved to
 // float64.  The default values and each region's deltas are decoded as
 // running sums, so element i holds the absolute value for its region.
+//
+// The blend operator acts on the encoded differences, and the array is
+// decoded from the blended stack.  A plain operand is thus a difference
+// without deltas: it leaves the running delta sums unchanged, and the
+// element inherits the deltas of the element before it.  An element whose
+// deltas are all zero is returned without deltas.
 func (d cffDict) getBlendArray(op dictOp) []resolvedBlend {
 	vals := d[op]
 	if len(vals) == 0 {
 		return nil
 	}
 	res := make([]resolvedBlend, len(vals))
-	var prevDefault float64
-	var prevDeltas []float64
+	var sumDefault float64
+	var sumDeltas []float64
 	for i, v := range vals {
 		rb := resolveBlend(v)
-		prevDefault += rb.Default
-		out := resolvedBlend{Default: prevDefault}
-		if len(rb.Deltas) > 0 {
-			if len(prevDeltas) < len(rb.Deltas) {
-				grown := make([]float64, len(rb.Deltas))
-				copy(grown, prevDeltas)
-				prevDeltas = grown
-			}
-			acc := make([]float64, len(rb.Deltas))
-			for j := range rb.Deltas {
-				prevDeltas[j] += rb.Deltas[j]
-				acc[j] = prevDeltas[j]
-			}
-			out.Deltas = acc
+		sumDefault += rb.Default
+		if len(sumDeltas) < len(rb.Deltas) {
+			grown := make([]float64, len(rb.Deltas))
+			copy(grown, sumDeltas)
+			sumDeltas = grown
+		}
+		for j, delta := range rb.Deltas {
+			sumDeltas[j] += delta
+		}
+		out := resolvedBlend{Default: sumDefault}
+		if slices.ContainsFunc(sumDeltas, func(x float64) bool { return x != 0 }) {
+			out.Deltas = slices.Clone(sumDeltas)
 		}
 		res[i] = out
 	}

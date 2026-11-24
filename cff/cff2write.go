@@ -5,18 +5,24 @@ package cff
 
 import (
 	"io"
+	"iter"
 	"math"
 
 	"seehuhn.de/go/geom/matrix"
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/variation"
 )
 
 // Write writes the binary form of a CFF2 font.
 //
 // The top-level font matrix, on its own and composed with each of the per-FD
 // matrices, must pass [UsableFontMatrix].
+//
+// A non-zero VSIndex of a glyph or Private DICT must select an item
+// variation data subtable of VarStore, and every [Blend] must carry either
+// no deltas or one per region of the subtable which its VSIndex selects.
 func (f *FontCFF2) Write(w io.Writer) error {
 	o := f.OutlinesCFF2
 	fds := make([]matrix.Matrix, len(o.Private))
@@ -60,6 +66,9 @@ func (f *FontCFF2) write(w io.Writer) error {
 			// so they cannot be silently replaced here
 			return invalidSince("cff2: FDSelect out of range")
 		}
+		if err := checkGlyphBlendsCFF2(g, o.VarStore); err != nil {
+			return err
+		}
 		code, err := encodeCharStringCFF2(g, o.Private[fd])
 		if err != nil {
 			return err
@@ -76,11 +85,17 @@ func (f *FontCFF2) write(w io.Writer) error {
 		if err := checkPrivateBlends(p); err != nil {
 			return err
 		}
+		if err := checkBlendsCFF2(o.VarStore, p.VSIndex, privateBlendsCFF2(p)); err != nil {
+			return err
+		}
 		d, err := makePrivateDictCFF2(p)
 		if err != nil {
 			return err
 		}
-		privateBlobs[i] = d.encodeCFF2()
+		privateBlobs[i], err = d.encodeCFF2()
+		if err != nil {
+			return err
+		}
 	}
 
 	// FDSelect is omitted when a single Font DICT covers every glyph
@@ -159,7 +174,10 @@ func (f *FontCFF2) write(w io.Writer) error {
 				int32(len(privateBlobs[i])),
 				offs[secPrivate[i]],
 			}
-			fdArray[i] = fontDict.encodeCFF2()
+			fdArray[i], err = fontDict.encodeCFF2()
+			if err != nil {
+				return err
+			}
 		}
 		blobs[secFDArray], err = fdArray.encode32()
 		if err != nil {
@@ -181,7 +199,10 @@ func (f *FontCFF2) write(w io.Writer) error {
 		if secFDSelect >= 0 {
 			topDict[opFDSelect] = []any{offs[secFDSelect]}
 		}
-		topBlob := topDict.encodeCFF2()
+		topBlob, err := topDict.encodeCFF2()
+		if err != nil {
+			return err
+		}
 		blobs[secTopDict] = topBlob
 		blobs[secHeader] = []byte{2, 0, 5, byte(len(topBlob) >> 8), byte(len(topBlob))}
 
@@ -273,32 +294,58 @@ func setBlendScalarCFF2(d cffDict, op dictOp, v, def Blend) {
 // setBlendArrayCFF2 stores a delta-encoded array of blendable operands.  Both
 // the defaults and each region's deltas are re-differenced across the array so
 // that getBlendArray's running sum reproduces the absolute values.
+// Each element carries either no deltas or the same number k of them.
+//
+// A plain operand is a difference without deltas, so its element takes the
+// deltas of the element before it.  A constant element after a varying one
+// therefore needs explicit deltas, and a plain operand can only stand where
+// an element varies exactly like its predecessor.
+//
+// If any element varies and the whole array fits into one blend operator,
+// every element is written with deltas, as one blend operator, since not
+// every reader accepts an array which mixes plain and blended operands.
+// Otherwise an element is written as a plain operand exactly where its
+// deltas equal those of its predecessor.  Every other element needs a blend
+// in any encoding, so this form fits the operand stack whenever some
+// encoding does.
 func setBlendArrayCFF2(d cffDict, op dictOp, blends []Blend) {
 	if len(blends) == 0 {
 		return
 	}
+	var k int
+	for _, t := range blends {
+		if len(t.Deltas) > 0 {
+			k = len(t.Deltas)
+			break
+		}
+	}
+	singleBlend := len(blends)*(k+1)+1 <= maxStackCFF2
 	res := make([]any, len(blends))
 	var prevDefault float64
-	var prevDeltas []float64
+	prevDeltas := make([]float64, k)
 	for i, t := range blends {
-		relDefault := t.Default - prevDefault
+		relDefault := dictNumberOperandCFF2(t.Default - prevDefault)
 		prevDefault = t.Default
-		if len(t.Deltas) == 0 {
-			res[i] = dictNumberOperandCFF2(relDefault)
+		if k == 0 {
+			res[i] = relDefault
 			continue
 		}
-		m := len(t.Deltas)
-		if len(prevDeltas) < m {
-			grown := make([]float64, m)
-			copy(grown, prevDeltas)
-			prevDeltas = grown
+		relDeltas := make([]any, k)
+		same := true
+		for j := range k {
+			var delta float64
+			if len(t.Deltas) > 0 {
+				delta = t.Deltas[j]
+			}
+			same = same && delta == prevDeltas[j]
+			relDeltas[j] = dictNumberOperandCFF2(delta - prevDeltas[j])
+			prevDeltas[j] = delta
 		}
-		relDeltas := make([]any, m)
-		for j := range m {
-			relDeltas[j] = dictNumberOperandCFF2(t.Deltas[j] - prevDeltas[j])
-			prevDeltas[j] = t.Deltas[j]
+		if same && !singleBlend {
+			res[i] = relDefault
+			continue
 		}
-		res[i] = dictBlendValue{Default: dictNumberOperandCFF2(relDefault), Deltas: relDeltas}
+		res[i] = dictBlendValue{Default: relDefault, Deltas: relDeltas}
 	}
 	d[op] = res
 }
@@ -399,4 +446,65 @@ func fdSelectFormat3(fn FDSelectFn, nGlyphs int) []byte {
 	buf = append(buf, byte(nGlyphs>>8), byte(nGlyphs))
 	buf[1], buf[2] = byte(nSeg>>8), byte(nSeg)
 	return buf
+}
+
+// checkBlendsCFF2 reports an error unless every blend carries either no
+// deltas or one delta per region of the item variation data subtable of vs
+// which vsindex selects.  A non-zero vsindex must select a subtable.  Where
+// vsindex 0 selects none, as without a variation store, no blend may carry
+// deltas.
+func checkBlendsCFF2(vs *variation.ItemVariationStore, vsindex int, blends iter.Seq[Blend]) error {
+	k, err := regionCountCFF2(vs, vsindex)
+	if err != nil {
+		if vsindex != 0 {
+			return err
+		}
+		k = 0
+	}
+	for b := range blends {
+		if len(b.Deltas) != 0 && len(b.Deltas) != k {
+			return errDeltaCountCFF2
+		}
+	}
+	return nil
+}
+
+var errDeltaCountCFF2 = invalidSince("cff2: wrong number of deltas")
+
+// checkGlyphBlendsCFF2 applies checkBlendsCFF2 to the stems and path
+// arguments of g.
+func checkGlyphBlendsCFF2(g *GlyphCFF2, vs *variation.ItemVariationStore) error {
+	return checkBlendsCFF2(vs, g.VSIndex, func(yield func(Blend) bool) {
+		for _, s := range [][]Blend{g.HStem, g.VStem} {
+			for _, b := range s {
+				if !yield(b) {
+					return
+				}
+			}
+		}
+		for _, cmd := range g.Cmds {
+			for _, b := range cmd.Args {
+				if !yield(b) {
+					return
+				}
+			}
+		}
+	})
+}
+
+// privateBlendsCFF2 iterates over the blendable values of p.
+func privateBlendsCFF2(p *PrivateCFF2) iter.Seq[Blend] {
+	return func(yield func(Blend) bool) {
+		arrays := [][]Blend{
+			p.BlueValues, p.OtherBlues, p.StemSnapH, p.StemSnapV,
+			{p.StdHW, p.StdVW},
+		}
+		for _, arr := range arrays {
+			for _, b := range arr {
+				if !yield(b) {
+					return
+				}
+			}
+		}
+	}
 }

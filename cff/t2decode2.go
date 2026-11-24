@@ -26,7 +26,7 @@ const (
 // non-nil.
 type decodeInfoCFF2 struct {
 	subr, gsubr    cffIndex
-	defaultVSIndex int                            // from the FD's PrivateCFF2.VSIndex
+	defaultVSIndex int                            // the FD's vsindex, as given in the file
 	regionCount    func(vsindex int) (int, error) // region count of an IVD subtable
 	budget         *membudget.Budget
 }
@@ -417,7 +417,9 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 				vsindexSeen = true
 				idx := int(v.Default)
 				if v.Deltas != nil || v.Default != float64(idx) || idx < 0 {
-					return nil, errBadVSIndex
+					// an invalid index, so that only a blend which relies
+					// on it fails
+					idx = -1
 				}
 				currentVSIndex = idx
 
