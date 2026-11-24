@@ -162,11 +162,11 @@ func testLargeGpos(t *testing.T, lookups, subtables, classes int) {
 	// The encoding is the fixpoint that matters here: the lookup list has to
 	// come back with its subtables in the same shape, whatever reordering and
 	// extension records the writer needed to fit the offsets.
-	before, err := f1.Gpos.Encode()
+	before, err := f1.Gpos.Encode(gtab.TypeGpos)
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := f2.Gpos.Encode()
+	after, err := f2.Gpos.Encode(gtab.TypeGpos)
 	if err != nil {
 		t.Fatal(err)
 	}

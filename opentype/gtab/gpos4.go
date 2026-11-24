@@ -4,6 +4,8 @@
 package gtab
 
 import (
+	"errors"
+
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/markarray"
@@ -172,7 +174,7 @@ func (l *Gpos4_1) apply(ctx *Context, a, b int) int {
 // countMarkClasses returns the markClassCount for this subtable.  The
 // encoder requires every row in BaseArray to have width markClassCount,
 // and every MarkArray record's Class to be less than markClassCount.
-func (l *Gpos4_1) countMarkClasses() int {
+func (l *Gpos4_1) countMarkClasses() (int, error) {
 	var count int
 	if len(l.BaseArray) > 0 {
 		count = len(l.BaseArray[0])
@@ -187,15 +189,15 @@ func (l *Gpos4_1) countMarkClasses() int {
 	}
 	for _, row := range l.BaseArray {
 		if len(row) != count {
-			panic("Gpos4_1: inconsistent BaseArray row width")
+			return 0, errors.New("Gpos4_1: inconsistent BaseArray row width")
 		}
 	}
 	for _, rec := range l.MarkArray {
 		if int(rec.Class) >= count {
-			panic("Gpos4_1: mark class out of range")
+			return 0, errors.New("Gpos4_1: mark class out of range")
 		}
 	}
-	return count
+	return count, nil
 }
 
 // layout implements the [Subtable] interface.  The mark and base coverage
@@ -207,7 +209,10 @@ func (l *Gpos4_1) layout() (subtableLayout, error) {
 	if err := checkCoverage("Gpos4_1", l.BaseCov, len(l.BaseArray)); err != nil {
 		return nil, err
 	}
-	markClassCount := l.countMarkClasses()
+	markClassCount, err := l.countMarkClasses()
+	if err != nil {
+		return nil, err
+	}
 	marks, err := newMarkArray("Gpos4_1", l.MarkArray)
 	if err != nil {
 		return nil, err

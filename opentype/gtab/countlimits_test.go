@@ -239,7 +239,7 @@ func TestLookupListTooManyLookups(t *testing.T) {
 	for i := range ll {
 		ll[i] = lookup
 	}
-	if _, err := ll.encode(); err == nil {
+	if _, err := ll.encode(TypeGsub); err == nil {
 		t.Error("encode succeeded")
 	}
 }
@@ -254,7 +254,7 @@ func TestLookupTooManySubtables(t *testing.T) {
 		Meta:      &LookupMetaInfo{LookupType: 1},
 		Subtables: subtables,
 	}}
-	if _, err := ll.encode(); err == nil {
+	if _, err := ll.encode(TypeGsub); err == nil {
 		t.Error("encode succeeded")
 	}
 }

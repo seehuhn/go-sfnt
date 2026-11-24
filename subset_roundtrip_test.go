@@ -87,7 +87,7 @@ func encodeAndReadGtabLookups(t *testing.T, info *gtab.Info, tp gtab.Type) gtab.
 		},
 		LookupList: info.LookupList,
 	}
-	data, err := wrapped.Encode()
+	data, err := wrapped.Encode(tp)
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}

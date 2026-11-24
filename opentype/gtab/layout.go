@@ -85,10 +85,6 @@ func NewContext(ll LookupList, gdef *gdef.Table, lookups []LookupIndex) *Context
 func (ctx *Context) Apply(seq []glyph.Info) []glyph.Info {
 	ctx.maxLen = max(len(seq)*seqExpansionFactor, seqExpansionMin)
 	for _, lookupIndex := range ctx.lookups {
-		if int(lookupIndex) >= len(ctx.ll) {
-			continue
-		}
-
 		ctx.seq = seq
 		ctx.lookup = ctx.ll[lookupIndex]
 		ctx.keep = newKeepFunc(ctx.ll[lookupIndex].Meta, ctx.gdef)
@@ -184,10 +180,6 @@ func (ctx *Context) applyAtRecursively(pos int) int {
 		pos := ctx.stack[k].InputPos[seqIdx]
 		end := ctx.stack[k].EndPos
 		ctx.stack[k].Actions = ctx.stack[k].Actions[1:]
-
-		if int(lookupIndex) >= len(ctx.ll) {
-			continue
-		}
 
 		lookup := ctx.ll[lookupIndex]
 		keep := newKeepFunc(lookup.Meta, ctx.gdef)

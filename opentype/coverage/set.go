@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/internal/mapfilter"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -18,6 +19,13 @@ type Set map[glyph.ID]bool
 func (set Set) Glyphs() []glyph.ID {
 	glyphs := slices.Sorted(maps.Keys(set))
 	return glyphs
+}
+
+// Limit returns the set without the glyphs numGlyphs and above.  The second
+// result reports whether any glyph was removed.  If not, the set itself is
+// returned, otherwise the result is a copy.
+func (set Set) Limit(numGlyphs int) (Set, bool) {
+	return mapfilter.Keys(set, func(gid glyph.ID) bool { return int(gid) < numGlyphs })
 }
 
 // ToTable converts the Set to a Coverage table.

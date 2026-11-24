@@ -169,6 +169,12 @@ type subtableLayout interface {
 // Different functions are required for "GSUB" and "GPOS" tables.
 type subtableReader func(*parser.Parser, int64, *LookupMetaInfo) (Subtable, error)
 
+// subtableKey selects the function which reads a subtable.  The format is
+// the first field of the subtable.
+type subtableKey struct {
+	lookupType, format uint16
+}
+
 func readLookupList(p *parser.Parser, pos int64, sr subtableReader) (LookupList, error) {
 	err := p.SeekPos(pos)
 	if err != nil {
@@ -319,28 +325,19 @@ const (
 	gsubExtensionLookupType uint16 = 7
 )
 
-// encode returns the encoded lookup list.  The encoder handles fewer than
-// 16384 lookups, each with fewer than 16384 subtables.  An error is returned
-// for a longer list, for a subtable which cannot be encoded, and for
-// offsets which do not fit even with extension subtables.
-func (ll LookupList) encode() ([]byte, error) {
+// encode returns the lookup list, encoded for a table of type tp.  The
+// encoder handles fewer than 16384 lookups, each with fewer than 16384
+// subtables.  An error is returned for a longer list, for a subtable which
+// cannot be encoded, and for offsets which do not fit even with extension
+// subtables.
+func (ll LookupList) encode(tp Type) ([]byte, error) {
 	if ll == nil {
 		return nil, nil
 	}
 
-	var extLookupType uint16
-findTypeLoop:
-	for _, l := range ll {
-		for _, subtable := range l.Subtables {
-			switch subtable.(type) {
-			case *Gsub1_1, *Gsub1_2, *Gsub2_1, *Gsub3_1, *Gsub4_1, *Gsub8_1:
-				extLookupType = gsubExtensionLookupType
-				break findTypeLoop
-			case *Gpos1_1, *Gpos1_2, *Gpos2_1, *Gpos2_2, *Gpos3_1, *Gpos4_1, *Gpos5_1, *Gpos6_1:
-				extLookupType = gposExtensionLookupType
-				break findTypeLoop
-			}
-		}
+	extLookupType := gsubExtensionLookupType
+	if tp == TypeGpos {
+		extLookupType = gposExtensionLookupType
 	}
 
 	lookupCount := len(ll)
@@ -751,12 +748,8 @@ func (info *Info) FindLookups(lang language.Tag, includeFeature map[string]bool)
 		}
 	}
 
-	numLookups := LookupIndex(len(info.LookupList))
 	ll := make([]LookupIndex, 0, len(includeLookup))
 	for l := range includeLookup {
-		if l >= numLookups {
-			continue
-		}
 		ll = append(ll, l)
 	}
 	slices.Sort(ll)

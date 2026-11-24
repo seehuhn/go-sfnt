@@ -1177,7 +1177,7 @@ func checkLayoutRefused(t *testing.T, l Subtable, lookupType uint16) {
 		t.Error("layout succeeded")
 	}
 	ll := LookupList{{Meta: &LookupMetaInfo{LookupType: lookupType}, Subtables: []Subtable{l}}}
-	if _, err := ll.encode(); err == nil {
+	if _, err := ll.encode(TypeGpos); err == nil {
 		t.Error("lookup list encode succeeded")
 	}
 }

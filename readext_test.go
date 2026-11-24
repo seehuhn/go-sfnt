@@ -21,6 +21,7 @@ import (
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/header"
 	"seehuhn.de/go/sfnt/internal/debug"
+	"seehuhn.de/go/sfnt/kern"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/parser"
@@ -109,11 +110,7 @@ func TestReadDropsCMapGlyphsOutOfRange(t *testing.T) {
 			}
 			font.CMapTable = cmap.Table{tc.key: tc.data}
 
-			buf := &bytes.Buffer{}
-			if _, err := font.Write(buf); err != nil {
-				t.Fatal(err)
-			}
-			font1 := readBack(t, buf.Bytes())
+			font1 := writeReadBack(t, font)
 			if _, n := cmapGlyphs(t, font1); n != 1 {
 				t.Fatalf("expected one decodable subtable, got %d", n)
 			}
@@ -130,11 +127,7 @@ func TestReadDropsCMapGlyphsOutOfRange(t *testing.T) {
 			}
 
 			// read-write-read is stable
-			buf.Reset()
-			if _, err := font1.Write(buf); err != nil {
-				t.Fatal(err)
-			}
-			font2 := readBack(t, buf.Bytes())
+			font2 := writeReadBack(t, font1)
 			if diff := cmp.Diff(font1.CMapTable, font2.CMapTable); diff != "" {
 				t.Errorf("cmap not stable (-1 +2):\n%s", diff)
 			}
@@ -147,16 +140,8 @@ func TestReadDropsCMapGlyphsOutOfRange(t *testing.T) {
 func TestReadKeepsValidCMap(t *testing.T) {
 	font := debug.MakeSimpleFont()
 
-	buf := &bytes.Buffer{}
-	if _, err := font.Write(buf); err != nil {
-		t.Fatal(err)
-	}
-	font1 := readBack(t, buf.Bytes())
-	buf.Reset()
-	if _, err := font1.Write(buf); err != nil {
-		t.Fatal(err)
-	}
-	font2 := readBack(t, buf.Bytes())
+	font1 := writeReadBack(t, font)
+	font2 := writeReadBack(t, font1)
 	if diff := cmp.Diff(font1.CMapTable, font2.CMapTable); diff != "" {
 		t.Errorf("cmap not stable (-1 +2):\n%s", diff)
 	}
@@ -179,11 +164,7 @@ func TestReadCompositeOutOfRange(t *testing.T) {
 	}
 	font.CMapTable = cmap.Table{{PlatformID: 3, EncodingID: 1}: mustEncodeCMapExt(t, cmap.Format4{'A': 5})}
 
-	buf := &bytes.Buffer{}
-	if _, err := font.Write(buf); err != nil {
-		t.Fatal(err)
-	}
-	font1 := readBack(t, buf.Bytes())
+	font1 := writeReadBack(t, font)
 	checkSubsetAll(t, font1)
 }
 
@@ -191,7 +172,7 @@ func TestReadCompositeOutOfRange(t *testing.T) {
 // are dropped on read and do not break Subset.
 func TestReadGsubOutOfRange(t *testing.T) {
 	font := debug.MakeSimpleFont()
-	font.Gsub = &gtab.Info{
+	gsub := &gtab.Info{
 		ScriptList: gtab.ScriptListInfo{},
 		FeatureList: gtab.FeatureListInfo{
 			{Tag: "test", Lookups: []gtab.LookupIndex{0, 1}},
@@ -214,11 +195,13 @@ func TestReadGsubOutOfRange(t *testing.T) {
 			},
 		},
 	}
-	buf := &bytes.Buffer{}
-	if _, err := font.Write(buf); err != nil {
+	gsubData, err := gsub.Encode(gtab.TypeGsub)
+	if err != nil {
 		t.Fatal(err)
 	}
-	font1 := readBack(t, buf.Bytes())
+	font1 := readBack(t, editTables(t, font, func(tables map[string][]byte) {
+		tables["GSUB"] = gsubData
+	}))
 	checkSubsetAll(t, font1)
 
 	// Reading drops the rules, together with the subtables they leave
@@ -228,12 +211,29 @@ func TestReadGsubOutOfRange(t *testing.T) {
 			t.Errorf("lookup %d: invalid rules were kept", i)
 		}
 	}
-	buf.Reset()
-	if _, err := font1.Write(buf); err != nil {
-		t.Fatal(err)
-	}
-	font2 := readBack(t, buf.Bytes())
+	font2 := writeReadBack(t, font1)
 	if diff := cmp.Diff(font1.Gsub, font2.Gsub); diff != "" {
+		t.Errorf("round trip failed (-want +got):\n%s", diff)
+	}
+}
+
+// TestReadKernRoundTrip checks that a font with a "kern" table and no "GPOS"
+// table is read with the kerning pairs as a GPOS lookup, which survives a
+// second round trip.
+func TestReadKernRoundTrip(t *testing.T) {
+	font := debug.MakeVarFont()
+	font.Gpos = nil
+	font.Gdef = nil
+	kernData := kern.Info{{Left: 1, Right: 2}: 10}.Encode()
+	font1 := readBack(t, editTables(t, font, func(tables map[string][]byte) {
+		tables["kern"] = kernData
+	}))
+	if font1.Gpos == nil {
+		t.Fatal("kerning pairs were dropped")
+	}
+
+	font2 := writeReadBack(t, font1)
+	if diff := cmp.Diff(font1.Gpos, font2.Gpos); diff != "" {
 		t.Errorf("round trip failed (-want +got):\n%s", diff)
 	}
 }
@@ -335,11 +335,7 @@ func TestReadDropsCMapGlyphsLarge(t *testing.T) {
 			font := debug.MakeSimpleFont()
 			font.CMapTable = cmap.Table{tc.key: data}
 
-			buf := &bytes.Buffer{}
-			if _, err := font.Write(buf); err != nil {
-				t.Fatal(err)
-			}
-			font1 := readBack(t, buf.Bytes())
+			font1 := writeReadBack(t, font)
 
 			if len(font1.CMapTable) != 1 {
 				t.Fatalf("expected one subtable, got %d", len(font1.CMapTable))

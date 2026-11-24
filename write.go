@@ -26,6 +26,7 @@ import (
 	"seehuhn.de/go/sfnt/internal/clamp"
 	"seehuhn.de/go/sfnt/maxp"
 	"seehuhn.de/go/sfnt/name"
+	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/os2"
 	"seehuhn.de/go/sfnt/post"
 	"seehuhn.de/go/sfnt/stat"
@@ -38,6 +39,9 @@ import (
 // The font must have a non-empty FontName, a valid UnitsPerEm and a
 // FontMatrix which follows the rule for the kind of glyph outlines used, or
 // is zero; see [Font.FontMatrix].
+// The GDEF, GSUB, GPOS and MATH tables must refer only to glyphs which the
+// font has, and to lookups, features and mark filtering sets which these
+// tables define.
 //
 // The following values are derived from other fields:
 //   - The advance widths in the "hmtx" table are the glyph widths in
@@ -169,16 +173,21 @@ func (f *Font) Write(w io.Writer) (int64, error) {
 		}
 	}
 	if f.Gsub != nil {
-		tableData["GSUB"], err = f.Gsub.Encode()
+		tableData["GSUB"], err = f.Gsub.Encode(gtab.TypeGsub)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("sfnt: GSUB: %w", err)
 		}
 	}
 	if f.Gpos != nil {
-		tableData["GPOS"], err = f.Gpos.Encode()
+		tableData["GPOS"], err = f.Gpos.Encode(gtab.TypeGpos)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("sfnt: GPOS: %w", err)
 		}
+	}
+	// The encoders have verified the structure of the layout tables, which
+	// the checks of the glyph references rely on.
+	if err := f.checkGlyphRefs(); err != nil {
+		return 0, err
 	}
 
 	if fvarTable != nil {

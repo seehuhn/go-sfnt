@@ -435,9 +435,8 @@ func BenchmarkSeqContext3(b *testing.B) {
 }
 
 func FuzzSeqContext3(f *testing.F) {
-	sub := &SeqContext3{}
+	sub := &SeqContext3{Input: []coverage.Set{{3: true, 4: true}}}
 	f.Add(encodeSubtable(f, sub))
-	sub.Input = append(sub.Input, coverage.Set{3: true, 4: true})
 	sub.Actions = []SeqLookup{
 		{SequenceIndex: 0, LookupListIndex: 1},
 		{SequenceIndex: 1, LookupListIndex: 5},
@@ -794,7 +793,7 @@ func BenchmarkChainedSeqContext3(b *testing.B) {
 }
 
 func FuzzChainedSeqContext3(f *testing.F) {
-	sub := &ChainedSeqContext3{}
+	sub := &ChainedSeqContext3{Input: []coverage.Set{{2: true}}}
 	f.Add(encodeSubtable(f, sub))
 	sub.Backtrack = []coverage.Set{
 		{1: true, 3: true},

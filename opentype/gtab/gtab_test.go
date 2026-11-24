@@ -156,6 +156,10 @@ func FuzzGtab(f *testing.F) {
 			},
 		},
 	}
+	info.LookupList = append(info.LookupList, &LookupTable{
+		Meta:      &LookupMetaInfo{LookupType: 1},
+		Subtables: []Subtable{dummySubtable{0}},
+	})
 	f.Add(encodeInfo(f, info))
 
 	// version 1.1 seed with a modeled FeatureVariations table
@@ -309,7 +313,7 @@ func TestInfoEncodeHeaderOffsets(t *testing.T) {
 					LookupList:  LookupList{{Meta: &LookupMetaInfo{LookupType: 1}, Subtables: []Subtable{}}},
 					Variations:  variations,
 				}
-				if _, err := info.Encode(); err == nil {
+				if _, err := info.Encode(TypeGsub); err == nil {
 					t.Error("Encode succeeded")
 				}
 			})
@@ -344,7 +348,8 @@ func TestReadGtabListsTooLarge(t *testing.T) {
 	scriptList = append(scriptList, langSys...)
 
 	featureList := encodeList(t, FeatureListInfo{{Tag: "liga", Lookups: make([]LookupIndex, 40000)}})
-	lookupList := []byte{0, 0}
+	// a lookup list with one lookup, which has no subtables
+	lookupList := []byte{0, 1, 0, 4, 0, 1, 0, 0, 0, 0}
 
 	// the lookup list comes first, so that every offset fits
 	lookupOffset := 10
@@ -462,7 +467,7 @@ func TestFeatureIndexOutOfRange(t *testing.T) {
 		{Optional: []FeatureIndex{0, 2}},
 	}
 	for _, ff := range bad {
-		if _, err := scriptFeaturesTestInfo(ff).Encode(); err == nil {
+		if _, err := scriptFeaturesTestInfo(ff).Encode(TypeGsub); err == nil {
 			t.Errorf("%v: no error", ff)
 		}
 	}

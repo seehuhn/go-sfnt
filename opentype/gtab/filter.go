@@ -73,7 +73,7 @@ func (k *keepFunc) Keep(gid glyph.ID) bool {
 			// If a mark filtering set is specified, this supersedes any mark
 			// attachment type indication in the lookup flag.
 			set := k.Meta.MarkFilteringSet
-			if k.Gdef.MarkGlyphSets == nil || !k.Gdef.MarkGlyphSets[set][gid] {
+			if !k.Gdef.MarkGlyphSets[set][gid] {
 				return false
 			}
 		} else if m := flags & MarkAttachTypeMask; m != 0 {

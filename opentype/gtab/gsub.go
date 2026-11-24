@@ -28,7 +28,7 @@ func readGsubSubtable(p *parser.Parser, pos int64, meta *LookupMetaInfo) (Subtab
 		return nil, err
 	}
 
-	reader, ok := gsubReaders[10*meta.LookupType+format]
+	reader, ok := gsubReaders[subtableKey{meta.LookupType, format}]
 	if !ok {
 		return nil, &parser.InvalidFontError{
 			SubSystem: "sfnt/opentype/gtab",
@@ -39,20 +39,20 @@ func readGsubSubtable(p *parser.Parser, pos int64, meta *LookupMetaInfo) (Subtab
 	return reader(p, pos)
 }
 
-var gsubReaders = map[uint16]func(p *parser.Parser, pos int64) (Subtable, error){
-	1_1: readGsub1_1,
-	1_2: readGsub1_2,
-	2_1: readGsub2_1,
-	3_1: readGsub3_1,
-	4_1: readGsub4_1,
-	5_1: readSeqContext1,
-	5_2: readSeqContext2,
-	5_3: readSeqContext3,
-	6_1: readChainedSeqContext1,
-	6_2: readChainedSeqContext2,
-	6_3: readChainedSeqContext3,
-	7_1: readExtensionSubtable,
-	8_1: readGsub8_1,
+var gsubReaders = map[subtableKey]func(p *parser.Parser, pos int64) (Subtable, error){
+	{1, 1}:                       readGsub1_1,
+	{1, 2}:                       readGsub1_2,
+	{2, 1}:                       readGsub2_1,
+	{3, 1}:                       readGsub3_1,
+	{4, 1}:                       readGsub4_1,
+	{5, 1}:                       readSeqContext1,
+	{5, 2}:                       readSeqContext2,
+	{5, 3}:                       readSeqContext3,
+	{6, 1}:                       readChainedSeqContext1,
+	{6, 2}:                       readChainedSeqContext2,
+	{6, 3}:                       readChainedSeqContext3,
+	{gsubExtensionLookupType, 1}: readExtensionSubtable,
+	{8, 1}:                       readGsub8_1,
 }
 
 // Gsub1_1 is a Single Substitution subtable (GSUB type 1, format 1).

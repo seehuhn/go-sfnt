@@ -4,6 +4,8 @@
 package gtab
 
 import (
+	"errors"
+
 	"seehuhn.de/go/sfnt/opentype/anchor"
 	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/internal/offsetpool"
@@ -221,7 +223,7 @@ func (l *Gpos5_1) apply(ctx *Context, a, b int) int {
 // encoder requires every row in every LigArray ligature to have width
 // markClassCount, and every MarkArray record's Class to be less than
 // markClassCount.
-func (l *Gpos5_1) countMarkClasses() int {
+func (l *Gpos5_1) countMarkClasses() (int, error) {
 	var count int
 	derived := false
 	for _, lig := range l.LigArray {
@@ -243,16 +245,16 @@ func (l *Gpos5_1) countMarkClasses() int {
 	for _, lig := range l.LigArray {
 		for _, row := range lig {
 			if len(row) != count {
-				panic("Gpos5_1: inconsistent LigArray row width")
+				return 0, errors.New("Gpos5_1: inconsistent LigArray row width")
 			}
 		}
 	}
 	for _, rec := range l.MarkArray {
 		if int(rec.Class) >= count {
-			panic("Gpos5_1: mark class out of range")
+			return 0, errors.New("Gpos5_1: mark class out of range")
 		}
 	}
-	return count
+	return count, nil
 }
 
 // ligArray is the layout of a LigatureArray table: a ligature count, one
@@ -320,7 +322,10 @@ func (l *Gpos5_1) layout() (subtableLayout, error) {
 	if err := checkCoverage("Gpos5_1", l.LigCov, len(l.LigArray)); err != nil {
 		return nil, err
 	}
-	markClassCount := l.countMarkClasses()
+	markClassCount, err := l.countMarkClasses()
+	if err != nil {
+		return nil, err
+	}
 	marks, err := newMarkArray("Gpos5_1", l.MarkArray)
 	if err != nil {
 		return nil, err

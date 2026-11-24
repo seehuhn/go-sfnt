@@ -52,7 +52,7 @@ func readGposSubtable(p *parser.Parser, pos int64, meta *LookupMetaInfo) (Subtab
 		return nil, err
 	}
 
-	reader, ok := gposReaders[10*meta.LookupType+format]
+	reader, ok := gposReaders[subtableKey{meta.LookupType, format}]
 	if !ok {
 		return nil, &parser.InvalidFontError{
 			SubSystem: "sfnt/opentype/gtab",
@@ -64,22 +64,22 @@ func readGposSubtable(p *parser.Parser, pos int64, meta *LookupMetaInfo) (Subtab
 }
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#gsubLookupTypeEnum
-var gposReaders = map[uint16]func(p *parser.Parser, pos int64) (Subtable, error){
-	1_1: readGpos1_1,
-	1_2: readGpos1_2,
-	2_1: readGpos2_1,
-	2_2: readGpos2_2,
-	3_1: readGpos3_1,
-	4_1: readGpos4_1,
-	5_1: readGpos5_1,
-	6_1: readGpos6_1,
-	7_1: readSeqContext1,
-	7_2: readSeqContext2,
-	7_3: readSeqContext3,
-	8_1: readChainedSeqContext1,
-	8_2: readChainedSeqContext2,
-	8_3: readChainedSeqContext3,
-	9_1: readExtensionSubtable,
+var gposReaders = map[subtableKey]func(p *parser.Parser, pos int64) (Subtable, error){
+	{1, 1}:                       readGpos1_1,
+	{1, 2}:                       readGpos1_2,
+	{2, 1}:                       readGpos2_1,
+	{2, 2}:                       readGpos2_2,
+	{3, 1}:                       readGpos3_1,
+	{4, 1}:                       readGpos4_1,
+	{5, 1}:                       readGpos5_1,
+	{6, 1}:                       readGpos6_1,
+	{7, 1}:                       readSeqContext1,
+	{7, 2}:                       readSeqContext2,
+	{7, 3}:                       readSeqContext3,
+	{8, 1}:                       readChainedSeqContext1,
+	{8, 2}:                       readChainedSeqContext2,
+	{8, 3}:                       readChainedSeqContext3,
+	{gposExtensionLookupType, 1}: readExtensionSubtable,
 }
 
 // Gpos1_1 is a Single Adjustment Positioning Subtable (GPOS type 1, format 1).
@@ -470,11 +470,11 @@ func (l *Gpos2_1) CovAndAdjust() (coverage.Table, []map[glyph.ID]*PairAdjust) {
 // pairFormats returns the formats shared by the first and second value
 // records of a pair adjustment subtable.  If positionSecond is false, no pair
 // may have a second value record.
-func pairFormats(name string, pairs iter.Seq[*PairAdjust], positionSecond bool) (uint16, uint16) {
+func pairFormats(name string, pairs iter.Seq[*PairAdjust], positionSecond bool) (uint16, uint16, error) {
 	var b1, b2 formatBuilder
 	for v := range pairs {
 		if v.Second != nil && !positionSecond {
-			panic(name + ": Second set but PositionSecond is false")
+			return 0, 0, errors.New(name + ": Second set but PositionSecond is false")
 		}
 		b1.add(v.First)
 		b2.add(v.Second)
@@ -482,12 +482,12 @@ func pairFormats(name string, pairs iter.Seq[*PairAdjust], positionSecond bool) 
 	// with PositionSecond set, the second records are present even if
 	// all of them are nil
 	b2.hasRecord = positionSecond
-	return b1.format(), b2.format()
+	return b1.format(), b2.format(), nil
 }
 
 // sharedFormats returns the formats shared by the first and second value
 // records of all pairs.
-func (l *Gpos2_1) sharedFormats() (uint16, uint16) {
+func (l *Gpos2_1) sharedFormats() (uint16, uint16, error) {
 	return pairFormats("Gpos2_1", maps.Values(l.Adjust), l.PositionSecond)
 }
 
@@ -520,7 +520,10 @@ type pairDevOffsets struct {
 // sets, sharing pair sets with identical content, and computes every offset.
 func (l *Gpos2_1) layout() (subtableLayout, error) {
 	cov, adjust := l.CovAndAdjust()
-	format1, format2 := l.sharedFormats()
+	format1, format2, err := l.sharedFormats()
+	if err != nil {
+		return nil, err
+	}
 	res := &pairSetLayout{
 		cov:     cov,
 		setOf:   make([]int, len(adjust)),
@@ -552,7 +555,7 @@ func (l *Gpos2_1) layout() (subtableLayout, error) {
 	// coverage table cannot be reached this way, it is stored between the
 	// pair sets.
 	res.covBytes = cov.Encode()
-	err := res.place(false)
+	err = res.place(false)
 	if err != nil {
 		err = res.place(true)
 	}
@@ -879,22 +882,22 @@ func readGpos2_2(p *parser.Parser, subtablePos int64) (Subtable, error) {
 // The records are written as one rectangular block whose size the following
 // offsets are measured from, so every row in Adjust must have width
 // class2Count, the width of the first row.
-func (l *Gpos2_2) countClasses() (class1Count, class2Count int) {
+func (l *Gpos2_2) countClasses() (class1Count, class2Count int, err error) {
 	class1Count = len(l.Adjust)
 	if class1Count > 0 {
 		class2Count = len(l.Adjust[0])
 	}
 	for _, row := range l.Adjust {
 		if len(row) != class2Count {
-			panic("Gpos2_2: inconsistent Adjust row width")
+			return 0, 0, errors.New("Gpos2_2: inconsistent Adjust row width")
 		}
 	}
-	return class1Count, class2Count
+	return class1Count, class2Count, nil
 }
 
 // sharedFormats returns the formats shared by the first and second value
 // records of all class pairs.
-func (l *Gpos2_2) sharedFormats() (uint16, uint16) {
+func (l *Gpos2_2) sharedFormats() (uint16, uint16, error) {
 	cells := func(yield func(*PairAdjust) bool) {
 		for _, row := range l.Adjust {
 			for _, v := range row {
@@ -929,12 +932,18 @@ type pairDevIndices struct {
 
 // layout implements the [Subtable] interface.
 func (l *Gpos2_2) layout() (subtableLayout, error) {
-	valueFormat1, valueFormat2 := l.sharedFormats()
-	recLen := valueRecordEncodeLen(valueFormat1) + valueRecordEncodeLen(valueFormat2)
-	class1Count, class2Count := l.countClasses()
+	class1Count, class2Count, err := l.countClasses()
+	if err != nil {
+		return nil, err
+	}
 	if class1Count > 0xFFFF || class2Count > 0xFFFF {
 		return nil, errors.New("Gpos2_2 class count out of range")
 	}
+	valueFormat1, valueFormat2, err := l.sharedFormats()
+	if err != nil {
+		return nil, err
+	}
+	recLen := valueRecordEncodeLen(valueFormat1) + valueRecordEncodeLen(valueFormat2)
 
 	// The Device tables come before the coverage table and the two
 	// classdefs, so that the many offsets pointing into them stay small.

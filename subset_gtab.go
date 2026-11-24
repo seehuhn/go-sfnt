@@ -366,9 +366,6 @@ func (s *subsetter) subsetGsub8_1(sOld *gtab.Gsub8_1) *gtab.Gsub8_1 {
 func remapSeqLookupActions(actions []gtab.SeqLookup, oldToNew []int) []gtab.SeqLookup {
 	var out []gtab.SeqLookup
 	for _, a := range actions {
-		if int(a.LookupListIndex) >= len(oldToNew) {
-			continue
-		}
 		newIdx := oldToNew[a.LookupListIndex]
 		if newIdx < 0 {
 			continue
@@ -383,13 +380,10 @@ func remapSeqLookupActions(actions []gtab.SeqLookup, oldToNew []int) []gtab.SeqL
 
 // remapLookupIndices returns the lookup indices from old which survive the
 // compaction described by oldToNew, translated to the new lookup list.
-// Removed or invalid lookups are dropped.
+// Removed lookups are dropped.
 func remapLookupIndices(old []gtab.LookupIndex, oldToNew []int) []gtab.LookupIndex {
 	var res []gtab.LookupIndex
 	for _, oldLookup := range old {
-		if int(oldLookup) >= len(oldToNew) {
-			continue
-		}
 		if newLookup := oldToNew[oldLookup]; newLookup >= 0 {
 			res = append(res, gtab.LookupIndex(newLookup))
 		}
@@ -398,8 +392,8 @@ func remapLookupIndices(old []gtab.LookupIndex, oldToNew []int) []gtab.LookupInd
 }
 
 // remapFeatureLookupIndices returns a copy of old with lookup indices updated
-// to refer to the compacted lookup list.  References to removed or invalid
-// lookups are dropped.
+// to refer to the compacted lookup list.  References to removed lookups are
+// dropped.
 func remapFeatureLookupIndices(old gtab.FeatureListInfo, oldToNew []int) gtab.FeatureListInfo {
 	if old == nil {
 		return nil

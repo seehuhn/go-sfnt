@@ -8,17 +8,6 @@ import (
 	"seehuhn.de/go/sfnt/opentype/mathtable"
 )
 
-// repairMath removes the parts of a "MATH" table read from a file which
-// refer to glyphs beyond numGlyphs.
-func repairMath(info *mathtable.Info, numGlyphs int) *mathtable.Info {
-	if info == nil {
-		return nil
-	}
-	return info.MapGlyphs(func(gid glyph.ID) (glyph.ID, bool) {
-		return gid, int(gid) < numGlyphs
-	})
-}
-
 // closeMath adds the size variants and assembly parts of the glyphs in the
 // subset.  Since s.glyphs grows during the loop, variants of variants are
 // included, too.

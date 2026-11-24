@@ -221,3 +221,23 @@ func TestReadClassZeroBudget(t *testing.T) {
 		t.Errorf("expected empty table, got %d entries", len(info))
 	}
 }
+
+func TestTableLimit(t *testing.T) {
+	table := Table{1: 1, 5: 2, 10: 3}
+
+	same, changed := table.Limit(11)
+	if changed || len(same) != 3 {
+		t.Errorf("unexpected change: %v", same)
+	}
+
+	got, changed := table.Limit(6)
+	if !changed {
+		t.Error("change not reported")
+	}
+	if diff := cmp.Diff(Table{1: 1, 5: 2}, got); diff != "" {
+		t.Errorf("wrong result (-want +got):\n%s", diff)
+	}
+	if len(table) != 3 {
+		t.Error("receiver modified")
+	}
+}

@@ -630,6 +630,7 @@ func (l *SeqContext2) layout() (subtableLayout, error) {
 }
 
 // SeqContext3 is used for GSUB type 5 format 3 and for GPOS type 7 format 3 subtables.
+// The input sequence must have at least one glyph.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#sequence-context-format-3-coverage-based-glyph-contexts
 type SeqContext3 struct {
@@ -743,6 +744,9 @@ type seqContext3Layout struct {
 
 // layout implements the [Subtable] interface.
 func (l *SeqContext3) layout() (subtableLayout, error) {
+	if len(l.Input) == 0 {
+		return nil, errors.New("SeqContext3: empty input sequence")
+	}
 	if len(l.Actions) > 0xFFFF {
 		return nil, errors.New("SeqContext3: too many lookup records")
 	}
@@ -1251,6 +1255,7 @@ func (l *ChainedSeqContext2) layout() (subtableLayout, error) {
 }
 
 // ChainedSeqContext3 is used for GSUB type 6 and for GPOS type 8 format 3 subtables.
+// The input sequence must have at least one glyph.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#chained-sequence-context-format-3-coverage-based-glyph-contexts
 type ChainedSeqContext3 struct {
@@ -1413,6 +1418,9 @@ func (lay *chainedSeqContext3Layout) headerLen() int {
 
 // layout implements the [Subtable] interface.
 func (l *ChainedSeqContext3) layout() (subtableLayout, error) {
+	if len(l.Input) == 0 {
+		return nil, errors.New("ChainedSeqContext3: empty input sequence")
+	}
 	if len(l.Actions) > 0xFFFF {
 		return nil, errors.New("ChainedSeqContext3: too many lookup records")
 	}

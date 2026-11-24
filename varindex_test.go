@@ -83,17 +83,19 @@ func TestWriteMissingVariation(t *testing.T) {
 // the values they adjust are kept, and that the result is stable.
 func TestReadDropsMissingVariation(t *testing.T) {
 	cases := []struct {
-		tag   string
-		table interface{ Encode() ([]byte, error) }
-		check func(t *testing.T, f *sfnt.Font)
+		tag    string
+		encode func() ([]byte, error)
+		check  func(t *testing.T, f *sfnt.Font)
 	}{
-		{"GPOS", gposWithDevice(danglingIndex()), func(t *testing.T, f *sfnt.Font) {
+		{"GPOS", func() ([]byte, error) {
+			return gposWithDevice(danglingIndex()).Encode(gtab.TypeGpos)
+		}, func(t *testing.T, f *sfnt.Font) {
 			vr := f.Gpos.LookupList[0].Subtables[0].(*gtab.Gpos1_1).Adjust
 			if vr.XAdvance != -20 || vr.XAdvanceDev != nil {
 				t.Errorf("got %+v, want XAdvance -20 without device", vr)
 			}
 		}},
-		{"GDEF", gdefWithDevice(danglingIndex()), func(t *testing.T, f *sfnt.Font) {
+		{"GDEF", gdefWithDevice(danglingIndex()).Encode, func(t *testing.T, f *sfnt.Font) {
 			cv := f.Gdef.LigCaretList.Carets[0][0]
 			if cv.Coordinate != 300 || cv.Device != nil {
 				t.Errorf("got %+v, want coordinate 300 without device", cv)
@@ -105,7 +107,7 @@ func TestReadDropsMissingVariation(t *testing.T) {
 			f := readGoRegular(t)
 			f.Gdef = nil
 			f.Gpos = nil
-			raw, err := c.table.Encode()
+			raw, err := c.encode()
 			if err != nil {
 				t.Fatal(err)
 			}

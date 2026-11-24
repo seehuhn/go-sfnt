@@ -131,3 +131,46 @@ func TestFilterAllRemoved(t *testing.T) {
 		t.Errorf("got %v and %v, want nothing", newCov, newData)
 	}
 }
+
+func TestSetLimit(t *testing.T) {
+	set := Set{1: true, 5: true, 10: true}
+
+	same, changed := set.Limit(11)
+	if changed || len(same) != 3 {
+		t.Errorf("unexpected change: %v", same)
+	}
+
+	got, changed := set.Limit(6)
+	if !changed {
+		t.Error("change not reported")
+	}
+	if !reflect.DeepEqual(Set{1: true, 5: true}, got) {
+		t.Errorf("wrong result: %v", got)
+	}
+	if len(set) != 3 {
+		t.Error("receiver modified")
+	}
+}
+
+func TestTableLimit(t *testing.T) {
+	table := Table{1: 0, 5: 1, 10: 2}
+
+	same, changed := table.Limit(11)
+	if changed || len(same) != 3 {
+		t.Errorf("unexpected change: %v", same)
+	}
+
+	got, changed := table.Limit(6)
+	if !changed {
+		t.Error("change not reported")
+	}
+	if diff := cmp.Diff(Table{1: 0, 5: 1}, got); diff != "" {
+		t.Errorf("wrong result (-want +got):\n%s", diff)
+	}
+	if !got.Valid() {
+		t.Error("result not valid")
+	}
+	if len(table) != 3 {
+		t.Error("receiver modified")
+	}
+}

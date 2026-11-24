@@ -39,7 +39,6 @@ import (
 	"seehuhn.de/go/sfnt/maxp"
 	"seehuhn.de/go/sfnt/mvar"
 	"seehuhn.de/go/sfnt/name"
-	"seehuhn.de/go/sfnt/opentype/coverage"
 	"seehuhn.de/go/sfnt/opentype/gdef"
 	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/opentype/mathtable"
@@ -595,7 +594,6 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			}
 		}
 	}
-	info.Math = repairMath(info.Math, info.NumGlyphs())
 
 	// TODO(voss): should we try to read the "morx" table, if there is no
 	// "GSUB" table?
@@ -609,7 +607,6 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 			}
 		}
 	}
-	dropInvalidGsubGlyphs(info.Gsub, info.NumGlyphs())
 	if info.Gsub == nil && !info.IsFixedPitch() {
 		if c := cmapBest(); c != nil {
 			info.Gsub = standardLigatures(c)
@@ -655,6 +652,21 @@ func Read(r io.Reader, budget *membudget.Budget) (*Font, error) {
 		}
 	}
 	info.dropMissingVariations()
+
+	// drop the references to glyphs which the font does not have
+	n := info.NumGlyphs()
+	info.Gsub = info.Gsub.LimitGlyphs(n)
+	info.Gpos = info.Gpos.LimitGlyphs(n)
+	info.Gdef = info.Gdef.LimitGlyphs(n)
+	info.Math = info.Math.LimitGlyphs(n)
+
+	// clear mark filtering sets which the GDEF table does not define
+	numSets := 0
+	if info.Gdef != nil {
+		numSets = len(info.Gdef.MarkGlyphSets)
+	}
+	info.Gsub = info.Gsub.LimitMarkFilteringSets(numSets)
+	info.Gpos = info.Gpos.LimitMarkFilteringSets(numSets)
 
 	// Variation tables.  fvar is the gate: without it (or with no axes) the
 	// font is not variable and the remaining tables are skipped.  Each table
@@ -993,113 +1005,6 @@ func dropInvalidCMapGlyphs(table cmap.Table, numGlyphs int) cmap.Table {
 		}
 	}
 	return table
-}
-
-// dropInvalidGsubGlyphs removes the GSUB substitutions which produce glyphs
-// not present in the font, so that applying the lookups never yields an
-// invalid glyph ID.  An alternate set keeps its valid alternates and a
-// ligature set its valid ligatures; all other substitutions with an invalid
-// output are removed as a whole.  Subtables left without any rules are
-// removed from their lookup.
-//
-// Rules which match missing glyphs are kept.  They never fire, since neither
-// the cmap table nor the remaining substitutions produce such glyphs.
-func dropInvalidGsubGlyphs(info *gtab.Info, numGlyphs int) {
-	if info == nil {
-		return
-	}
-
-	valid := func(gid glyph.ID) bool { return int(gid) < numGlyphs }
-	allValid := func(gids []glyph.ID) bool {
-		return !slices.ContainsFunc(gids, func(gid glyph.ID) bool { return !valid(gid) })
-	}
-	validLig := func(lig gtab.Ligature) bool { return valid(lig.Out) }
-	allValidLigs := func(ligs []gtab.Ligature) bool {
-		return !slices.ContainsFunc(ligs, func(lig gtab.Ligature) bool { return !validLig(lig) })
-	}
-	nonEmpty := func(x []glyph.ID) bool { return len(x) > 0 }
-	nonEmptyLigs := func(x []gtab.Ligature) bool { return len(x) > 0 }
-
-	for _, lookup := range info.LookupList {
-		for _, subtable := range lookup.Subtables {
-			switch l := subtable.(type) {
-			case *gtab.Gsub1_1:
-				for gid := range l.Cov {
-					if !valid(gid + l.Delta) {
-						delete(l.Cov, gid)
-					}
-				}
-			case *gtab.Gsub1_2:
-				l.Cov, l.SubstituteGlyphIDs = filterCoverage(l.Cov, l.SubstituteGlyphIDs, valid)
-			case *gtab.Gsub2_1:
-				l.Cov, l.Repl = filterCoverage(l.Cov, l.Repl, allValid)
-			case *gtab.Gsub3_1:
-				if !slices.ContainsFunc(l.Alternates, func(alts []glyph.ID) bool { return !allValid(alts) }) {
-					continue
-				}
-				alternates := make([][]glyph.ID, len(l.Alternates))
-				for i, alts := range l.Alternates {
-					alternates[i] = slices.DeleteFunc(slices.Clone(alts),
-						func(gid glyph.ID) bool { return !valid(gid) })
-				}
-				l.Cov, l.Alternates = filterCoverage(l.Cov, alternates, nonEmpty)
-			case *gtab.Gsub4_1:
-				if !slices.ContainsFunc(l.Repl, func(ligs []gtab.Ligature) bool { return !allValidLigs(ligs) }) {
-					continue
-				}
-				repl := make([][]gtab.Ligature, len(l.Repl))
-				for i, ligs := range l.Repl {
-					repl[i] = slices.DeleteFunc(slices.Clone(ligs),
-						func(lig gtab.Ligature) bool { return !validLig(lig) })
-				}
-				l.Cov, l.Repl = filterCoverage(l.Cov, repl, nonEmptyLigs)
-			case *gtab.Gsub8_1:
-				l.Input, l.SubstituteGlyphIDs = filterCoverage(l.Input, l.SubstituteGlyphIDs, valid)
-			}
-		}
-		lookup.Subtables = slices.DeleteFunc(lookup.Subtables, isEmptyGsub)
-	}
-}
-
-// isEmptyGsub reports whether a non-contextual GSUB subtable has no rules.
-func isEmptyGsub(subtable gtab.Subtable) bool {
-	switch l := subtable.(type) {
-	case *gtab.Gsub1_1:
-		return len(l.Cov) == 0
-	case *gtab.Gsub1_2:
-		return len(l.Cov) == 0
-	case *gtab.Gsub2_1:
-		return len(l.Cov) == 0
-	case *gtab.Gsub3_1:
-		return len(l.Cov) == 0
-	case *gtab.Gsub4_1:
-		return len(l.Cov) == 0
-	case *gtab.Gsub8_1:
-		return len(l.Input) == 0
-	default:
-		return false
-	}
-}
-
-// filterCoverage restricts a coverage table, and the data indexed by its
-// coverage indices, to the entries for which keep returns true.  If entries
-// are removed, the remaining ones are renumbered in order of increasing glyph
-// ID; otherwise cov and data are returned unchanged.
-func filterCoverage[T any](cov coverage.Table, data []T, keep func(T) bool) (coverage.Table, []T) {
-	if !slices.ContainsFunc(data, func(x T) bool { return !keep(x) }) {
-		return cov, data
-	}
-
-	newCov := make(coverage.Table, len(cov))
-	newData := make([]T, 0, len(cov))
-	for _, gid := range cov.Glyphs() {
-		x := data[cov[gid]]
-		if keep(x) {
-			newCov[gid] = len(newData)
-			newData = append(newData, x)
-		}
-	}
-	return newCov, newData
 }
 
 // putFormat4 stores the mapping c, decoded from the subtable with the given

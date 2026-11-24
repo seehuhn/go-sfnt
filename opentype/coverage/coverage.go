@@ -11,6 +11,7 @@ import (
 	"slices"
 
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/opentype/internal/mapfilter"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -53,6 +54,15 @@ func (table Table) Valid() bool {
 		}
 	}
 	return true
+}
+
+// Limit returns the table without the glyphs numGlyphs and above.  The
+// second result reports whether any glyph was removed.  If not, the table
+// itself is returned, otherwise the result is a copy.  The remaining glyphs
+// keep their coverage indices.  If the table is valid, so is the result.
+func (table Table) Limit(numGlyphs int) (Table, bool) {
+	// In a valid table, the glyphs removed have the largest coverage indices.
+	return mapfilter.Keys(table, func(gid glyph.ID) bool { return int(gid) < numGlyphs })
 }
 
 // Filter returns the part of a coverage table, and of the data indexed by

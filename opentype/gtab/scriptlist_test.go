@@ -635,7 +635,7 @@ func TestEncodeScriptListTags(t *testing.T) {
 	for name, scripts := range valid {
 		t.Run(name, func(t *testing.T) {
 			info := &Info{ScriptList: scripts, FeatureList: features}
-			if _, err := info.Encode(); err != nil {
+			if _, err := info.Encode(TypeGsub); err != nil {
 				t.Error(err)
 			}
 		})
@@ -655,7 +655,7 @@ func TestEncodeScriptListTags(t *testing.T) {
 	for name, scripts := range invalid {
 		t.Run("invalid "+name, func(t *testing.T) {
 			info := &Info{ScriptList: scripts, FeatureList: features}
-			if _, err := info.Encode(); err == nil {
+			if _, err := info.Encode(TypeGsub); err == nil {
 				t.Error("expected an error")
 			}
 		})
@@ -664,7 +664,7 @@ func TestEncodeScriptListTags(t *testing.T) {
 	for name, scripts := range duplicate {
 		t.Run("duplicate "+name, func(t *testing.T) {
 			info := &Info{ScriptList: scripts, FeatureList: features}
-			if _, err := info.Encode(); err == nil {
+			if _, err := info.Encode(TypeGsub); err == nil {
 				t.Error("expected an error")
 			}
 		})

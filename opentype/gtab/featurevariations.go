@@ -6,6 +6,7 @@ package gtab
 import (
 	"encoding/binary"
 	"errors"
+	"slices"
 
 	"seehuhn.de/go/sfnt/parser"
 	"seehuhn.de/go/sfnt/variation"
@@ -237,8 +238,8 @@ func readCondition(p *parser.Parser, pos int64) (Condition, error) {
 }
 
 // readFeatureTableSubstitution reads a FeatureTableSubstitution table.
-// Substitutions naming an out-of-range feature or lookup index are dropped
-// permissively.
+// Substitutions naming an out-of-range feature index are dropped, and
+// out-of-range lookup indices are removed from the replacement lists.
 func readFeatureTableSubstitution(p *parser.Parser, pos int64, numFeatures, numLookups int) ([]FeatureSubstitution, error) {
 	err := p.SeekPos(pos)
 	if err != nil {
@@ -287,12 +288,9 @@ func readFeatureTableSubstitution(p *parser.Parser, pos int64, numFeatures, numL
 		if err != nil {
 			return nil, err
 		}
-		if !lookupsInRange(lookups, numLookups) {
-			continue
-		}
 		result[k] = FeatureSubstitution{
 			FeatureIndex: FeatureIndex(rawSubs[i].feat),
-			Lookups:      lookups,
+			Lookups:      limitLookups(lookups, numLookups),
 		}
 		k++
 	}
@@ -300,6 +298,21 @@ func readFeatureTableSubstitution(p *parser.Parser, pos int64, numFeatures, numL
 		return nil, nil
 	}
 	return result[:k], nil
+}
+
+// limitLookups returns the lookup indices which are valid for a lookup list
+// with numLookups entries.  If all are valid, lookups itself is returned.
+// Otherwise the result is a new slice, which is nil if no index is left.
+func limitLookups(lookups []LookupIndex, numLookups int) []LookupIndex {
+	if lookupsInRange(lookups, numLookups) {
+		return lookups
+	}
+	res := slices.DeleteFunc(slices.Clone(lookups),
+		func(idx LookupIndex) bool { return int(idx) >= numLookups })
+	if len(res) == 0 {
+		return nil
+	}
+	return res
 }
 
 func lookupsInRange(lookups []LookupIndex, numLookups int) bool {

@@ -955,7 +955,7 @@ func TestSubsetGposContextDroppedDoesNotPanic(t *testing.T) {
 	if len(got.LookupList) != 0 {
 		t.Errorf("expected lookup dropped, got %d", len(got.LookupList))
 	}
-	if _, err := got.Encode(); err != nil {
+	if _, err := got.Encode(gtab.TypeGpos); err != nil {
 		t.Errorf("re-encoding failed: %v", err)
 	}
 }
@@ -1152,14 +1152,14 @@ func TestSubsetGtabNoLookupsLeft(t *testing.T) {
 	gpos := wrapLookup(1, &gtab.Gpos1_1{
 		Cov: coverage.Table{50: 0}, Adjust: &gtab.GposValueRecord{XAdvance: 10},
 	})
-	for _, info := range []*gtab.Info{
-		newSubsetter(0, 1).SubsetGsub(gsub),
-		newSubsetter(0, 1).SubsetGpos(gpos),
+	for tp, info := range map[gtab.Type]*gtab.Info{
+		gtab.TypeGsub: newSubsetter(0, 1).SubsetGsub(gsub),
+		gtab.TypeGpos: newSubsetter(0, 1).SubsetGpos(gpos),
 	} {
 		if len(info.LookupList) != 0 {
 			t.Fatalf("got %d lookups, want 0", len(info.LookupList))
 		}
-		data, err := info.Encode()
+		data, err := info.Encode(tp)
 		if err != nil {
 			t.Fatal(err)
 		}

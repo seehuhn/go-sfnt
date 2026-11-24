@@ -161,6 +161,7 @@ func readGtab(r parser.ReadSeekSizer, budget *membudget.Budget, tp Type, sr subt
 	if err != nil {
 		return nil, err
 	}
+	info.dropInvalidLookups()
 
 	if FeatureVariationsOffset != 0 {
 		records, raw, err := readFeatureVariations(p, int64(FeatureVariationsOffset),
@@ -210,7 +211,9 @@ func (info *Info) headerFits() bool {
 		// the standard order works, whatever the length of the lookup list
 		return true
 	}
-	lookups, err := info.LookupList.encode()
+	// The table type only selects the lookup type of extension subtables,
+	// so the list has the same length in a GSUB and in a GPOS table.
+	lookups, err := info.LookupList.encode(TypeGsub)
 	if err != nil {
 		return false
 	}
@@ -221,18 +224,23 @@ func (info *Info) headerFits() bool {
 	return ok
 }
 
-// Encode returns the binary representation of a "GSUB" or "GPOS" table.
-// An error is returned if the table does not fit its 16-bit offsets or
-// counts, for example because a subtable is too large; splitting large
-// lookups into several subtables can avoid this.  An error is also returned
-// if a script-list tag has no OpenType form, if two tags name the same
-// language system, or if a feature index is out of range for the
-// FeatureList.
-func (info *Info) Encode() ([]byte, error) {
-	if err := info.ScriptList.checkFeatures(len(info.FeatureList)); err != nil {
-		return nil, err
-	}
-	if err := info.ScriptList.checkTags(); err != nil {
+// Encode returns the binary representation of a table of type tp, which must
+// be one of [TypeGsub] or [TypeGpos].
+//
+// An error is returned if the table cannot be represented: a feature or
+// lookup index is out of range, a lookup type does not match its subtables, a
+// coverage table does not have the indices 0, 1, ..., n-1 in order of glyph
+// ID, the arrays of a subtable have inconsistent dimensions, a language tag
+// has no OpenType equivalent, or two language tags name the same language
+// system.  An error is also returned if the table does not fit its 16-bit
+// offsets or counts, for example because a subtable is too large; splitting
+// large lookups into several subtables can avoid this.
+//
+// The references to glyphs and to mark filtering sets depend on the font the
+// table is written for.  Use [Info.CheckGlyphs] and
+// [Info.CheckMarkFilteringSets] to check these.
+func (info *Info) Encode(tp Type) ([]byte, error) {
+	if err := info.check(tp); err != nil {
 		return nil, err
 	}
 
@@ -244,7 +252,7 @@ func (info *Info) Encode() ([]byte, error) {
 	if lists[1], err = info.FeatureList.encode(); err != nil {
 		return nil, err
 	}
-	if lists[2], err = info.LookupList.encode(); err != nil {
+	if lists[2], err = info.LookupList.encode(tp); err != nil {
 		return nil, err
 	}
 

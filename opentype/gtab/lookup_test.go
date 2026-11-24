@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"golang.org/x/text/language"
 
 	"seehuhn.de/go/sfnt/glyph"
@@ -211,7 +212,7 @@ func FuzzLookupList(f *testing.F) {
 			},
 		},
 	}
-	f.Add(encodeList(f, l))
+	f.Add(encodeLookupList(f, l, TypeGsub))
 
 	l = LookupList{
 		&LookupTable{
@@ -224,7 +225,7 @@ func FuzzLookupList(f *testing.F) {
 			},
 		},
 	}
-	f.Add(encodeList(f, l))
+	f.Add(encodeLookupList(f, l, TypeGsub))
 
 	l = LookupList{
 		&LookupTable{
@@ -257,7 +258,7 @@ func FuzzLookupList(f *testing.F) {
 			},
 		},
 	}
-	f.Add(encodeList(f, l))
+	f.Add(encodeLookupList(f, l, TypeGsub))
 
 	f.Fuzz(func(t *testing.T, data1 []byte) {
 		p := parser.New(bytes.NewReader(data1), parser.NewBudget(int64(len(data1))))
@@ -266,7 +267,7 @@ func FuzzLookupList(f *testing.F) {
 			return
 		}
 
-		data2 := encodeList(t, l1)
+		data2 := encodeLookupList(t, l1, TypeGsub)
 
 		p = parser.New(bytes.NewReader(data2), parser.NewBudget(int64(len(data2))))
 		l2, err := readLookupList(p, 0, readDummySubtable)
@@ -341,7 +342,7 @@ func TestLookupListLayout(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			want := largeLookupList(c.lookups, c.subtable, c.glyphs)
 
-			data := encodeList(t, want)
+			data := encodeLookupList(t, want, TypeGsub)
 			big := len(data) > 0xFFFF
 			if big != (c.glyphs > 1000) {
 				t.Fatalf("lookup list is %d bytes; the case does not test what it means to",
@@ -353,7 +354,7 @@ func TestLookupListLayout(t *testing.T) {
 				t.Errorf("round trip (-want +got):\n%s", d)
 			}
 
-			if again := encodeList(t, got); !bytes.Equal(data, again) {
+			if again := encodeLookupList(t, got, TypeGsub); !bytes.Equal(data, again) {
 				t.Errorf("re-encoding the decoded list gives %d bytes, want the same %d",
 					len(again), len(data))
 			}
@@ -379,7 +380,7 @@ func TestLookupListGpos2_1Extension(t *testing.T) {
 		Subtables: ss,
 	}}
 
-	data := encodeList(t, want)
+	data := encodeLookupList(t, want, TypeGpos)
 	if len(data) <= 0xFFFF {
 		t.Fatalf("lookup list is %d bytes; extension records are not needed", len(data))
 	}
@@ -398,6 +399,59 @@ func TestLookupListGpos2_1Extension(t *testing.T) {
 	}
 	if d := cmp.Diff(want, got); d != "" {
 		t.Errorf("round trip failed (-want +got):\n%s", d)
+	}
+}
+
+// TestLookupListContextExtension checks that a table whose lookups hold
+// only contextual subtables, which GSUB and GPOS tables share, survives a
+// round trip when the lookup list is too large for its 16-bit offsets.
+func TestLookupListContextExtension(t *testing.T) {
+	lookupTypes := map[Type]uint16{TypeGsub: 5, TypeGpos: 7}
+	for tp, lookupType := range lookupTypes {
+		t.Run(tp.String(), func(t *testing.T) {
+			ll := make(LookupList, 6)
+			lookups := make([]LookupIndex, len(ll))
+			for i := range ll {
+				// the sets hold every other glyph, so that the coverage
+				// tables do not collapse into a few ranges
+				input := make([]coverage.Set, 3)
+				for j := range input {
+					set := coverage.Set{}
+					for k := range 3000 {
+						set[glyph.ID(1+i+10*j+2*k)] = true
+					}
+					input[j] = set
+				}
+				ll[i] = &LookupTable{
+					Meta:      &LookupMetaInfo{LookupType: lookupType},
+					Subtables: []Subtable{&SeqContext3{Input: input}},
+				}
+				lookups[i] = LookupIndex(i)
+			}
+			info := &Info{
+				ScriptList: ScriptListInfo{
+					language.MustParse("und-Latn-x-latn"): {Optional: []FeatureIndex{0}},
+				},
+				FeatureList: FeatureListInfo{{Tag: "test", Lookups: lookups}},
+				LookupList:  ll,
+			}
+
+			data, err := info.Encode(tp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(data) <= 0xFFFF {
+				t.Fatalf("table is %d bytes; extension records are not needed", len(data))
+			}
+
+			got, err := Read(bytes.NewReader(data), parser.NewBudget(int64(len(data))), tp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d := cmp.Diff(info, got, cmpopts.EquateEmpty()); d != "" {
+				t.Errorf("round trip failed (-want +got):\n%s", d)
+			}
+		})
 	}
 }
 
@@ -467,7 +521,7 @@ func TestLookupListDropsOverlappingPairSets(t *testing.T) {
 		t.Errorf("subtables read (-want +got):\n%s", d)
 	}
 
-	enc := encodeList(t, got)
+	enc := encodeLookupList(t, got, TypeGpos)
 	p = parser.New(bytes.NewReader(enc), parser.NewBudget(int64(len(enc))))
 	got2, err := readLookupList(p, 0, readGposSubtable)
 	if err != nil {
@@ -493,7 +547,7 @@ func TestLookupListSubtableOrder(t *testing.T) {
 		}
 	}
 
-	data := encodeList(t, ll)
+	data := encodeLookupList(t, ll, TypeGsub)
 	if len(data) <= 0xFFFF {
 		t.Fatalf("lookup list is only %d bytes", len(data))
 	}
@@ -589,7 +643,7 @@ func TestLookupListMovesLargestLookup(t *testing.T) {
 			6+first)
 	}
 
-	data := encodeList(t, ll)
+	data := encodeLookupList(t, ll, TypeGsub)
 	got := decodeLookupList(t, data)
 	if d := cmp.Diff(ll, got); d != "" {
 		t.Errorf("round trip (-want +got):\n%s", d)
@@ -748,14 +802,13 @@ func subtableLen(tb testing.TB, st Subtable) int {
 	return layoutSubtable(tb, st).encodeLen()
 }
 
-// listEncoder is implemented by [ScriptListInfo], [FeatureListInfo] and
-// [LookupList].
+// listEncoder is implemented by [ScriptListInfo] and [FeatureListInfo].
 type listEncoder interface {
 	encode() ([]byte, error)
 }
 
-// encodeList returns the encoded script, feature or lookup list, and fails
-// the test if the list cannot be encoded.
+// encodeList returns the encoded script or feature list, and fails the test
+// if the list cannot be encoded.
 func encodeList(tb testing.TB, l listEncoder) []byte {
 	tb.Helper()
 	data, err := l.encode()
@@ -765,11 +818,22 @@ func encodeList(tb testing.TB, l listEncoder) []byte {
 	return data
 }
 
-// encodeInfo returns the encoded GSUB or GPOS table, and fails the test if
-// the table cannot be encoded.
+// encodeLookupList returns the lookup list encoded for a table of type tp,
+// and fails the test if the list cannot be encoded.
+func encodeLookupList(tb testing.TB, ll LookupList, tp Type) []byte {
+	tb.Helper()
+	data, err := ll.encode(tp)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return data
+}
+
+// encodeInfo returns info encoded as a GSUB table, and fails the test if the
+// table cannot be encoded.
 func encodeInfo(tb testing.TB, info *Info) []byte {
 	tb.Helper()
-	data, err := info.Encode()
+	data, err := info.Encode(TypeGsub)
 	if err != nil {
 		tb.Fatal(err)
 	}

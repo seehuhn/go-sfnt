@@ -21,8 +21,6 @@ import (
 	"seehuhn.de/go/sfnt/glyf"
 	"seehuhn.de/go/sfnt/glyph"
 	"seehuhn.de/go/sfnt/header"
-	"seehuhn.de/go/sfnt/opentype/coverage"
-	"seehuhn.de/go/sfnt/opentype/gtab"
 	"seehuhn.de/go/sfnt/parser"
 )
 
@@ -171,112 +169,6 @@ func TestPutFormat4(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestDropInvalidGsubGlyphs checks that substitutions producing glyphs
-// outside the font are removed, while valid substitutions are kept.
-func TestDropInvalidGsubGlyphs(t *testing.T) {
-	const n = 10 // glyphs 0, ..., 9 exist
-	subtables := []gtab.Subtable{
-		&gtab.Gsub1_1{Cov: coverage.Set{1: true, 2: true, 8: true}, Delta: 2},
-		&gtab.Gsub1_2{
-			Cov:                coverage.Table{1: 0, 2: 1, 3: 2},
-			SubstituteGlyphIDs: []glyph.ID{4, n, 5},
-		},
-		&gtab.Gsub2_1{
-			Cov:  coverage.Table{1: 0, 2: 1},
-			Repl: [][]glyph.ID{{3, n + 1}, {4, 5}},
-		},
-		&gtab.Gsub3_1{
-			Cov:        coverage.Table{1: 0, 2: 1, 3: 2},
-			Alternates: [][]glyph.ID{{n, 4, n + 1, 5}, {n}, {6}},
-		},
-		&gtab.Gsub4_1{
-			Cov: coverage.Table{1: 0, 2: 1},
-			Repl: [][]gtab.Ligature{
-				{{In: []glyph.ID{2}, Out: n}, {In: []glyph.ID{3}, Out: 6}},
-				{{In: []glyph.ID{n}, Out: n + 2}},
-			},
-		},
-		&gtab.Gsub8_1{
-			Input:              coverage.Table{1: 0, 2: 1},
-			Backtrack:          []coverage.Table{{3: 0}},
-			SubstituteGlyphIDs: []glyph.ID{n, 4},
-		},
-	}
-	// subtables which are left empty are removed, others are kept
-	valid := &gtab.Gsub1_2{Cov: coverage.Table{1: 0}, SubstituteGlyphIDs: []glyph.ID{2}}
-	context := &gtab.SeqContext1{Cov: coverage.Table{}}
-	mixed := []gtab.Subtable{
-		&gtab.Gsub1_1{Cov: coverage.Set{9: true}, Delta: 1},
-		valid,
-		&gtab.Gsub1_2{Cov: coverage.Table{1: 0}, SubstituteGlyphIDs: []glyph.ID{n}},
-		&gtab.Gsub2_1{Cov: coverage.Table{1: 0}, Repl: [][]glyph.ID{{n}}},
-		&gtab.Gsub3_1{Cov: coverage.Table{1: 0}, Alternates: [][]glyph.ID{{n}}},
-		&gtab.Gsub4_1{Cov: coverage.Table{1: 0}, Repl: [][]gtab.Ligature{{{Out: n}}}},
-		&gtab.Gsub8_1{Input: coverage.Table{1: 0}, SubstituteGlyphIDs: []glyph.ID{n}},
-		context,
-	}
-
-	info := &gtab.Info{LookupList: gtab.LookupList{
-		{Meta: &gtab.LookupMetaInfo{}, Subtables: subtables},
-		{Meta: &gtab.LookupMetaInfo{}, Subtables: mixed},
-	}}
-
-	dropInvalidGsubGlyphs(info, n)
-
-	if got := info.LookupList[1].Subtables; len(got) != 2 || got[0] != valid || got[1] != context {
-		t.Errorf("wrong subtables kept: %v", got)
-	}
-
-	want := []gtab.Subtable{
-		&gtab.Gsub1_1{Cov: coverage.Set{1: true, 2: true}, Delta: 2},
-		&gtab.Gsub1_2{
-			Cov:                coverage.Table{1: 0, 3: 1},
-			SubstituteGlyphIDs: []glyph.ID{4, 5},
-		},
-		&gtab.Gsub2_1{
-			Cov:  coverage.Table{2: 0},
-			Repl: [][]glyph.ID{{4, 5}},
-		},
-		&gtab.Gsub3_1{
-			Cov:        coverage.Table{1: 0, 3: 1},
-			Alternates: [][]glyph.ID{{4, 5}, {6}},
-		},
-		&gtab.Gsub4_1{
-			Cov:  coverage.Table{1: 0},
-			Repl: [][]gtab.Ligature{{{In: []glyph.ID{3}, Out: 6}}},
-		},
-		&gtab.Gsub8_1{
-			Input:              coverage.Table{2: 0},
-			Backtrack:          []coverage.Table{{3: 0}},
-			SubstituteGlyphIDs: []glyph.ID{4},
-		},
-	}
-	if diff := cmp.Diff(want, []gtab.Subtable(info.LookupList[0].Subtables)); diff != "" {
-		t.Errorf("wrong subtables (-want +got):\n%s", diff)
-	}
-}
-
-// TestDropInvalidGsubGlyphsUnchanged checks that subtables without invalid
-// outputs are left as they are.
-func TestDropInvalidGsubGlyphsUnchanged(t *testing.T) {
-	sub := &gtab.Gsub3_1{
-		Cov:        coverage.Table{1: 0, 2: 1},
-		Alternates: [][]glyph.ID{{3, 4}, {5}},
-	}
-	cov, alts := sub.Cov, sub.Alternates
-	info := &gtab.Info{LookupList: gtab.LookupList{{
-		Meta:      &gtab.LookupMetaInfo{},
-		Subtables: []gtab.Subtable{sub},
-	}}}
-
-	dropInvalidGsubGlyphs(info, 6)
-
-	if !maps.Equal(sub.Cov, cov) || &sub.Alternates[0] != &alts[0] {
-		t.Error("valid subtable was modified")
-	}
-	dropInvalidGsubGlyphs(nil, 6) // must not panic
 }
 
 // TestReadVerticalUnusableTops checks that a font whose glyph tops cannot be

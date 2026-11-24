@@ -100,9 +100,14 @@ func TestMathReadDropsMissingGlyphs(t *testing.T) {
 	info.ItalicsCorrection[n] = mathtable.Value{V: 1}
 	info.Vertical[5].Variants = append(info.Vertical[5].Variants, mathtable.Variant{Glyph: n + 1, Advance: 2000})
 	info.Horizontal[n+2] = &mathtable.Construction{Variants: []mathtable.Variant{{Glyph: 11, Advance: 600}}}
-	f.Math = info
-
-	f2 := writeAndRead(t, f)
+	data, err := info.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fontData := editTables(t, f, func(tables map[string][]byte) {
+		tables["MATH"] = data
+	})
+	f2 := readBack(t, fontData)
 	for gid := range f2.Math.ItalicsCorrection {
 		if gid >= n {
 			t.Errorf("italics correction for missing glyph %d kept", gid)

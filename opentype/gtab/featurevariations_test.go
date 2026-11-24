@@ -249,38 +249,43 @@ func TestConditionMatches(t *testing.T) {
 	}
 }
 
-func TestFeatureVariationsDropInvalid(t *testing.T) {
-	// a substitution naming an out-of-range feature index and one naming an
-	// out-of-range lookup index must be dropped; the valid one survives.
+func TestFeatureVariationsInvalidIndices(t *testing.T) {
 	// The base table has 3 features and 2 lookups.
-	fv, err := encodeFeatureVariations([]FeatureVariationRecord{
-		{
-			Substitutions: []FeatureSubstitution{
-				{FeatureIndex: 99, Lookups: []LookupIndex{0}}, // bad feature
-				{FeatureIndex: 0, Lookups: []LookupIndex{99}}, // bad lookup
-				{FeatureIndex: 1, Lookups: []LookupIndex{0}},  // valid
-			},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name string
+		subs []FeatureSubstitution
+	}{
+		{"bad feature", []FeatureSubstitution{
+			{FeatureIndex: 99, Lookups: []LookupIndex{0}},
+			{FeatureIndex: 1, Lookups: []LookupIndex{0}},
+		}},
+		{"one bad lookup", []FeatureSubstitution{
+			{FeatureIndex: 0, Lookups: []LookupIndex{1, 99, 0}},
+		}},
+		{"only bad lookups", []FeatureSubstitution{
+			{FeatureIndex: 0, Lookups: []LookupIndex{99}},
+			{FeatureIndex: 2, Lookups: []LookupIndex{1}},
+		}},
 	}
-	base := baseVariationInfo()
-	table := spliceFeatureVariations(encodeInfo(t, base), fv)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fv, err := encodeFeatureVariations([]FeatureVariationRecord{
+				{Substitutions: tc.subs},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			table := spliceFeatureVariations(encodeInfo(t, baseVariationInfo()), fv)
 
-	out, err := readGtab(bytes.NewReader(table), parser.NewBudget(int64(len(table))), 0, readDummySubtable)
-	if err != nil {
-		t.Fatalf("readGtab: %v", err)
-	}
-	want := []FeatureVariationRecord{
-		{
-			Substitutions: []FeatureSubstitution{
-				{FeatureIndex: 1, Lookups: []LookupIndex{0}},
-			},
-		},
-	}
-	if diff := cmp.Diff(want, out.Variations); diff != "" {
-		t.Errorf("invalid substitutions not dropped (-want +got):\n%s", diff)
+			info1, err := readGtab(bytes.NewReader(table), parser.NewBudget(int64(len(table))), 0, readDummySubtable)
+			if err != nil {
+				t.Fatalf("readGtab: %v", err)
+			}
+			info2 := roundTripGtab(t, info1)
+			if diff := cmp.Diff(info1, info2); diff != "" {
+				t.Errorf("round trip failed (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
