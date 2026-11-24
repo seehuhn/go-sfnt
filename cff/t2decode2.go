@@ -450,18 +450,25 @@ func (info *decodeInfoCFF2) decodeCharStringCFF2(code []byte) (*GlyphCFF2, error
 				base := len(stack) - need
 				for i := range n {
 					b := stack[base+i]
-					if b.Deltas != nil {
-						// a base must be a raw number, not a previous blend
-						return nil, errBadBlend
-					}
 					if k > 0 {
 						deltas := make([]float64, k)
 						for j := range k {
 							d := stack[base+n+i*k+j]
 							if d.Deltas != nil {
+								// the value would depend on products of
+								// region scalars, which Blend cannot hold
 								return nil, errBadBlend
 							}
 							deltas[j] = d.Default
+						}
+						// a base blended earlier gains the new deltas; all
+						// blends of a charstring use the same k
+						for j, x := range b.Deltas {
+							deltas[j] += x
+							if deltas[j] < -32768 || deltas[j] >= 32768 {
+								// a charstring number cannot hold the sum
+								return nil, errBadBlend
+							}
 						}
 						b.Deltas = deltas
 					}

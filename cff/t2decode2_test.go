@@ -169,6 +169,17 @@ func TestDecodeCFF2Basic(t *testing.T) {
 			},
 		},
 		{
+			name: "blend of a blended base",
+			k:    2,
+			// the first blend's result is a base of the second
+			code: cs(100, 10, 20, 1, t2blend, 200, 11, 12, 13, 14, 2, t2blend, t2rmoveto),
+			want: &GlyphCFF2{
+				Cmds: []GlyphOpCFF2{
+					{Op: OpMoveTo, Args: []Blend{b(100, 21, 32), b(200, 13, 14)}},
+				},
+			},
+		},
+		{
 			name: "vsindex before blend",
 			k:    2,
 			code: cs(1, t2vsindex, 0, 0, t2rmoveto, 5, 7, 8, 1, t2blend, 0, t2rlineto),
@@ -341,10 +352,16 @@ func TestDecodeCFF2Errors(t *testing.T) {
 			code: cs(0, 0, t2rmoveto, t2return),
 		},
 		{
-			name: "blend of blend base",
+			name: "blended delta",
 			k:    2,
-			// first blend leaves a Blend on the stack, used as a base below
-			code: cs(100, 10, 20, 1, t2blend, 200, 11, 12, 13, 14, 2, t2blend),
+			// the first blend's result is a delta of the second
+			code: cs(50, 100, 10, 20, 1, t2blend, 5, 1, t2blend, 0, t2rmoveto),
+		},
+		{
+			name: "delta sum overflow",
+			k:    2,
+			// the summed deltas lie outside the range of a charstring number
+			code: cs(0, 30000, 30000, 1, t2blend, 30000, 30000, 1, t2blend, 0, t2rmoveto),
 		},
 		{
 			name: "blend after negative vsindex",

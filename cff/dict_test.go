@@ -87,14 +87,16 @@ func TestDictCFF2RoundTrip(t *testing.T) {
 	}
 }
 
+// dictNumbers writes integer DICT operands to buf.
+func dictNumbers(buf *bytes.Buffer, xs ...int32) {
+	for _, x := range xs {
+		encodeDictNumber(buf, x)
+	}
+}
+
 // TestDictCFF2Malformed checks that an operator whose operands cannot be
 // decoded is dropped, while the rest of the DICT is kept.
 func TestDictCFF2Malformed(t *testing.T) {
-	numbers := func(buf *bytes.Buffer, xs ...int32) {
-		for _, x := range xs {
-			encodeDictNumber(buf, x)
-		}
-	}
 	cases := []struct {
 		name        string
 		k           int
@@ -111,7 +113,7 @@ func TestDictCFF2Malformed(t *testing.T) {
 			name: "underflow-operands",
 			k:    2,
 			operands: func(buf *bytes.Buffer) {
-				numbers(buf, 1, 2, 3, 2)
+				dictNumbers(buf, 1, 2, 3, 2)
 				buf.WriteByte(byte(opBlend))
 			},
 		},
@@ -119,7 +121,7 @@ func TestDictCFF2Malformed(t *testing.T) {
 			name: "negative-region-count",
 			k:    -1,
 			operands: func(buf *bytes.Buffer) {
-				numbers(buf, 1, 1)
+				dictNumbers(buf, 1, 1)
 				buf.WriteByte(byte(opBlend))
 			},
 		},
@@ -127,18 +129,33 @@ func TestDictCFF2Malformed(t *testing.T) {
 			name:        "region-count-error",
 			regionCount: func(int) (int, error) { return 0, errCorruptDict },
 			operands: func(buf *bytes.Buffer) {
-				numbers(buf, 1, 1)
+				dictNumbers(buf, 1, 1)
 				buf.WriteByte(byte(opBlend))
 			},
 		},
 		{
-			// a blended value used as the operand of another blend
-			name: "nested-blend",
+			// a blended value used as a delta of another blend
+			name: "blended-delta",
 			k:    2,
 			operands: func(buf *bytes.Buffer) {
-				numbers(buf, 1, 2, 3, 1)
+				dictNumbers(buf, 10, 1, 2, 3, 1)
 				buf.WriteByte(byte(opBlend))
-				numbers(buf, 4, 5, 1)
+				dictNumbers(buf, 5, 1)
+				buf.WriteByte(byte(opBlend))
+			},
+		},
+		{
+			// the deltas of two blends sum to a value beyond the range
+			// of a DICT real
+			name: "delta-sum-overflow",
+			k:    1,
+			operands: func(buf *bytes.Buffer) {
+				dictNumbers(buf, 10)
+				encodeDictNumber(buf, 9e299)
+				dictNumbers(buf, 1)
+				buf.WriteByte(byte(opBlend))
+				encodeDictNumber(buf, 9e299)
+				dictNumbers(buf, 1)
 				buf.WriteByte(byte(opBlend))
 			},
 		},
@@ -150,11 +167,11 @@ func TestDictCFF2Malformed(t *testing.T) {
 				rc = constK(c.k)
 			}
 			buf := &bytes.Buffer{}
-			numbers(buf, 50)
+			dictNumbers(buf, 50)
 			buf.WriteByte(byte(opStdHW))
 			c.operands(buf)
 			buf.WriteByte(byte(opStdVW))
-			numbers(buf, 7)
+			dictNumbers(buf, 7)
 			buf.WriteByte(byte(opSubrs))
 
 			got := decodeDictCFF2(buf.Bytes(), rc)
@@ -166,6 +183,43 @@ func TestDictCFF2Malformed(t *testing.T) {
 				t.Errorf("got %#v, want %#v", got, want)
 			}
 		})
+	}
+}
+
+// TestDictCFF2Reblend checks that a blend whose default value was blended
+// before adds its deltas to the earlier ones.
+func TestDictCFF2Reblend(t *testing.T) {
+	buf := &bytes.Buffer{}
+	dictNumbers(buf, 1, 2, 3, 1)
+	buf.WriteByte(byte(opBlend))
+	dictNumbers(buf, 4, 5, 1)
+	buf.WriteByte(byte(opBlend))
+	buf.WriteByte(byte(opStdHW))
+
+	got := decodeDictCFF2(buf.Bytes(), constK(2))
+	want := cffDict{
+		opStdHW: []any{dictBlendValue{Default: int32(1), Deltas: []any{int32(6), int32(8)}}},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("wrong value (-want +got):\n%s", diff)
+	}
+
+	// an array whose second element is blended twice
+	buf.Reset()
+	dictNumbers(buf, -10, 10, 1, 2, 3, 4, 2)
+	buf.WriteByte(byte(opBlend))
+	dictNumbers(buf, 5, 6, 1)
+	buf.WriteByte(byte(opBlend))
+	buf.WriteByte(byte(opBlueValues))
+
+	d := decodeDictCFF2(buf.Bytes(), constK(2))
+	gotArr := toBlends(d.getBlendArray(opBlueValues))
+	wantArr := []Blend{
+		{Default: -10, Deltas: []float64{1, 2}},
+		{Default: 0, Deltas: []float64{9, 12}},
+	}
+	if diff := cmp.Diff(wantArr, gotArr); diff != "" {
+		t.Errorf("wrong array (-want +got):\n%s", diff)
 	}
 }
 

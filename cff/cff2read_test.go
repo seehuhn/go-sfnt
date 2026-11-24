@@ -428,8 +428,8 @@ func TestReadCFF2PrivateVSIndex(t *testing.T) {
 // subroutines, is kept.
 func TestReadCFF2DamagedPrivate(t *testing.T) {
 	var body bytes.Buffer
-	// BlueValues from a blend of an already blended value
-	body.Write(cs(1, 2, 3, 1, byte(opBlend), 4, 5, 1, byte(opBlend)))
+	// BlueValues from a blend with an already blended delta
+	body.Write(cs(10, 1, 2, 3, 1, byte(opBlend), 5, 1, byte(opBlend)))
 	body.WriteByte(byte(opBlueValues))
 	body.Write(dictNum(80))
 	body.WriteByte(byte(opStdVW))
@@ -458,6 +458,53 @@ func TestReadCFF2DamagedPrivate(t *testing.T) {
 	want := []GlyphOpCFF2{
 		{Op: OpMoveTo, Args: []Blend{{Default: 0}, {Default: 0}}},
 		{Op: OpLineTo, Args: []Blend{{Default: 50}, {Default: 0}}},
+	}
+	if diff := cmp.Diff(want, font.Glyphs[0].Cmds); diff != "" {
+		t.Errorf("glyph mismatch (-want +got):\n%s", diff)
+	}
+	roundTripCFF2(t, data)
+}
+
+// TestReadCFF2ReblendedPrivate checks that a Private DICT value which is
+// blended twice reads with the sum of the deltas.
+func TestReadCFF2ReblendedPrivate(t *testing.T) {
+	var body bytes.Buffer
+	body.Write(cs(50, 1, 2, 1, byte(opBlend), 3, 4, 1, byte(opBlend)))
+	body.WriteByte(byte(opStdHW))
+
+	spec := &cff2Spec{
+		vstore:      twoRegionStore(),
+		fds:         []fdSpec{{privateBody: body.Bytes()}},
+		charStrings: cffIndex{cs(0, 0, t2rmoveto, 100, 0, t2rlineto)},
+	}
+	data := buildCFF2(spec)
+	font, err := readCFF2Bytes(t, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Blend{Default: 50, Deltas: []float64{4, 6}}
+	if diff := cmp.Diff(want, font.Private[0].StdHW); diff != "" {
+		t.Errorf("StdHW mismatch (-want +got):\n%s", diff)
+	}
+	roundTripCFF2(t, data)
+}
+
+// TestReadCFF2ReblendedCharString checks that a charstring operand which is
+// blended twice reads with the sum of the deltas.
+func TestReadCFF2ReblendedCharString(t *testing.T) {
+	spec := &cff2Spec{
+		vstore: twoRegionStore(),
+		charStrings: cffIndex{
+			cs(100, 10, 20, 1, t2blend, 30, 40, 1, t2blend, 200, t2rmoveto),
+		},
+	}
+	data := buildCFF2(spec)
+	font, err := readCFF2Bytes(t, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []GlyphOpCFF2{
+		{Op: OpMoveTo, Args: []Blend{{Default: 100, Deltas: []float64{40, 60}}, {Default: 200}}},
 	}
 	if diff := cmp.Diff(want, font.Glyphs[0].Cmds); diff != "" {
 		t.Errorf("glyph mismatch (-want +got):\n%s", diff)

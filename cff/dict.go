@@ -1033,9 +1033,9 @@ func applyDictBlend(stack []any, vsindex int, regionCount func(int) (int, error)
 	defaults := stack[base : base+n]
 	deltas := stack[base+n:]
 
-	// blend operands must be plain numbers; a blended value cannot itself
-	// be re-blended (this keeps dictBlendValue.Default/Deltas plain)
-	for _, v := range stack[base:] {
+	// A blended delta would make the value depend on products of region
+	// scalars, which dictBlendValue cannot represent.
+	for _, v := range deltas {
 		if _, ok := v.(dictBlendValue); ok {
 			return nil, errCorruptDict
 		}
@@ -1044,9 +1044,24 @@ func applyDictBlend(stack []any, vsindex int, regionCount func(int) (int, error)
 	blended := make([]any, n)
 	for i := range n {
 		bv := dictBlendValue{Default: defaults[i]}
+		var prev []any
+		if inner, ok := defaults[i].(dictBlendValue); ok {
+			// a blended default gains the new deltas; all blends of a DICT
+			// use the same k, since a vsindex after a blend is ignored
+			bv.Default = inner.Default
+			prev = inner.Deltas
+		}
 		if k > 0 {
 			ds := make([]any, k)
 			copy(ds, deltas[i*k:i*k+k])
+			for j := range prev {
+				sum := dictNumberOperandCFF2(toFloat(prev[j]) + toFloat(ds[j]))
+				if x, ok := sum.(float64); ok && !usableReal(x) {
+					// a DICT real cannot hold the sum
+					return nil, errCorruptDict
+				}
+				ds[j] = sum
+			}
 			bv.Deltas = ds
 		}
 		blended[i] = bv
