@@ -32,18 +32,12 @@ func (f *Font) Clone() *Font {
 
 // FontBBoxPDF computes the bounding box of the font in PDF glyph space units
 // (1/1000th of a text space units).
+//
+// For a font which draws nothing, the zero rectangle is returned.
 func (f *Font) FontBBoxPDF() rect.Rect {
 	var bbox rect.Rect
 	for gid := range f.Glyphs {
-		glyphBox := f.Outlines.GlyphBBoxPDF(f.FontInfo.FontMatrix, glyph.ID(gid))
-		if glyphBox.IsZero() {
-			continue
-		}
-		if bbox.IsZero() {
-			bbox = glyphBox
-		} else {
-			bbox.Extend(glyphBox)
-		}
+		bbox.Extend(f.Outlines.GlyphBBoxPDF(f.FontInfo.FontMatrix, glyph.ID(gid)))
 	}
 	return bbox
 }

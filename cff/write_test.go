@@ -10,6 +10,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"seehuhn.de/go/geom/matrix"
 
 	"seehuhn.de/go/membudget"
@@ -17,6 +19,7 @@ import (
 	"seehuhn.de/go/postscript/type1"
 
 	"seehuhn.de/go/sfnt/glyph"
+	"seehuhn.de/go/sfnt/parser"
 )
 
 // makeLargeFont returns a name-keyed font with n glyphs.  All glyph names
@@ -507,5 +510,152 @@ func TestWriteRejectsCoordinate(t *testing.T) {
 	f.Glyphs[1].LineTo(70000, 0)
 	if err := f.Write(io.Discard); err == nil {
 		t.Error("expected an error")
+	}
+}
+
+// topDictOf writes f and returns the decoded top DICT of the result.
+func topDictOf(t *testing.T, f *Font) cffDict {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	if err := f.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	p := parser.New(bytes.NewReader(buf.Bytes()), membudget.New(int64(10*buf.Len())))
+	if err := p.SeekPos(int64(buf.Bytes()[2])); err != nil { // hdrSize
+		t.Fatal(err)
+	}
+	if _, err := readIndex(p); err != nil { // names
+		t.Fatal(err)
+	}
+	topDicts, err := readIndex(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stringIndex, err := readIndex(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ss := &cffStrings{data: make([]string, len(stringIndex))}
+	for i, s := range stringIndex {
+		ss.data[i] = string(s)
+	}
+	d, err := decodeDict(topDicts[0], ss)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// boxGlyph returns a glyph which fills the given rectangle.
+func boxGlyph(name string, x0, y0, x1, y1 float64) *Glyph {
+	g := &Glyph{Name: name, Width: 500}
+	g.MoveTo(x0, y0)
+	g.LineTo(x1, y0)
+	g.LineTo(x1, y1)
+	g.LineTo(x0, y1)
+	return g
+}
+
+// bboxOperands returns the four FontBBox operands of a top DICT.
+func bboxOperands(t *testing.T, d cffDict) [4]float64 {
+	t.Helper()
+	vals := d[opFontBBox]
+	if len(vals) != 4 {
+		t.Fatalf("FontBBox has %d operands", len(vals))
+	}
+	var res [4]float64
+	for i, v := range vals {
+		switch x := v.(type) {
+		case int32:
+			res[i] = float64(x)
+		case float64:
+			res[i] = x
+		default:
+			t.Fatalf("operand %d has type %T", i, v)
+		}
+	}
+	return res
+}
+
+// statesNoBBox reports whether a top DICT gives no font bounding box, either
+// by omitting FontBBox or by giving the default 0 0 0 0.
+func statesNoBBox(d cffDict) bool {
+	for _, v := range d[opFontBBox] {
+		if v != int32(0) && v != 0.0 {
+			return false
+		}
+	}
+	return true
+}
+
+func TestWriteFontBBoxSimple(t *testing.T) {
+	f := makeLargeFont(3)
+	f.Glyphs[1] = boxGlyph("a", -20.5, 0, 300, 700.25)
+	f.Glyphs[2] = boxGlyph("b", 10, -200.5, 450.5, 500)
+
+	want := [4]float64{-21, -201, 451, 701}
+	if diff := cmp.Diff(want, bboxOperands(t, topDictOf(t, f))); diff != "" {
+		t.Errorf("wrong FontBBox (-want +got):\n%s", diff)
+	}
+}
+
+func TestWriteFontBBoxCID(t *testing.T) {
+	f := fontWithMatrices(matrix.Identity, []matrix.Matrix{
+		{1.0 / 2048, 0, 0, 1.0 / 2048, 0, 0},
+		{0.001, 0, 0, 0.001, 0, 0},
+	})
+	f.Glyphs[0] = boxGlyph("", -100, -300, 1000, 1500)
+	f.Glyphs[1] = boxGlyph("", 50, -250.5, 800, 900)
+
+	// glyph 0 spans (-48.83, -146.48)-(488.28, 732.42) in 1000/em space
+	want := [4]float64{-49, -251, 800, 900}
+	if diff := cmp.Diff(want, bboxOperands(t, topDictOf(t, f))); diff != "" {
+		t.Errorf("wrong FontBBox (-want +got):\n%s", diff)
+	}
+}
+
+func TestWriteFontBBoxEmpty(t *testing.T) {
+	for _, fds := range [][]matrix.Matrix{nil, {matrix.Identity, matrix.Identity}} {
+		f := fontWithMatrices(matrix.Matrix{0.001, 0, 0, 0.001, 0, 0}, fds)
+		f.Glyphs[0] = &Glyph{Name: ".notdef", Width: 100}
+		f.Glyphs[1] = &Glyph{Name: "a", Width: 100}
+		if fds != nil {
+			f.Glyphs[0].Name = ""
+			f.Glyphs[1].Name = ""
+		}
+		if !statesNoBBox(topDictOf(t, f)) {
+			t.Errorf("FontBBox given for font without ink (CID %v)", fds != nil)
+		}
+	}
+}
+
+// TestWriteFontBBoxLarge checks the box of a CID-keyed font whose
+// coordinates, in 1000/em space, are too large for integer operands.
+func TestWriteFontBBoxLarge(t *testing.T) {
+	f := fontWithMatrices(matrix.Identity, []matrix.Matrix{
+		matrix.Scale(1e200, 1e200), matrix.Scale(1e200, 1e200),
+	})
+	f.Glyphs[0] = boxGlyph("", 0, 0, 100, 100)
+	f.Glyphs[1] = boxGlyph("", -50, -50, 0, 0)
+
+	want := f.FontBBoxPDF().Rounded()
+	got := bboxOperands(t, topDictOf(t, f))
+	if diff := cmp.Diff([4]float64{want.LLx, want.LLy, want.URx, want.URy}, got); diff != "" {
+		t.Errorf("wrong FontBBox (-want +got):\n%s", diff)
+	}
+}
+
+// TestWriteFontBBoxUnrepresentable checks that a CID-keyed font whose box,
+// in 1000/em space, exceeds the range of real operands is written without
+// stating a box.
+func TestWriteFontBBoxUnrepresentable(t *testing.T) {
+	f := fontWithMatrices(matrix.Identity, []matrix.Matrix{
+		matrix.Scale(1e300, 1e300), matrix.Scale(1e300, 1e300),
+	})
+	f.Glyphs[0] = boxGlyph("", 0, 0, 100, 100)
+	f.Glyphs[1] = boxGlyph("", -50, -50, 0, 0)
+
+	if !statesNoBBox(topDictOf(t, f)) {
+		t.Error("FontBBox given for a box beyond the range of reals")
 	}
 }

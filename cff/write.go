@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"seehuhn.de/go/geom/matrix"
+	"seehuhn.de/go/geom/rect"
 	"seehuhn.de/go/postscript/type1"
 	"seehuhn.de/go/sfnt/glyph"
 )
@@ -109,6 +110,9 @@ func (f *Font) writeCharStrings(w io.Writer, charStrings cffIndex, defWidths, no
 		// opPrivate is updated below
 	}
 	topDict.setFontMatrix(opFontMatrix, f.FontInfo.FontMatrix, f.IsCIDKeyed())
+	if bbox := f.fontBBox(); bbox != nil {
+		topDict[opFontBBox] = bbox
+	}
 	secTopDictIndex := len(blobs)
 	blobs = append(blobs, nil)
 
@@ -485,4 +489,36 @@ func offsSize(i int32) byte {
 	default:
 		return 4
 	}
+}
+
+// fontBBox returns the FontBBox operands for the top DICT: the smallest
+// rectangle with integer coordinates which encloses all glyphs, or nil if the
+// font draws nothing.  For name-keyed fonts the box is in glyph space, for
+// CID-keyed fonts in the space of 1000 units per em which the CIDFont
+// specification prescribes for FontBBox.  A box which a real operand cannot
+// hold is omitted, leaving the default 0 0 0 0, which states no box.  Only
+// extreme font matrices of CID-keyed fonts lead to such a box.
+func (f *Font) fontBBox() []any {
+	var bbox rect.Rect
+	if f.IsCIDKeyed() {
+		bbox = f.FontBBoxPDF()
+	} else {
+		for gid := range f.Glyphs {
+			bbox.Extend(f.Outlines.GlyphBBox(matrix.Identity, glyph.ID(gid)))
+		}
+	}
+	if bbox.IsZero() {
+		return nil
+	}
+
+	bbox = bbox.Rounded()
+	vals := []float64{bbox.LLx, bbox.LLy, bbox.URx, bbox.URy}
+	res := make([]any, len(vals))
+	for i, v := range vals {
+		if !usableReal(v) {
+			return nil
+		}
+		res[i] = numberOperand(v)
+	}
+	return res
 }
